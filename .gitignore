@@ -1,0 +1,19 @@
+# Persoonlijke data — NOOIT pushen
+funda_pwa_password.txt
+funda_seen_ids.json
+funda_blacklist.json
+funda_log.txt
+funda_werk_coords.json
+funda_rapport.md
+funda_rapport.html
+
+# Python cruft
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
