@@ -909,7 +909,7 @@ if ('serviceWorker' in navigator) {
 
 # === PWA assets ===
 
-PWA_DIR_NAAM = "pwa"
+PWA_DIR_NAAM = "docs"  # GitHub Pages staat alleen / of /docs toe
 PWA_PASSWORD_FILE = Path(__file__).parent / "funda_pwa_password.txt"
 
 PWA_MANIFEST = """{

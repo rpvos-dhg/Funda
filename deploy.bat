@@ -4,7 +4,7 @@ REM Gebruik: na funda_zoek.py, of in Task Scheduler als 2e action.
 
 cd /d "C:\Users\remco\OneDrive\Documents\Claude\Projects\Financien"
 
-git add pwa/
+git add docs/
 git diff --cached --quiet
 if %errorlevel% equ 0 (
     echo Geen wijzigingen om te pushen.
