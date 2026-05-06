@@ -300,20 +300,96 @@ def parse_servicekosten(beschrijving: str) -> int | None:
     return None
 
 
-def parse_erfpacht(beschrijving: str) -> tuple[str, str]:
-    """Geeft (status, detail) terug. Status: 'eigen', 'afgekocht', 'lopend', 'onbekend'."""
+HUIDIG_JAAR = datetime.now().year
+
+
+def parse_erfpacht(beschrijving: str) -> dict:
+    """Gestructureerd erfpacht-info. Returns dict met status, label, risico, canon, eind, details."""
+    info = {
+        "status": "onbekend", "label": "Niet vermeld", "risico": "onbekend",
+        "canon_jaar": None, "afkoop_eind": None, "type": None, "details": [],
+    }
     if not beschrijving:
-        return ("onbekend", "geen beschrijving")
+        return info
+
     txt = beschrijving.lower()
-    if "erfpacht" not in txt and "eigen grond" not in txt:
-        return ("onbekend", "niet expliciet vermeld")
-    if "eigen grond" in txt:
-        return ("eigen", "eigen grond")
-    if "afgekocht" in txt and "erfpacht" in txt:
-        return ("afgekocht", "erfpacht eeuwigdurend afgekocht")
-    if "erfpacht" in txt:
-        return ("lopend", "lopende erfpacht (canon nog te checken)")
-    return ("onbekend", "")
+
+    # Eigen grond
+    if re.search(r"\beigen\s+grond\b", txt):
+        info.update({"status": "eigen", "label": "Eigen grond", "risico": "geen"})
+        return info
+
+    if "erfpacht" not in txt:
+        return info
+
+    # Type: particulier of gemeentelijk
+    if "particulier" in txt and "erfpacht" in txt:
+        info["type"] = "particulier"
+        info["details"].append("Particuliere erfpacht (vaak risicovoller dan gemeentelijk)")
+    elif re.search(r"gemeente\w*\s+\w*\s*erfpacht|erfpacht\s+(?:van\s+)?(?:de\s+)?gemeente", txt):
+        info["type"] = "gemeentelijk"
+
+    eeuwigdurend = "eeuwigdurend" in txt
+    voortdurend = "voortdurend" in txt and "eeuwigdurend" not in txt
+    afgekocht = "afgekocht" in txt or re.search(r"\bafkoop\b", txt)
+
+    # Canon bedrag
+    canon_match = re.search(r"canon[^0-9€]{0,40}€?\s*([0-9]{1,5})(?:[.,]\d{2})?", txt)
+    if canon_match:
+        try:
+            bedrag = int(canon_match.group(1))
+            if 50 <= bedrag <= 20000:
+                info["canon_jaar"] = bedrag
+        except ValueError:
+            pass
+
+    # Einddatum afkoop
+    eind_match = re.search(r"(?:afgekocht|afkoop|tot)[^.]{0,80}?\b(20\d{2})\b", txt)
+    if eind_match:
+        try:
+            jaar = int(eind_match.group(1))
+            if jaar > HUIDIG_JAAR:
+                info["afkoop_eind"] = jaar
+        except ValueError:
+            pass
+
+    # Bouw status + risico
+    if eeuwigdurend and afgekocht and not info["afkoop_eind"]:
+        info.update({"status": "afgekocht_eeuwigdurend", "label": "Erfpacht eeuwigdurend afgekocht", "risico": "laag"})
+    elif afgekocht and info["afkoop_eind"]:
+        jaren = info["afkoop_eind"] - HUIDIG_JAAR
+        info["status"] = "afgekocht_tijdelijk"
+        info["label"] = f"Erfpacht afgekocht tot {info['afkoop_eind']} ({jaren} jaar)"
+        if jaren < 10:
+            info["risico"] = "hoog"
+            info["details"].append("Afkoop loopt binnen 10 jaar af, herziening kan duur uitpakken")
+        elif jaren < 25:
+            info["risico"] = "matig"
+            info["details"].append("Op middellange termijn herziening van canon")
+        else:
+            info["risico"] = "laag"
+    elif afgekocht:
+        info.update({"status": "afgekocht_onbekend", "label": "Erfpacht afgekocht (looptijd niet vermeld)", "risico": "matig"})
+        info["details"].append("Vraag akte op om looptijd te checken")
+    elif eeuwigdurend:
+        info["status"] = "lopend_eeuwigdurend"
+        info["label"] = "Eeuwigdurende erfpacht, canon NIET afgekocht"
+        info["risico"] = "matig"
+        if info["canon_jaar"]:
+            info["details"].append(f"Canon ~€{info['canon_jaar']}/jaar (verlaagt leencapaciteit)")
+        else:
+            info["details"].append("Canon-bedrag niet vermeld, opvragen")
+    elif voortdurend:
+        info.update({"status": "voortdurend", "label": "Voortdurende erfpacht (loopt af)", "risico": "hoog"})
+        info["details"].append("Bij heruitgifte kan canon flink stijgen")
+    else:
+        info["status"] = "lopend"
+        info["label"] = "Erfpacht (looptijd en canon onbekend)"
+        info["risico"] = "matig"
+        if info["canon_jaar"]:
+            info["details"].append(f"Canon ~€{info['canon_jaar']}/jaar")
+
+    return info
 
 
 def kosten_koper(hoofdsom: int) -> int:
@@ -409,14 +485,18 @@ def pros_cons(d: dict, details: dict | None, beschrijving: str) -> tuple[list[st
         elif bouwjaar and bouwjaar > 2000:
             pros.append(f"Modern bouwjaar ({bouwjaar})")
 
-    # Erfpacht
-    erf_status, erf_detail = parse_erfpacht(beschrijving)
-    if erf_status == "afgekocht":
-        pros.append("Erfpacht eeuwigdurend afgekocht")
-    elif erf_status == "lopend":
-        cons.append("Lopende erfpacht (canon kan flink oplopen)")
-    elif erf_status == "eigen":
+    # Erfpacht (gestructureerde analyse)
+    erf = parse_erfpacht(beschrijving)
+    if erf["status"] == "eigen":
         pros.append("Eigen grond")
+    elif erf["status"] == "afgekocht_eeuwigdurend":
+        pros.append("Erfpacht eeuwigdurend afgekocht (gunstig)")
+    elif erf["risico"] == "hoog":
+        cons.append(f"{erf['label']} - HOOG RISICO" + (": " + "; ".join(erf["details"]) if erf["details"] else ""))
+    elif erf["risico"] == "matig":
+        cons.append(f"{erf['label']}" + (" - " + "; ".join(erf["details"]) if erf["details"] else ""))
+    elif erf["status"] != "onbekend":
+        cons.append(erf["label"])
 
     # Servicekosten
     sk = parse_servicekosten(beschrijving)
@@ -968,7 +1048,7 @@ def beveilig_html(html: str, password: str) -> str:
 
     salt = os.urandom(16)
     iv = os.urandom(12)
-    iters = 200_000
+    iters = 100_000  # snel genoeg op mobiel, sterk genoeg met goed wachtwoord
     kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=iters)
     key = kdf.derive(password.encode("utf-8"))
     cipher = AESGCM(key)
@@ -1000,8 +1080,8 @@ PWA_PASSWORD_WRAPPER = """<!doctype html>
 <meta name="apple-mobile-web-app-title" content="Funda">
 <link rel="apple-touch-icon" href="icon.svg">
 <style>
-body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#f4f5f7;color:#1f2937}
-.lock{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center}
+body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#f4f5f7;color:#1f2937;overflow-x:hidden}
+.lock{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;background:#f4f5f7;z-index:9999}
 .lock h1{margin:0 0 8px;font-size:22px}
 .lock p{color:#6b7280;margin:0 0 24px}
 .lock input{width:100%;max-width:300px;padding:12px;font-size:16px;border:1px solid #d1d5db;border-radius:8px;margin-bottom:12px}
@@ -1050,12 +1130,14 @@ async function unlock(e){
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Ontgrendelen...';
   try {
+    // Geef browser kans de spinner te tonen voor PBKDF2 blokkeert
+    await new Promise(r => setTimeout(r, 50));
     const html = await decrypt(pw);
-    document.getElementById("lock").hidden = true;
     const c = document.getElementById("content");
     c.hidden = false;
     c.innerHTML = html;
-    // Onthoud password binnen sessie
+    // Verberg lock screen pas NA injectie zodat geen flash van lege body
+    document.getElementById("lock").style.display = "none";
     sessionStorage.setItem("funda_pw", pw);
   } catch(ex){
     err.textContent = "Fout wachtwoord";
@@ -1071,10 +1153,10 @@ async function unlock(e){
   if(saved){
     try{
       const html = await decrypt(saved);
-      document.getElementById("lock").hidden = true;
       const c = document.getElementById("content");
       c.hidden = false;
       c.innerHTML = html;
+      document.getElementById("lock").style.display = "none";
     }catch(_){
       sessionStorage.removeItem("funda_pw");
     }
