@@ -1,0 +1,16 @@
+{
+  "_doc": "Persoonlijke config. Kopieer dit bestand naar funda_personal.json en vul echte waarden in. funda_personal.json staat in .gitignore.",
+  "bruto_jaar": 50000,
+  "eigen_inleg": 5000,
+  "duo_maandlast": 0,
+  "leeftijd": 30,
+  "postcode_huidig": "1011AB",
+  "werk_postcodes": [
+    ["1012AB", "huidig"],
+    ["1013CD", "vanaf jaar X"]
+  ],
+  "prijs_min": 230000,
+  "prijs_max": 310000,
+  "m2_min": 60,
+  "radius_km": 6
+}

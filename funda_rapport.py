@@ -16,12 +16,33 @@ import urllib.request
 from pathlib import Path
 from datetime import datetime
 
-# === Financiele profiel Remco (mei 2026) ===
+# === Financiele profiel — laad uit gitignored config bestand ===
 
-BRUTO_JAAR = 67_865               # bruto jaarinkomen incl vakantie- en eindejaarsuitkering
-EIGEN_INLEG = 5_000               # vrij beschikbaar zonder buffer aan te tasten
-DUO_MAANDLAST = 55                # studielast verlaagt leencapaciteit ~14k
-LEEFTIJD = 32                     # startersvrijstelling overdrachtsbelasting tot april 2029
+PERSONAL_CONFIG_FILE = Path(__file__).parent / "funda_personal.json"
+
+
+def _laad_personal() -> dict:
+    """Lees PII uit gitignored config. Geeft generieke defaults bij ontbreken."""
+    if PERSONAL_CONFIG_FILE.exists():
+        try:
+            return json.loads(PERSONAL_CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"WAARSCHUWING: kon {PERSONAL_CONFIG_FILE.name} niet lezen: {exc}")
+    print(f"WAARSCHUWING: {PERSONAL_CONFIG_FILE.name} ontbreekt, gebruik dummy defaults!")
+    return {
+        "bruto_jaar": 50_000, "eigen_inleg": 0, "duo_maandlast": 0, "leeftijd": 30,
+        "postcode_huidig": "1011AB",
+        "werk_postcodes": [["1011AB", "voorbeeld"]],
+        "prijs_min": 200_000, "prijs_max": 350_000, "m2_min": 60, "radius_km": 5,
+    }
+
+
+_PERSONAL = _laad_personal()
+
+BRUTO_JAAR = _PERSONAL["bruto_jaar"]
+EIGEN_INLEG = _PERSONAL["eigen_inleg"]
+DUO_MAANDLAST = _PERSONAL["duo_maandlast"]
+LEEFTIJD = _PERSONAL["leeftijd"]
 
 # === Hypotheek-config (handmatig updaten) ===
 
@@ -103,11 +124,8 @@ ONDERHOUDSRESERVE = 100           # 1% per jaar / 12 op woningwaarde, ruw
 # Norm: maandlasten max 35% van bruto maandinkomen voor comfort
 NORM_MAANDLAST_PCT = 0.33
 
-# Werk-postcodes (huidig en toekomstig).
-WERK_POSTCODES = [
-    ("2596EC", "huidig"),
-    ("2595AL", "vanaf Q1 2027"),
-]
+# Werk-postcodes (huidig en toekomstig) — uit gitignored config.
+WERK_POSTCODES = [tuple(item) for item in _PERSONAL["werk_postcodes"]]
 WERK_CACHE = Path(__file__).parent / "funda_werk_coords.json"
 USER_AGENT = "funda-tracker-remco/1.0 (persoonlijk gebruik)"
 

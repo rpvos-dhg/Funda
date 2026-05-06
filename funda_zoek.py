@@ -33,13 +33,28 @@ except ImportError:
     genereer_rapport = None
 
 
-# === Configuratie ===
+# === Configuratie — laad uit gitignored config bestand ===
 
-POSTCODE = "2596EC"
-RADIUS_KM = 6
-PRIJS_MIN = 230_000
-PRIJS_MAX = 310_000
-M2_MIN = 55
+PERSONAL_CONFIG_FILE = Path(__file__).parent / "funda_personal.json"
+
+
+def _laad_personal() -> dict:
+    if PERSONAL_CONFIG_FILE.exists():
+        try:
+            return json.loads(PERSONAL_CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    print(f"WAARSCHUWING: {PERSONAL_CONFIG_FILE.name} ontbreekt, gebruik dummy defaults!")
+    return {"postcode_huidig": "1011AB", "radius_km": 5, "prijs_min": 200_000, "prijs_max": 350_000, "m2_min": 60}
+
+
+_PERSONAL = _laad_personal()
+
+POSTCODE = _PERSONAL["postcode_huidig"]
+RADIUS_KM = _PERSONAL["radius_km"]
+PRIJS_MIN = _PERSONAL["prijs_min"]
+PRIJS_MAX = _PERSONAL["prijs_max"]
+M2_MIN = _PERSONAL.get("m2_min", 60)
 PAGINAS = 5
 NHG_LABELS = {"A", "A+", "A++", "A+++", "B"}
 
