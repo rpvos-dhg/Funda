@@ -510,18 +510,21 @@ def pros_cons(d: dict, details: dict | None, beschrijving: str) -> tuple[list[st
 
 # === Maandlasten ===
 
-def bereken_maandlasten(prijs: int, label: str | None, m2: int, beschrijving: str) -> dict:
+def bereken_maandlasten(prijs: int, label: str | None, m2: int, beschrijving: str, canon_jaar: int | None = None) -> dict:
     rente = NHG_RENTE_30JR_AB if label in {"A", "B"} else NHG_RENTE_30JR
     hyp = annuiteit_maand(prijs, rente)
     sk = parse_servicekosten(beschrijving) or SERVICEKOSTEN_DEFAULT
     energie = energie_per_maand(label, m2)
-    totaal = hyp + sk + WOZ_VERZEKERING + ONDERHOUDSRESERVE + energie
+    canon_maand = (canon_jaar / 12) if canon_jaar else 0
+    totaal = hyp + sk + WOZ_VERZEKERING + ONDERHOUDSRESERVE + energie + canon_maand
     return {
         "hypotheek": int(hyp),
         "servicekosten": int(sk),
         "woz_verzekering": WOZ_VERZEKERING,
         "onderhoud": ONDERHOUDSRESERVE,
         "energie": int(energie),
+        "canon": int(canon_maand),
+        "canon_jaar": canon_jaar or 0,
         "totaal": int(totaal),
         "rente_pct": rente,
     }
@@ -614,7 +617,8 @@ def bouw_rij(d: dict, details: dict | None, beschrijving: str) -> dict:
     prijs = d.get("price") or 0
     m2 = d.get("living_area") or 0
     pros, cons = pros_cons(d, details, beschrijving)
-    lasten = bereken_maandlasten(prijs, label, m2, beschrijving)
+    erf_info = parse_erfpacht(beschrijving)
+    lasten = bereken_maandlasten(prijs, label, m2, beschrijving, canon_jaar=erf_info.get("canon_jaar"))
     in_max, headroom = in_max_hypotheek(prijs, label)
     kk = kosten_koper(prijs)
     inleg_tekort = max(0, kk - EIGEN_INLEG)
@@ -727,6 +731,8 @@ def render_markdown(rijen: list[dict]) -> str:
         lines.append(f"| WOZ + verzekering | € {l['woz_verzekering']:,} |")
         lines.append(f"| Onderhoudsreserve | € {l['onderhoud']:,} |")
         lines.append(f"| Energie (label {r['label']}, {r['m2']} m2) | € {l['energie']:,} |")
+        if l.get('canon'):
+            lines.append(f"| Erfpachtcanon (€{l['canon_jaar']:,}/jaar) | € {l['canon']:,} |")
         lines.append(f"| **Totaal** | **€ {l['totaal']:,}** |")
         lines.append("")
 
@@ -885,7 +891,7 @@ def _card_html(r: dict) -> str:
         {routes_html}
         <div class="lasten">
           Maandlast: <span class="lasten-totaal">€ {l['totaal']:,}</span>
-          (hyp €{l['hypotheek']:,} + VvE €{l['servicekosten']} + energie €{l['energie']} + overig €{l['woz_verzekering']+l['onderhoud']})
+          (hyp €{l['hypotheek']:,} + VvE €{l['servicekosten']} + energie €{l['energie']}{' + erfpacht €' + str(l['canon']) if l.get('canon') else ''} + overig €{l['woz_verzekering']+l['onderhoud']})
         </div>
         <div class="proscons">{pros_html}{cons_html}</div>
         <div class="card-footer">
