@@ -44,6 +44,11 @@ EIGEN_INLEG = _PERSONAL["eigen_inleg"]
 DUO_MAANDLAST = _PERSONAL["duo_maandlast"]
 LEEFTIJD = _PERSONAL["leeftijd"]
 
+# Optioneel: link naar de GitHub Actions "Run workflow"-pagina, zodat je vanuit
+# het rapport een verse run kunt starten. Geen token nodig, dus veilig.
+# Vul in funda_personal.json: "actions_url": "https://github.com/<user>/<repo>/actions/workflows/funda-daily.yml"
+ACTIONS_URL = _PERSONAL.get("actions_url", "")
+
 # === Hypotheek-config (handmatig updaten) ===
 
 # NHG-toetsrente: gebruikt door banken om je MAX HYPOTHEEK te berekenen.
@@ -785,6 +790,9 @@ h1 { margin: 0 0 8px; font-size: 28px; }
 h2 { margin: 32px 0 16px; font-size: 20px; border-bottom: 2px solid #d1d5db; padding-bottom: 8px; }
 .subtitle { color: #6b7280; margin-bottom: 24px; }
 .profile { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.profile-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.refresh-btn { display: inline-block; padding: 8px 14px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600; white-space: nowrap; }
+.refresh-btn:hover { background: #1d4ed8; }
 .profile dl { display: grid; grid-template-columns: 220px 1fr; gap: 8px 16px; margin: 0; }
 .profile dt { font-weight: 600; color: #4b5563; }
 .profile dd { margin: 0; color: #1f2937; }
@@ -936,10 +944,21 @@ def render_html(rijen: list[dict], is_pwa: bool = False) -> str:
         cards = "".join(_card_html(r) for r in ws)
         return f"<h2>{titel}</h2><div class='cards'>{cards}</div>"
 
+    ververs_knop = (
+        f'<a class="refresh-btn" href="{ACTIONS_URL}" target="_blank" rel="noopener">'
+        f'&#x21bb; Nieuwe run starten</a>'
+        if ACTIONS_URL else ""
+    )
+
     profiel = f"""
     <div class="profile">
-      <h1>Funda shortlist</h1>
-      <div class="subtitle">Gegenereerd {nu}</div>
+      <div class="profile-top">
+        <div>
+          <h1>Funda shortlist</h1>
+          <div class="subtitle">Gegenereerd {nu}</div>
+        </div>
+        {ververs_knop}
+      </div>
       <dl>
         <dt>Bruto jaarinkomen</dt><dd>€ {BRUTO_JAAR:,}</dd>
         <dt>Eigen inleg beschikbaar</dt><dd>€ {EIGEN_INLEG:,} (rest = buffer)</dd>
@@ -1220,4 +1239,10 @@ def schrijf_pwa_assets(rijen: list[dict]) -> Path:
     if os.environ.get("FUNDA_REQUIRE_ENCRYPTION") == "1":
         raise RuntimeError(
             "FUNDA_REQUIRE_ENCRYPTION=1 maar geen wachtwoord gevonden; "
-            "weiger om een onve
+            "weiger om een onversleuteld rapport te schrijven."
+        )
+
+    # Fallback (lokaal): onbeveiligd, zelfde tags als eerder.
+    print("[rapport] WAARSCHUWING: geen funda_pwa_password.txt gevonden, PWA wordt onversleuteld geschreven!")
+    (pwa_dir / "index.html").write_text(render_html(rijen, is_pwa=True), encoding="utf-8")
+    return pwa_dir

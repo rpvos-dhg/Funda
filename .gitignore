@@ -17,4 +17,5 @@ __pycache__/
 
 # OS
 .DS_Store
-Th
+Thumbs.db
+desktop.ini

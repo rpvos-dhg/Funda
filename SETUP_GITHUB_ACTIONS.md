@@ -13,7 +13,9 @@ New repository secret**. Maak deze twee aan:
 
 - **`FUNDA_PERSONAL_JSON`**
   Plak de volledige inhoud van je lokale `funda_personal.json` (open het bestand,
-  selecteer alles, kopieer, plak in het secret-veld).
+  selecteer alles, kopieer, plak in het secret-veld). Wil je de knop "Nieuwe run
+  starten" in het rapport (zie onderaan), zorg dan dat er een veld
+  `"actions_url"` in staat met de link naar je workflow.
 
 - **`FUNDA_PWA_PASSWORD`**
   Zet hier hetzelfde wachtwoord als in je lokale `funda_pwa_password.txt`. Dit is
@@ -45,6 +47,20 @@ staat het verse rapport op je Pages-URL.
   vanzelf. Je opent gewoon je bestaande webapp-URL en ziet het verse rapport.
 - De tijd aanpassen? Wijzig de `cron`-regel in
   `.github/workflows/funda-daily.yml`. De waarde is in UTC.
+
+## Nieuwe run starten vanuit het rapport
+In het rapport staat rechtsboven een knop **"Nieuwe run starten"** als je in je
+config een `actions_url` hebt gezet, bijvoorbeeld:
+`https://github.com/rpvos-dhg/Funda/actions/workflows/funda-daily.yml`.
+
+De knop opent de Actions-pagina van de workflow. Daar klik je op **Run workflow**
+om meteen een verse run te draaien. Bewust geen één-klik-trigger in de pagina
+zelf: dat zou een GitHub-token met schrijfrechten vereisen, en dat hoort niet in
+een publieke (zij het versleutelde) pagina thuis. Deze opzet houdt je gegevens
+veilig en werkt met twee klikken.
+
+Zet `actions_url` zowel in je lokale `funda_personal.json` (voor lokale runs) als
+in het secret `FUNDA_PERSONAL_JSON` (voor het rapport dat GitHub maakt).
 
 ## Wat waar staat (privacy)
 - **Secrets (nooit publiek):** je `funda_personal.json` (inkomen, postcode,

@@ -12,5 +12,6 @@
   "prijs_min": 230000,
   "prijs_max": 310000,
   "m2_min": 55,
-  "radius_km": 6
+  "radius_km": 6,
+  "actions_url": "https://github.com/<gebruiker>/<repo>/actions/workflows/funda-daily.yml"
 }
