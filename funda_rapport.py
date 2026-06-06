@@ -44,10 +44,25 @@ EIGEN_INLEG = _PERSONAL["eigen_inleg"]
 DUO_MAANDLAST = _PERSONAL["duo_maandlast"]
 LEEFTIJD = _PERSONAL["leeftijd"]
 
-# Optioneel: link naar de GitHub Actions "Run workflow"-pagina, zodat je vanuit
-# het rapport een verse run kunt starten. Geen token nodig, dus veilig.
-# Vul in funda_personal.json: "actions_url": "https://github.com/<user>/<repo>/actions/workflows/funda-daily.yml"
-ACTIONS_URL = _PERSONAL.get("actions_url", "")
+# Link naar de GitHub Actions "Run workflow"-pagina, zodat je vanuit het rapport
+# een verse run kunt starten. Geen token nodig, dus veilig. Override eventueel
+# via funda_personal.json: "actions_url": "https://github.com/<user>/<repo>/actions/workflows/funda-daily.yml"
+ACTIONS_URL = _PERSONAL.get(
+    "actions_url",
+    "https://github.com/rpvos-dhg/Funda/actions/workflows/funda-daily.yml",
+)
+
+# Tijd in Nederlandse tijdzone tonen (GitHub-runners draaien in UTC).
+try:
+    from zoneinfo import ZoneInfo
+    _TZ_NL = ZoneInfo("Europe/Amsterdam")
+except Exception:
+    _TZ_NL = None
+
+
+def _nu_nl() -> str:
+    dt = datetime.now(_TZ_NL) if _TZ_NL else datetime.now()
+    return dt.strftime("%Y-%m-%d %H:%M")
 
 # === Hypotheek-config (handmatig updaten) ===
 
@@ -669,7 +684,7 @@ def bouw_rij(d: dict, details: dict | None, beschrijving: str) -> dict:
 
 
 def render_markdown(rijen: list[dict]) -> str:
-    nu = datetime.now().strftime("%Y-%m-%d %H:%M")
+    nu = _nu_nl()
     bruto_maand = BRUTO_JAAR / 12
     norm = int(bruto_maand * NORM_MAANDLAST_PCT)
 
@@ -932,7 +947,7 @@ def _card_html(r: dict) -> str:
 
 
 def render_html(rijen: list[dict], is_pwa: bool = False) -> str:
-    nu = datetime.now().strftime("%Y-%m-%d %H:%M")
+    nu = _nu_nl()
     norm = int((BRUTO_JAAR / 12) * NORM_MAANDLAST_PCT)
     nieuwe = [r for r in rijen if r["is_nieuw"]]
     rest = [r for r in rijen if not r["is_nieuw"]]
