@@ -2800,6 +2800,8 @@ __APP_CSS__
 .lock p{color:#617082;margin:0 0 22px;line-height:1.4}
 .lock input{width:100%;padding:13px 12px;font-size:16px;border:1px solid #d9e1e8;border-radius:8px;margin-bottom:12px;background:#fff;color:#1f2a37}
 .lock button{width:100%;min-height:44px;padding:12px;font-size:16px;background:#f47b20;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:800}
+.remember{display:flex;align-items:center;gap:8px;margin:0 0 12px;color:#617082;font-size:14px;text-align:left}
+.remember input{width:auto;margin:0}
 .lock button:disabled{opacity:0.6;cursor:wait}
 .err{color:#b91c1c;margin-top:8px;font-size:14px;min-height:20px}
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:s 0.8s linear infinite;margin-right:6px;vertical-align:middle}
@@ -2816,7 +2818,11 @@ __PWA_PUSH_JS__
     <p>Voer wachtwoord in om de inhoud te ontgrendelen.</p>
     <form onsubmit="return unlock(event)">
       <input id="pw" type="password" autocomplete="current-password" placeholder="Wachtwoord" autofocus>
-      <button id="btn" type="submit">Ontgrendelen</button>
+<label class="remember">
+  <input id="remember" type="checkbox">
+  <span>Onthoud op dit apparaat</span>
+</label>
+<button id="btn" type="submit">Ontgrendelen</button>
     </form>
     <div id="err" class="err"></div>
   </div>
@@ -2827,6 +2833,29 @@ const SALT = "__SALT__";
 const IV   = "__IV__";
 const CT   = "__CT__";
 const ITERS = __ITERS__;
+const REMEMBER_KEY = "funda_pw_persist_v1";
+const REMEMBER_DAYS = 30;
+
+function saveRememberedPassword(pw){
+  const expires = Date.now() + REMEMBER_DAYS * 24 * 60 * 60 * 1000;
+  localStorage.setItem(REMEMBER_KEY, JSON.stringify({ pw, expires }));
+}
+
+function getRememberedPassword(){
+  try {
+    const raw = localStorage.getItem(REMEMBER_KEY);
+    if(!raw) return "";
+    const data = JSON.parse(raw);
+    if(!data || !data.pw || !data.expires || Date.now() > data.expires){
+      localStorage.removeItem(REMEMBER_KEY);
+      return "";
+    }
+    return data.pw;
+  } catch(_) {
+    localStorage.removeItem(REMEMBER_KEY);
+    return "";
+  }
+}
 
 function b64ToBytes(s){const bin=atob(s);const a=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);return a;}
 
@@ -2859,6 +2888,9 @@ async function unlock(e){
     document.getElementById("lock").style.display = "none";
     if(window.fundaAfterReportLoad) window.fundaAfterReportLoad();
     sessionStorage.setItem("funda_pw", pw);
+    if(document.getElementById("remember").checked){
+      saveRememberedPassword(pw);
+    }
   } catch(ex){
     err.textContent = "Fout wachtwoord";
     btn.disabled = false;
@@ -2869,7 +2901,7 @@ async function unlock(e){
 
 // Auto-unlock indien sessie nog actief
 (async () => {
-  const saved = sessionStorage.getItem("funda_pw");
+  const saved = sessionStorage.getItem("funda_pw") || getRememberedPassword();
   if(saved){
     try{
       const html = await decrypt(saved);
