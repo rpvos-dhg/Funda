@@ -14,6 +14,7 @@ import time
 import urllib.parse
 import urllib.request
 import html as html_lib
+from collections import Counter
 from pathlib import Path
 from datetime import datetime
 
@@ -148,6 +149,7 @@ NORM_MAANDLAST_PCT = 0.33
 # Werk-postcodes (huidig en toekomstig) — uit gitignored config.
 WERK_POSTCODES = [tuple(item) for item in _PERSONAL["werk_postcodes"]]
 WERK_CACHE = Path(__file__).parent / "funda_werk_coords.json"
+ENRICHMENT_CACHE = Path(__file__).parent / "funda_enrichment_cache.json"
 USER_AGENT = "funda-tracker-remco/1.0 (persoonlijk gebruik)"
 
 
@@ -219,6 +221,420 @@ def afstand_km(lat1: float, lon1: float, lat2: float, lon2: float) -> tuple[floa
         return (km, "weg")
     km = haversine_km(lat1, lon1, lat2, lon2) * 1.3
     return (km, "schatting")
+
+
+# === Verrijking via extra pyfunda endpoints ===
+
+def woning_sleutel(d: dict) -> str:
+    return str(d.get("global_id") or d.get("listing_id") or d.get("detail_url") or d.get("title") or "")
+
+
+def funda_url(d: dict) -> str:
+    url = d.get("detail_url") or d.get("url") or ""
+    if url and not url.startswith("http"):
+        url = f"https://www.funda.nl{url}"
+    return url
+
+
+def load_enrichment_cache() -> dict:
+    if ENRICHMENT_CACHE.exists():
+        try:
+            data = json.loads(ENRICHMENT_CACHE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+    return {"price_history": {}, "market_insights": {}, "broker": {}}
+
+
+def save_enrichment_cache(cache: dict) -> None:
+    ENRICHMENT_CACHE.write_text(json.dumps(cache, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+
+
+def _cache_fresh(entry: dict | None, max_age_days: int) -> bool:
+    if not isinstance(entry, dict) or not entry.get("fetched"):
+        return False
+    try:
+        fetched = datetime.strptime(entry["fetched"], "%Y-%m-%d")
+    except Exception:
+        return False
+    return (datetime.now() - fetched).days <= max_age_days
+
+
+def _cache_get(cache: dict, section: str, key: str, max_age_days: int):
+    entry = cache.setdefault(section, {}).get(key)
+    if _cache_fresh(entry, max_age_days):
+        return entry.get("data")
+    return None
+
+
+def _cache_put(cache: dict, section: str, key: str, data) -> None:
+    cache.setdefault(section, {})[key] = {
+        "fetched": datetime.now().strftime("%Y-%m-%d"),
+        "data": data,
+    }
+
+
+def _slug_key(*parts: str | None) -> str:
+    return "|".join((p or "").strip().lower() for p in parts)
+
+
+def _parse_history_price(change: dict) -> int | None:
+    value = change.get("price")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if value is None:
+        return None
+    digits = re.sub(r"[^\d]", "", str(value))
+    return int(digits) if digits else None
+
+
+def analyse_price_history(changes: list[dict], current_price: int) -> dict:
+    asking = []
+    woz = []
+    sold = []
+    for change in changes or []:
+        if not isinstance(change, dict):
+            continue
+        status = str(change.get("status") or "").lower()
+        price = _parse_history_price(change)
+        item = {
+            "price": price,
+            "date": change.get("date") or change.get("timestamp"),
+            "source": change.get("source"),
+            "status": status,
+            "human_price": change.get("human_price"),
+        }
+        if status == "asking_price":
+            asking.append(item)
+        elif status == "woz":
+            woz.append(item)
+        elif status == "sold":
+            sold.append(item)
+
+    asking_prices = [x["price"] for x in asking if x.get("price")]
+    highest = max(asking_prices) if asking_prices else None
+    lowest = min(asking_prices) if asking_prices else None
+    drop = max(0, highest - current_price) if highest and current_price else 0
+    drop_pct = round(drop / highest * 100, 1) if drop and highest else 0.0
+    latest_woz = next((x for x in woz if x.get("price")), None)
+    latest_sold = next((x for x in sold if x.get("price")), None)
+
+    return {
+        "asking_count": len(asking),
+        "highest_asking": highest,
+        "lowest_asking": lowest,
+        "drop_from_high": drop,
+        "drop_pct": drop_pct,
+        "latest_woz": latest_woz,
+        "latest_sold": latest_sold,
+        "changes": changes or [],
+    }
+
+
+def analyse_market(d: dict, insights: dict | None) -> dict:
+    price = d.get("price") or 0
+    m2 = d.get("living_area") or 0
+    ppm = int(price / m2) if price and m2 else 0
+    avg = None
+    if isinstance(insights, dict):
+        try:
+            avg = int(insights.get("avg_asking_price_per_m2") or 0) or None
+        except (TypeError, ValueError):
+            avg = None
+    diff_pct = round((ppm - avg) / avg * 100, 1) if ppm and avg else None
+    if diff_pct is None:
+        market_score = None
+        market_label = None
+    elif diff_pct <= -10:
+        market_score = 8.5
+        market_label = "sterk onder wijkprijs"
+    elif diff_pct <= -3:
+        market_score = 7.0
+        market_label = "gunstig"
+    elif diff_pct < 8:
+        market_score = 5.5
+        market_label = "marktconform"
+    elif diff_pct < 15:
+        market_score = 3.5
+        market_label = "duur"
+    else:
+        market_score = 2.0
+        market_label = "zeer duur"
+    return {
+        "price_per_m2": ppm,
+        "avg_asking_price_per_m2": avg,
+        "diff_pct": diff_pct,
+        "market_score": market_score,
+        "market_label": market_label,
+        "insights": insights or {},
+    }
+
+
+def analyse_broker(info: dict | None, reviews: dict | None, listings: list[dict] | None) -> dict:
+    listings = listings or []
+    status_counts = Counter(str(item.get("status") or "unknown") for item in listings if isinstance(item, dict))
+    average = reviews.get("average") if isinstance(reviews, dict) else None
+    review_count = reviews.get("number_of_reviews") if isinstance(reviews, dict) else None
+    try:
+        average = float(average) if average is not None else None
+    except (TypeError, ValueError):
+        average = None
+    try:
+        review_count = int(review_count) if review_count is not None else None
+    except (TypeError, ValueError):
+        review_count = None
+    return {
+        "name": (info or {}).get("name"),
+        "affiliation": (info or {}).get("affiliation"),
+        "phone": (info or {}).get("phone"),
+        "email": (info or {}).get("email"),
+        "website": (info or {}).get("website"),
+        "review_average": average,
+        "review_count": review_count,
+        "sold_count": status_counts.get("sold", 0),
+        "for_sale_count": status_counts.get("for_sale", 0),
+        "purchased_count": status_counts.get("purchased", 0),
+        "info": info or {},
+        "reviews": reviews or {},
+        "listings": listings,
+    }
+
+
+def fetch_with_cache(cache: dict, section: str, key: str, max_age_days: int, fetcher):
+    cached = _cache_get(cache, section, key, max_age_days)
+    if cached is not None:
+        return cached
+    try:
+        data = fetcher()
+    except Exception as exc:
+        data = {"_error": str(exc)}
+    _cache_put(cache, section, key, data)
+    return data
+
+
+def verrijk_woning(f, d: dict, listing_obj, cache: dict) -> dict:
+    """Haal extra data op uit pyfunda v2.9 endpoints. Alle failures zijn non-fatal."""
+    sleutel = woning_sleutel(d)
+    price = d.get("price") or 0
+    city = d.get("city") or ""
+    neighbourhood = d.get("neighbourhood") or ""
+    listing_data = getattr(listing_obj, "data", None)
+    if not isinstance(listing_data, dict) and isinstance(listing_obj, dict):
+        listing_data = listing_obj
+    broker_id = d.get("broker_id")
+    if isinstance(listing_data, dict):
+        broker_id = broker_id or listing_data.get("broker_id")
+
+    url = funda_url(d)
+    price_history_raw = []
+    if hasattr(f, "get_price_history") and (listing_obj is not None or url):
+        def fetch_price_history():
+            if listing_obj is not None:
+                try:
+                    return f.get_price_history(listing_obj)
+                except Exception:
+                    if not url:
+                        raise
+            return f.get_price_history(url)
+
+        price_history_raw = fetch_with_cache(
+            cache,
+            "price_history",
+            sleutel,
+            7,
+            fetch_price_history,
+        )
+        if isinstance(price_history_raw, dict) and price_history_raw.get("_error"):
+            price_history_raw = []
+
+    market_raw = None
+    if hasattr(f, "get_market_insights") and city and neighbourhood:
+        market_raw = fetch_with_cache(
+            cache,
+            "market_insights",
+            _slug_key(city, neighbourhood),
+            30,
+            lambda: f.get_market_insights(city, neighbourhood),
+        )
+        if isinstance(market_raw, dict) and market_raw.get("_error"):
+            market_raw = None
+
+    broker_raw = {"info": None, "reviews": None, "listings": []}
+    if broker_id and hasattr(f, "get_broker_info"):
+        bid = str(broker_id)
+
+        def fetch_broker_bundle():
+            bundle = {"info": None, "reviews": None, "listings": []}
+            for name, method in (
+                ("info", "get_broker_info"),
+                ("reviews", "get_broker_reviews"),
+                ("listings", "get_broker_listings"),
+            ):
+                if not hasattr(f, method):
+                    continue
+                try:
+                    bundle[name] = getattr(f, method)(int(bid))
+                    time.sleep(0.2)
+                except Exception as exc:
+                    bundle[name] = {"_error": str(exc)}
+            return bundle
+
+        broker_raw = fetch_with_cache(cache, "broker", bid, 30, fetch_broker_bundle)
+        if not isinstance(broker_raw, dict):
+            broker_raw = {"info": None, "reviews": None, "listings": []}
+
+    return {
+        "price_history": analyse_price_history(price_history_raw if isinstance(price_history_raw, list) else [], price),
+        "market": analyse_market(d, market_raw if isinstance(market_raw, dict) else None),
+        "broker": analyse_broker(
+            broker_raw.get("info") if isinstance(broker_raw.get("info"), dict) and not broker_raw.get("info", {}).get("_error") else None,
+            broker_raw.get("reviews") if isinstance(broker_raw.get("reviews"), dict) and not broker_raw.get("reviews", {}).get("_error") else None,
+            broker_raw.get("listings") if isinstance(broker_raw.get("listings"), list) else [],
+        ),
+    }
+
+
+# === Extra signalen voor rapportkaarten ===
+
+def _fmt_eur(value: int | float | None) -> str:
+    return f"€{int(value or 0):,}"
+
+
+def _count_value(value) -> int:
+    if value in (None, False, ""):
+        return 0
+    if value is True:
+        return 1
+    if isinstance(value, (list, tuple, set, dict)):
+        return len(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _compact_value(value) -> str:
+    if isinstance(value, bool):
+        return "ja" if value else "nee"
+    if isinstance(value, (list, tuple)):
+        parts = [str(v) for v in value[:2]]
+        return ", ".join(parts) + (" ..." if len(value) > 2 else "")
+    if isinstance(value, dict):
+        parts = [f"{k}: {v}" for k, v in list(value.items())[:2]]
+        return ", ".join(parts) + (" ..." if len(value) > 2 else "")
+    return str(value)
+
+
+def structured_signals(d: dict, details: dict | None, enrichment: dict | None) -> list[str]:
+    """Compacte signalen uit pyfunda-verrijking en gestructureerde advertentievelden."""
+    enrichment = enrichment or {}
+    details = details or {}
+    signals: list[str] = []
+
+    market = enrichment.get("market") or {}
+    ppm = market.get("price_per_m2") or (d.get("price") // d.get("living_area") if d.get("price") and d.get("living_area") else None)
+    wijk_avg = market.get("avg_asking_price_per_m2")
+    diff_pct = market.get("diff_pct")
+    market_score = market.get("market_score")
+    market_label = market.get("market_label")
+    if ppm and wijk_avg and diff_pct is not None:
+        prefix = f"Marktscore {market_score:.1f}/10 ({market_label}) | " if market_score is not None and market_label else ""
+        signals.append(f"{prefix}Wijkprijs: {_fmt_eur(ppm)}/m2 vs {_fmt_eur(wijk_avg)}/m2 ({diff_pct:+.1f}%)")
+    elif ppm:
+        signals.append(f"Vraagprijs per m2: {_fmt_eur(ppm)}/m2")
+    insights = market.get("insights") or {}
+    if insights.get("inhabitants") or insights.get("families_with_children_pct") is not None:
+        buurt_bits = []
+        if insights.get("inhabitants"):
+            try:
+                buurt_bits.append(f"{int(insights['inhabitants']):,} inwoners")
+            except (TypeError, ValueError):
+                pass
+        if insights.get("families_with_children_pct") is not None:
+            try:
+                buurt_bits.append(f"{float(insights['families_with_children_pct']):.0f}% gezinnen met kinderen")
+            except (TypeError, ValueError):
+                pass
+        if buurt_bits:
+            signals.append("Buurt: " + ", ".join(buurt_bits))
+
+    price_history = enrichment.get("price_history") or {}
+    if price_history.get("highest_asking") and price_history.get("drop_from_high"):
+        signals.append(
+            f"Prijsverloop: hoogste vraagprijs {_fmt_eur(price_history['highest_asking'])}, "
+            f"nu -{_fmt_eur(price_history['drop_from_high'])}"
+        )
+    latest_woz = price_history.get("latest_woz") or {}
+    if isinstance(latest_woz, dict) and latest_woz.get("price"):
+        date = f" ({latest_woz.get('date')})" if latest_woz.get("date") else ""
+        signals.append(f"Laatste WOZ: {_fmt_eur(latest_woz['price'])}{date}")
+    latest_sold = price_history.get("latest_sold") or {}
+    if isinstance(latest_sold, dict) and latest_sold.get("price"):
+        date = f" ({latest_sold.get('date')})" if latest_sold.get("date") else ""
+        signals.append(f"Eerder verkocht: {_fmt_eur(latest_sold['price'])}{date}")
+
+    broker = enrichment.get("broker") or {}
+    broker_bits = []
+    if broker.get("name"):
+        broker_bits.append(str(broker["name"]))
+    if broker.get("review_average") is not None and broker.get("review_count"):
+        broker_bits.append(f"{broker['review_average']:.1f}/10 uit {broker['review_count']} reviews")
+    activity = []
+    if broker.get("for_sale_count"):
+        activity.append(f"{broker['for_sale_count']} te koop")
+    if broker.get("sold_count"):
+        activity.append(f"{broker['sold_count']} verkocht")
+    if activity:
+        broker_bits.append(", ".join(activity))
+    if broker_bits:
+        signals.append("Makelaar: " + " | ".join(broker_bits))
+
+    offered_since = details.get("offered_since")
+    acceptance = details.get("acceptance")
+    if offered_since or acceptance:
+        parts = []
+        if offered_since:
+            parts.append(f"sinds {_compact_value(offered_since)}")
+        if acceptance:
+            parts.append(f"aanvaarding {_compact_value(acceptance)}")
+        signals.append("Advertentie: " + ", ".join(parts))
+
+    views = details.get("views")
+    saves = details.get("saves")
+    if views or saves:
+        parts = []
+        if views:
+            parts.append(f"{_compact_value(views)} views")
+        if saves:
+            parts.append(f"{_compact_value(saves)} bewaard")
+        signals.append("Interesse: " + ", ".join(parts))
+
+    media = []
+    photo_count = _count_value(details.get("photo_count") or details.get("photo_urls"))
+    floorplans = _count_value(details.get("floorplans") or details.get("floorplan_urls"))
+    videos = _count_value(details.get("videos") or details.get("video_urls"))
+    photos_360 = _count_value(details.get("photos_360"))
+    if photo_count:
+        media.append(f"{photo_count} foto's")
+    if floorplans:
+        media.append(f"{floorplans} plattegrond(en)")
+    if videos:
+        media.append(f"{videos} video(s)")
+    if photos_360:
+        media.append(f"{photos_360} 360-foto(s)")
+    if media:
+        signals.append("Media: " + ", ".join(media))
+    if details.get("brochure_url"):
+        signals.append("Brochure beschikbaar")
+    if details.get("open_house"):
+        signals.append(f"Open huis: {_compact_value(details.get('open_house'))}")
+    if details.get("is_auction"):
+        signals.append("Prijsconditie: veiling/tender")
+
+    return signals[:12]
 
 
 # === Balkon-oriëntatie ===
@@ -435,6 +851,11 @@ def in_max_hypotheek(prijs: int, label: str | None) -> tuple[bool, int]:
 def pros_cons(d: dict, details: dict | None, beschrijving: str) -> tuple[list[str], list[str]]:
     pros, cons = [], []
 
+    enrichment = d.get("_enrichment") or {}
+    market = enrichment.get("market") or {}
+    price_history = enrichment.get("price_history") or {}
+    broker = enrichment.get("broker") or {}
+
     label = d.get("energy_label") or "?"
     m2 = d.get("living_area") or 0
     prijs = d.get("price") or 0
@@ -448,11 +869,29 @@ def pros_cons(d: dict, details: dict | None, beschrijving: str) -> tuple[list[st
     elif label in {"?", "unknown", None}:
         cons.append("Energielabel onbekend → onzekerheid over stookkosten")
 
-    # Prijs per m2
-    if ppm and ppm < 3700:
+    # Prijs per m2: wijkbenchmark wint van harde grenzen zodra beschikbaar.
+    wijk_avg = market.get("avg_asking_price_per_m2")
+    wijk_diff = market.get("diff_pct")
+    if ppm and wijk_avg and wijk_diff is not None:
+        if wijk_diff <= -8:
+            pros.append(f"Scherp t.o.v. wijkgemiddelde (€{ppm}/m2 vs €{wijk_avg}/m2, {wijk_diff:+.1f}%)")
+        elif wijk_diff >= 10:
+            cons.append(f"Duur t.o.v. wijkgemiddelde (€{ppm}/m2 vs €{wijk_avg}/m2, {wijk_diff:+.1f}%)")
+    elif ppm and ppm < 3700:
         pros.append(f"Scherpe prijs per m2 (€{ppm}/m2)")
     elif ppm and ppm > 4500:
         cons.append(f"Hoge prijs per m2 (€{ppm}/m2)")
+
+    # Historische prijsdata via Walter Living / pyfunda.
+    hist_drop = price_history.get("drop_from_high") or 0
+    if hist_drop >= 5_000:
+        pros.append(f"Historisch vraagprijsvoordeel: -€{hist_drop:,} vanaf hoogste vraagprijs ({price_history.get('drop_pct', 0):.1f}%)")
+    latest_woz = price_history.get("latest_woz") or {}
+    latest_woz_price = latest_woz.get("price") if isinstance(latest_woz, dict) else None
+    if latest_woz_price and prijs:
+        boven_woz = (prijs - latest_woz_price) / latest_woz_price * 100
+        if boven_woz >= 20:
+            cons.append(f"Vraagprijs ruim boven laatste WOZ-indicatie (+{boven_woz:.0f}%)")
 
     # Oppervlakte
     if m2 >= 80:
@@ -490,6 +929,10 @@ def pros_cons(d: dict, details: dict | None, beschrijving: str) -> tuple[list[st
         elif orient in SUN_NEUTRAL:
             pros.append(f"Buitenruimte op {orient} (ochtendzon)")
     if details:
+        if details.get("is_auction"):
+            cons.append("Veiling/tender-achtige prijsconditie")
+        if details.get("open_house"):
+            pros.append("Open huis gepland")
         if details.get("has_solar_panels"):
             pros.append("Zonnepanelen")
         if details.get("has_heat_pump"):
@@ -505,6 +948,15 @@ def pros_cons(d: dict, details: dict | None, beschrijving: str) -> tuple[list[st
             cons.append(f"Heel oud ({bouwjaar}) → hogere onderhoudskans, check fundering en kozijnen")
         elif bouwjaar and bouwjaar > 2000:
             pros.append(f"Modern bouwjaar ({bouwjaar})")
+
+    # Makelaarssignalen.
+    review_avg = broker.get("review_average")
+    review_count = broker.get("review_count") or 0
+    if review_avg is not None and review_count >= 10:
+        if review_avg >= 9.0:
+            pros.append(f"Makelaar goed beoordeeld ({review_avg:.1f}/10, {review_count} reviews)")
+        elif review_avg < 8.3:
+            cons.append(f"Makelaar relatief laag beoordeeld ({review_avg:.1f}/10, {review_count} reviews)")
 
     # Erfpacht (gestructureerde analyse)
     erf = parse_erfpacht(beschrijving)
@@ -575,21 +1027,25 @@ def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None)
     """Loopt langs woningen, doet detail-call en bouwt markdown + HTML rapport."""
     nieuw_ids = nieuw_ids or set()
     werk_coords = get_werk_coords()
+    enrichment_cache = load_enrichment_cache()
     print(f"\n[rapport] Detail-call voor {len(woningen)} woningen, werk-coords: {len(werk_coords)} adressen.")
     rijen = []
     for d in woningen:
         lid = d.get("global_id") or d.get("listing_id")
         sleutel = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url"))
         details = None
+        listing_obj = None
         beschrijving = ""
         try:
-            obj = f.get_listing(lid)
-            if hasattr(obj, "data"):
-                details = obj.data
+            listing_obj = f.get_listing(lid)
+            if hasattr(listing_obj, "data"):
+                details = listing_obj.data
                 beschrijving = str(details.get("description") or "")
             time.sleep(0.5)
         except Exception as exc:
             print(f"  Detail fout {lid}: {exc}")
+        enrichment = verrijk_woning(f, d, listing_obj, enrichment_cache)
+        d["_enrichment"] = enrichment
         rij = bouw_rij(d, details, beschrijving)
         rij["is_nieuw"] = sleutel in nieuw_ids
         rij["foto_url"] = (details.get("photo_urls") or [None])[0] if details else None
@@ -608,6 +1064,8 @@ def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None)
                     rij["routes"].append({"postcode": pc, "label": label, "km": km, "soort": soort})
 
         rijen.append(rij)
+
+    save_enrichment_cache(enrichment_cache)
 
     # Sorteer op score (hoog naar laag)
     rijen.sort(key=lambda r: r["score"], reverse=True)
@@ -640,6 +1098,7 @@ def bouw_rij(d: dict, details: dict | None, beschrijving: str) -> dict:
     prijs = d.get("price") or 0
     m2 = d.get("living_area") or 0
     pros, cons = pros_cons(d, details, beschrijving)
+    signals = structured_signals(d, details, d.get("_enrichment") or {})
     erf_info = parse_erfpacht(beschrijving)
     lasten = bereken_maandlasten(prijs, label, m2, beschrijving, canon_jaar=erf_info.get("canon_jaar"))
     in_max, headroom = in_max_hypotheek(prijs, label)
@@ -675,6 +1134,7 @@ def bouw_rij(d: dict, details: dict | None, beschrijving: str) -> dict:
         "m2": m2,
         "pros": pros,
         "cons": cons,
+        "signals": signals,
         "lasten": lasten,
         "in_max": in_max,
         "headroom": headroom,
@@ -726,9 +1186,7 @@ def render_markdown(rijen: list[dict]) -> str:
     lines.append("")
     for i, r in enumerate(rijen, 1):
         d = r["d"]
-        url = d.get("detail_url") or ""
-        if url and not url.startswith("http"):
-            url = f"https://www.funda.nl{url}"
+        url = funda_url(d)
 
         lines.append(f"### {i}. {d.get('title')} — € {r['prijs']:,}")
         lines.append("")
@@ -739,6 +1197,12 @@ def render_markdown(rijen: list[dict]) -> str:
             lines.append(f"- **Bouwjaar**: {r['details']['construction_year']}")
         lines.append(f"- **Funda**: {url}")
         lines.append("")
+
+        if r.get("signals"):
+            lines.append("**Extra signalen**")
+            for signal in r["signals"]:
+                lines.append(f"- {signal}")
+            lines.append("")
 
         # Pros / cons
         if r["pros"]:
@@ -1058,6 +1522,15 @@ h2 { margin: 0; font-size: 21px; line-height: 1.2; }
 .mp-prijs { font-weight: 900; font-size: 17px; color: var(--ink); }
 .mp-lasten { font-size: 12px; color: var(--muted); }
 .mp-tags { margin: 8px 0; display: flex; gap: 5px; flex-wrap: wrap; }
+.mp-signal {
+  margin: 8px 0 0;
+  padding: 8px;
+  border-radius: 7px;
+  background: #f2f7fa;
+  color: var(--funda-blue-dark);
+  font-size: 12px;
+  line-height: 1.35;
+}
 .mp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 .mp-actions a, .mp-actions button {
   min-height: 34px;
@@ -1146,6 +1619,23 @@ h2 { margin: 0; font-size: 21px; line-height: 1.2; }
   margin: 0 0 8px;
 }
 .lasten-totaal { font-weight: 900; color: var(--ink); }
+.signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.signals span {
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: #edf6fb;
+  color: var(--funda-blue-dark);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
 .proscons { font-size: 13px; line-height: 1.35; margin: 6px 0; }
 .proscons div { margin: 5px 0; }
 .pros { color: #047857; }
@@ -1237,6 +1727,7 @@ function fundaPopup(p){
   if(p.is_nieuw) tags += '<span class="badge badge-new">NIEUW</span>';
   tags += '<span class="badge badge-label '+fundaEsc(p.label)+'">Label '+fundaEsc(p.label)+'</span>';
   if(p.budget) tags += '<span class="badge badge-budget-'+fundaEsc(p.bcls)+'">'+fundaEsc(p.budget)+'</span>';
+  var signal = p.signal ? '<div class="mp-signal">'+fundaEsc(p.signal)+'</div>' : '';
   var lijst = p.id ? '<button class="ghost" onclick="fundaToCard(\\''+fundaEsc(p.id)+'\\')">In lijst</button>' : '';
   var open = p.url ? '<a class="primary" href="'+fundaEsc(p.url)+'" target="_blank" rel="noopener">Funda</a>' : '';
   return '<div class="mp">'+img+'<div class="mp-b">'
@@ -1246,6 +1737,7 @@ function fundaPopup(p){
     + '<span class="mp-lasten">'+fundaEsc(p.m2)+' m&sup2;</span></div>'
     + '<div class="mp-lasten">Maandlast '+fundaEsc(p.maandlast)+'</div>'
     + '<div class="mp-tags">'+tags+'</div>'
+    + signal
     + '<div class="mp-actions">'+open+lijst+'</div>'
     + '</div></div>';
 }
@@ -1330,10 +1822,7 @@ def _h(value) -> str:
 
 
 def _detail_url(d: dict) -> str:
-    url = d.get("detail_url") or ""
-    if url and not url.startswith("http"):
-        url = f"https://www.funda.nl{url}"
-    return url
+    return funda_url(d)
 
 
 def _listing_key(r: dict) -> str:
@@ -1392,6 +1881,7 @@ def _map_data(rijen: list[dict], werk_coords: dict[str, tuple[float, float]] | N
             "bcls": _budget_class(r.get("budget") or ""),
             "foto": r.get("foto_url") or "",
             "url": _detail_url(d),
+            "signal": (r.get("signals") or [""])[0],
             "lat": lat,
             "lon": lon,
             "is_nieuw": bool(r.get("is_nieuw")),
@@ -1479,6 +1969,13 @@ def _card_html(r: dict) -> str:
 
     pros_html = "".join(f'<div class="pros">+ {_h(p)}</div>' for p in r["pros"])
     cons_html = "".join(f'<div class="cons">- {_h(c)}</div>' for c in r["cons"])
+    signals_html = ""
+    if r.get("signals"):
+        signals_html = (
+            '<div class="signals">'
+            + "".join(f'<span>{_h(signal)}</span>' for signal in r["signals"])
+            + "</div>"
+        )
 
     bouwjaar = ""
     if r["details"] and r["details"].get("construction_year"):
@@ -1540,6 +2037,7 @@ def _card_html(r: dict) -> str:
           Maandlast: <span class="lasten-totaal">{_money(l['totaal'])}</span>
           (hyp {_money(l['hypotheek'])} + VvE {_money(l['servicekosten'])} + energie {_money(l['energie'])}{' + erfpacht ' + _money(l['canon']) if l.get('canon') else ''} + overig {_money(l['woz_verzekering']+l['onderhoud'])})
         </div>
+        {signals_html}
         <div class="proscons">{pros_html}{cons_html}</div>
         {footer_html}
       </div>

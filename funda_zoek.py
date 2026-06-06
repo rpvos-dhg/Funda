@@ -69,6 +69,10 @@ PRIJS_BAND_STAP = _PERSONAL.get("prijs_band_stap", 20_000)
 # Drempel waarboven een woning als "lang op funda" geldt (handig voor onderhandelen).
 LANG_OP_FUNDA_DAGEN = _PERSONAL.get("lang_op_funda_dagen", 90)
 
+# Zoek dezelfde prijsband ook met sorteringen die andere delen van Funda's
+# resultaatkap raken. Vooral "oldest" haalt lang-te-koop woningen naar voren.
+ZOEK_SORTS = _PERSONAL.get("zoek_sorts", [None, "oldest"])
+
 
 def maak_prijs_banden(prijs_min: int, prijs_max: int, stap: int) -> list[tuple[int, int]]:
     """Splits prijsrange in banden. Laatste band loopt door tot prijs_max."""
@@ -405,34 +409,40 @@ def main() -> None:
     gezien_ids: set[str] = set()
     for band_min, band_max in banden:
         band_n = 0
-        for pagina in range(PAGINAS):
-            try:
-                results = f.search_listing(
-                    location=POSTCODE,
-                    radius_km=RADIUS_KM,
-                    offering_type="buy",
-                    price_min=band_min,
-                    price_max=band_max,
-                    object_type=["apartment"],
-                    availability=["available"],
-                    area_min=M2_MIN,
-                    page=pagina,
-                )
-            except Exception as exc:
-                log(f"Fout band {band_min}-{band_max} pagina {pagina}: {exc}")
-                break
-            if not results:
-                break
-            for r in results:
-                d = r.data
-                lid = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url"))
-                if lid in gezien_ids:
-                    continue
-                gezien_ids.add(lid)
-                rauwe.append(r)
-                band_n += 1
-            time.sleep(0.4)
-        log(f"Band € {band_min:,}-{band_max:,}: {band_n} nieuw.")
+        for sort in ZOEK_SORTS:
+            sort_n = 0
+            sort_label = sort or "standaard"
+            for pagina in range(PAGINAS):
+                try:
+                    results = f.search_listing(
+                        location=POSTCODE,
+                        radius_km=RADIUS_KM,
+                        offering_type="buy",
+                        price_min=band_min,
+                        price_max=band_max,
+                        object_type=["apartment"],
+                        availability=["available"],
+                        area_min=M2_MIN,
+                        sort=sort,
+                        page=pagina,
+                    )
+                except Exception as exc:
+                    log(f"Fout band {band_min}-{band_max} sort {sort_label} pagina {pagina}: {exc}")
+                    break
+                if not results:
+                    break
+                for r in results:
+                    d = r.data
+                    lid = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url"))
+                    if lid in gezien_ids:
+                        continue
+                    gezien_ids.add(lid)
+                    rauwe.append(r)
+                    sort_n += 1
+                    band_n += 1
+                time.sleep(0.4)
+            log(f"Band € {band_min:,}-{band_max:,} ({sort_label}): {sort_n} nieuw.")
+        log(f"Band € {band_min:,}-{band_max:,}: {band_n} uniek na alle sorteringen.")
 
     log(f"Totaal opgehaald (na dedup): {len(rauwe)}.")
 
