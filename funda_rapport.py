@@ -1619,27 +1619,100 @@ h2 { margin: 0; font-size: 21px; line-height: 1.2; }
   margin: 0 0 8px;
 }
 .lasten-totaal { font-weight: 900; color: var(--ink); }
-.signals {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0 0 8px;
+.insight-panel {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 10px;
+  border: 1px solid #dcebf3;
+  border-radius: 8px;
+  background: #f7fbfd;
 }
-.signals span {
-  min-width: 0;
-  max-width: 100%;
-  padding: 6px 8px;
-  border-radius: 7px;
-  background: #edf6fb;
-  color: var(--funda-blue-dark);
+.insight-group { min-width: 0; }
+.insight-title {
+  margin: 0 0 5px;
+  color: #617082;
+  font-size: 11px;
+  line-height: 1.1;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.insight-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.insight-item {
+  color: #24435f;
   font-size: 12px;
-  line-height: 1.25;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
-.proscons { font-size: 13px; line-height: 1.35; margin: 6px 0; }
-.proscons div { margin: 5px 0; }
-.pros { color: #047857; }
-.cons { color: var(--red); }
+.insight-item.is-primary {
+  padding: 8px;
+  border-radius: 7px;
+  background: #e5f3fa;
+  color: var(--funda-blue-dark);
+}
+.insight-score {
+  display: block;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+.insight-detail {
+  display: block;
+  margin-top: 2px;
+  color: #365875;
+  font-weight: 650;
+}
+.verdict {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.verdict-block {
+  min-width: 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--line);
+}
+.verdict-block.is-pro { border-left-color: #0e9f6e; }
+.verdict-block.is-con { border-left-color: var(--red); }
+.verdict-title {
+  margin: 0 0 5px;
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--ink);
+}
+.verdict ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.verdict li {
+  position: relative;
+  padding-left: 14px;
+  font-size: 13px;
+  line-height: 1.36;
+  overflow-wrap: anywhere;
+}
+.verdict li::before {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-weight: 900;
+}
+.is-pro li { color: #047857; }
+.is-pro li::before { content: "+"; }
+.is-con li { color: var(--red); }
+.is-con li::before { content: "-"; }
 .card-footer { margin-top: auto; padding-top: 12px; }
 .card-footer a {
   display: inline-flex;
@@ -1675,6 +1748,10 @@ h2 { margin: 0; font-size: 21px; line-height: 1.2; }
   box-shadow: var(--card-shadow);
 }
 .assumptions ul { margin: 8px 0 0; padding-left: 18px; }
+@media (min-width: 920px) {
+  .insight-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .insight-price, .insight-broker { grid-column: 1 / -1; }
+}
 @media (max-width: 760px) {
   body { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
   .topbar-inner { height: 54px; padding: 0 12px; }
@@ -1691,6 +1768,8 @@ h2 { margin: 0; font-size: 21px; line-height: 1.2; }
   .cards { grid-template-columns: 1fr; gap: 14px; }
   .card-title { font-size: 16px; }
   .card-prijs { font-size: 18px; }
+  .insight-panel { padding: 9px; gap: 9px; }
+  .verdict { gap: 9px; }
   .leaflet-popup-content { width: 254px !important; }
 }
 @media (max-width: 430px) {
@@ -1845,6 +1924,99 @@ def _money(value: int | float | None) -> str:
     return f"€ {int(value or 0):,}"
 
 
+def _clean_signal(signal: str) -> str:
+    for prefix in (
+        "Buurt: ",
+        "Makelaar: ",
+        "Advertentie: ",
+        "Interesse: ",
+        "Media: ",
+    ):
+        if signal.startswith(prefix):
+            return signal[len(prefix):]
+    return signal
+
+
+def _signal_group_name(signal: str) -> str:
+    if signal.startswith(("Marktscore", "Vraagprijs per m2", "Prijsverloop", "Laatste WOZ", "Eerder verkocht")):
+        return "Prijs"
+    if signal.startswith("Buurt:"):
+        return "Buurt"
+    if signal.startswith("Makelaar:"):
+        return "Makelaar"
+    return "Advertentie"
+
+
+def _signal_item_html(signal: str) -> str:
+    clean = _clean_signal(signal)
+    if signal.startswith("Marktscore") and " | Wijkprijs: " in signal:
+        score, detail = signal.split(" | Wijkprijs: ", 1)
+        return (
+            '<li class="insight-item is-primary">'
+            f'<span class="insight-score">{_h(score)}</span>'
+            f'<span class="insight-detail">{_h(detail)}</span>'
+            "</li>"
+        )
+    if signal.startswith("Vraagprijs per m2"):
+        return f'<li class="insight-item is-primary"><span class="insight-score">{_h(clean)}</span></li>'
+    return f'<li class="insight-item">{_h(clean)}</li>'
+
+
+def _signals_html(signals: list[str]) -> str:
+    if not signals:
+        return ""
+    groups = {
+        "Prijs": [],
+        "Buurt": [],
+        "Makelaar": [],
+        "Advertentie": [],
+    }
+    for signal in signals:
+        groups.setdefault(_signal_group_name(signal), []).append(signal)
+
+    chunks = []
+    class_map = {
+        "Prijs": "price",
+        "Buurt": "area",
+        "Makelaar": "broker",
+        "Advertentie": "listing",
+    }
+    for title in ("Prijs", "Buurt", "Makelaar", "Advertentie"):
+        items = groups.get(title) or []
+        if not items:
+            continue
+        chunks.append(
+            f'<section class="insight-group insight-{class_map.get(title, "misc")}">'
+            f'<div class="insight-title">{_h(title)}</div>'
+            f'<ul class="insight-list">{"".join(_signal_item_html(item) for item in items)}</ul>'
+            "</section>"
+        )
+    return '<div class="insight-panel">' + "".join(chunks) + "</div>" if chunks else ""
+
+
+def _verdict_html(pros: list[str], cons: list[str]) -> str:
+    if not pros and not cons:
+        return ""
+
+    def block(title: str, cls: str, items: list[str]) -> str:
+        if not items:
+            return ""
+        return (
+            f'<section class="verdict-block {cls}">'
+            f'<div class="verdict-title">{_h(title)}</div>'
+            '<ul>'
+            + "".join(f'<li>{_h(item)}</li>' for item in items)
+            + '</ul></section>'
+        )
+
+    return (
+        '<div class="verdict">'
+        + block("Plus", "is-pro", pros)
+        + block("Let op", "is-con", cons)
+        + "</div>"
+    )
+
+
 def _to_float(value) -> float | None:
     if value in (None, ""):
         return None
@@ -1967,15 +2139,8 @@ def _card_html(r: dict) -> str:
     bcls = _budget_class(r["budget"])
     badges.append(f'<span class="badge badge-budget-{bcls}">{_h(r["budget"])}</span>')
 
-    pros_html = "".join(f'<div class="pros">+ {_h(p)}</div>' for p in r["pros"])
-    cons_html = "".join(f'<div class="cons">- {_h(c)}</div>' for c in r["cons"])
-    signals_html = ""
-    if r.get("signals"):
-        signals_html = (
-            '<div class="signals">'
-            + "".join(f'<span>{_h(signal)}</span>' for signal in r["signals"])
-            + "</div>"
-        )
+    signals_html = _signals_html(r.get("signals") or [])
+    verdict_html = _verdict_html(r.get("pros") or [], r.get("cons") or [])
 
     bouwjaar = ""
     if r["details"] and r["details"].get("construction_year"):
@@ -2038,7 +2203,7 @@ def _card_html(r: dict) -> str:
           (hyp {_money(l['hypotheek'])} + VvE {_money(l['servicekosten'])} + energie {_money(l['energie'])}{' + erfpacht ' + _money(l['canon']) if l.get('canon') else ''} + overig {_money(l['woz_verzekering']+l['onderhoud'])})
         </div>
         {signals_html}
-        <div class="proscons">{pros_html}{cons_html}</div>
+        {verdict_html}
         {footer_html}
       </div>
     </article>
