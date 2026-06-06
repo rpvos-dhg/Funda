@@ -2,7 +2,7 @@
 Dagelijkse Funda check voor Remco.
 
 Zoekt koopappartementen binnen 7 km fietsen vanaf postcode 2596EC,
-prijs € 250-310k, min 60 m2. Filtert beleggingsobjecten weg, sluit
+prijs € 230-310k, min 55 m2. Filtert beleggingsobjecten weg, sluit
 ongewenste buurten uit en markeert twijfelbuurten met een waarschuwing.
 
 Eerste run: toont alle matches.
@@ -19,6 +19,8 @@ Gebruik:
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 import sys
 import time
 from collections import Counter
@@ -45,7 +47,7 @@ def _laad_personal() -> dict:
         except Exception:
             pass
     print(f"WAARSCHUWING: {PERSONAL_CONFIG_FILE.name} ontbreekt, gebruik dummy defaults!")
-    return {"postcode_huidig": "1011AB", "radius_km": 5, "prijs_min": 200_000, "prijs_max": 350_000, "m2_min": 60}
+    return {"postcode_huidig": "1011AB", "radius_km": 5, "prijs_min": 200_000, "prijs_max": 350_000, "m2_min": 52}
 
 
 _PERSONAL = _laad_personal()
@@ -54,9 +56,31 @@ POSTCODE = _PERSONAL["postcode_huidig"]
 RADIUS_KM = _PERSONAL["radius_km"]
 PRIJS_MIN = _PERSONAL["prijs_min"]
 PRIJS_MAX = _PERSONAL["prijs_max"]
-M2_MIN = _PERSONAL.get("m2_min", 60)
-PAGINAS = 5
+M2_MIN = _PERSONAL.get("m2_min", 52)
+PAGINAS = 25  # ruim genoeg; loop stopt zelf zodra een band leeg is
 NHG_LABELS = {"A", "A+", "A++", "A+++", "B"}
+
+# Funda kapt een zoekopdracht af op ~140 resultaten. Daardoor verdwijnen
+# woningen die al lang te koop staan (ze zakken achter die grens). Door per
+# prijsband apart te zoeken blijft elke deel-query onder de kap, en pakken we
+# samen veel meer van de markt, inclusief de oudgedienden.
+PRIJS_BAND_STAP = _PERSONAL.get("prijs_band_stap", 20_000)
+
+# Drempel waarboven een woning als "lang op funda" geldt (handig voor onderhandelen).
+LANG_OP_FUNDA_DAGEN = _PERSONAL.get("lang_op_funda_dagen", 90)
+
+
+def maak_prijs_banden(prijs_min: int, prijs_max: int, stap: int) -> list[tuple[int, int]]:
+    """Splits prijsrange in banden. Laatste band loopt door tot prijs_max."""
+    if stap <= 0 or prijs_max - prijs_min <= stap:
+        return [(prijs_min, prijs_max)]
+    banden: list[tuple[int, int]] = []
+    lo = prijs_min
+    while lo < prijs_max:
+        hi = min(lo + stap, prijs_max)
+        banden.append((lo, hi))
+        lo = hi  # grenzen overlappen 1 prijspunt; dedup op id vangt dubbelen op
+    return banden
 
 # Buurten die je niet wil zien (substring match, case-insensitive).
 UITSLUIT_BUURTEN = [
@@ -98,9 +122,12 @@ BLOKKEER_WOORDEN = [
 # Tekst-trefwoorden die op begane grond / souterrain wijzen.
 # Worden afgewezen want Remco wil hoger wonen ivm rust en inbraakrisico.
 BG_WOORDEN = [
-    "op de begane grond", "begane-grondappartement", "beganegrondappartement",
+    "woning op de begane grond", "appartement op de begane grond",
+    "gelegen op de begane grond", "ligt op de begane grond",
+    "begane-grondappartement", "beganegrondappartement",
     "gelijkvloers appartement", "parterre appartement", "parterrewoning",
-    "souterrain", "benedenwoning", "benedenappartement",
+    "souterrainwoning", "souterrainappartement",
+    "benedenwoning", "benedenappartement",
 ]
 
 # Buitenruimte: GEEN harde filter want Funda's boolean is onbetrouwbaar
@@ -125,6 +152,9 @@ BUITEN_WOORDEN = [
 STATE_FILE = Path(__file__).parent / "funda_seen_ids.json"
 LOG_FILE = Path(__file__).parent / "funda_log.txt"
 BLACKLIST_FILE = Path(__file__).parent / "funda_blacklist.json"
+# Prijs- en datumgeschiedenis die we zelf bijhouden. Onafhankelijk van wat
+# Funda wel/niet teruggeeft, dus betrouwbaar voor prijsdaling-detectie.
+TRACKING_FILE = Path(__file__).parent / "funda_tracking.json"
 
 
 # === Helpers ===
@@ -179,7 +209,21 @@ def is_belegging(tekst: str) -> list[str]:
     return [w for w in BLOKKEER_WOORDEN if w in s]
 
 
-def is_begane_grond(tekst: str) -> list[str]:
+def is_begane_grond(tekst: str, details_data: dict | None = None) -> list[str]:
+    # 1) Structured data wint: Funda's "Gelegen op" / floor-veld is betrouwbaarder dan tekst.
+    if details_data:
+        for sleutel in ("floor_level", "floor", "located_on", "gelegen_op"):
+            waarde = details_data.get(sleutel)
+            if not waarde:
+                continue
+            w = str(waarde).lower().strip()
+            if any(m in w for m in ("begane grond", "souterrain", "parterre", "gelijkvloers")):
+                return [f"{sleutel}: {w}"]
+            # Hoger dan begane grond gevonden via structured veld -> niet begane grond.
+            for cijfer in ("1e", "2e", "3e", "4e", "5e", "6e", "7e", "8e", "9e"):
+                if cijfer in w:
+                    return []
+    # 2) Fallback: tekstmatch op specifieke trefwoorden (geen bare "souterrain", dat triggert op bergingen).
     s = tekst.lower()
     return [w for w in BG_WOORDEN if w in s]
 
@@ -212,6 +256,47 @@ def is_uitgesloten_straat_nr(d: dict) -> str | None:
     return None
 
 
+def auto_push() -> None:
+    """Add, commit en push docs/ naar GitHub. Skip als geen wijzigingen of bij --no-push."""
+    if "--no-push" in sys.argv:
+        log("Auto-push overgeslagen (--no-push).")
+        return
+    folder = Path(__file__).parent
+    docs_dir = folder / "docs"
+    if not docs_dir.exists():
+        log("Geen docs/ folder, push overgeslagen.")
+        return
+    try:
+        subprocess.run(["git", "-C", str(folder), "add", "docs/"], capture_output=True, timeout=10)
+        diff = subprocess.run(
+            ["git", "-C", str(folder), "diff", "--cached", "--quiet"],
+            capture_output=True, timeout=10,
+        )
+        if diff.returncode == 0:
+            log("Geen docs-wijzigingen, push overgeslagen.")
+            return
+        msg = f"auto: rapport {datetime.now():%Y-%m-%d %H:%M}"
+        subprocess.run(
+            ["git", "-C", str(folder), "commit", "-m", msg],
+            capture_output=True, timeout=10,
+        )
+        push = subprocess.run(
+            ["git", "-C", str(folder), "push"],
+            capture_output=True, timeout=60,
+        )
+        if push.returncode == 0:
+            log("Gepusht naar GitHub.")
+        else:
+            err = push.stderr.decode("utf-8", errors="ignore")[:300]
+            log(f"Push fout: {err}")
+    except subprocess.TimeoutExpired:
+        log("Git push timeout (>60s).")
+    except FileNotFoundError:
+        log("Git niet gevonden in PATH, push overgeslagen.")
+    except Exception as exc:
+        log(f"Auto-push fout: {exc}")
+
+
 def laad_blacklist() -> set[str]:
     if BLACKLIST_FILE.exists():
         try:
@@ -219,6 +304,89 @@ def laad_blacklist() -> set[str]:
         except Exception:
             return set()
     return set()
+
+
+# === Prijs- en looptijd-tracking ===
+
+def laad_tracking() -> dict:
+    if TRACKING_FILE.exists():
+        try:
+            return json.loads(TRACKING_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def bewaar_tracking(tracking: dict) -> None:
+    TRACKING_FILE.write_text(json.dumps(tracking, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _parse_pub_datum(details_data: dict | None) -> str | None:
+    """Haal publicatiedatum (aangeboden sinds) uit detaildata. ISO-datum of None."""
+    if not details_data:
+        return None
+    for sleutel in ("publication_date", "listed_since", "offered_since",
+                    "aangeboden_sinds", "date_published", "publish_date"):
+        waarde = details_data.get(sleutel)
+        if not waarde:
+            continue
+        s = str(waarde).strip()
+        # Pak de eerste YYYY-MM-DD die we tegenkomen.
+        m = re.search(r"(\d{4})-(\d{2})-(\d{2})", s)
+        if m:
+            return m.group(0)
+        # Of een NL-datum dd-mm-yyyy.
+        m = re.search(r"(\d{2})-(\d{2})-(\d{4})", s)
+        if m:
+            return f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+    return None
+
+
+def update_tracking(tracking: dict, sleutel: str, prijs: int, pub_datum: str | None) -> dict:
+    """Werk tracking bij voor een woning. Geeft afgeleide flags terug."""
+    vandaag = datetime.now().strftime("%Y-%m-%d")
+    rec = tracking.get(sleutel)
+    if rec is None:
+        rec = {"first_seen": vandaag, "last_seen": vandaag,
+               "prices": [[vandaag, prijs]], "pub_datum": pub_datum}
+        tracking[sleutel] = rec
+    else:
+        rec["last_seen"] = vandaag
+        if pub_datum and not rec.get("pub_datum"):
+            rec["pub_datum"] = pub_datum
+        prijzen = rec.get("prices") or []
+        if not prijzen or prijzen[-1][1] != prijs:
+            prijzen.append([vandaag, prijs])
+        rec["prices"] = prijzen
+
+    # Afgeleide flags.
+    prijzen = rec.get("prices") or [[vandaag, prijs]]
+    eerste_prijs = prijzen[0][1]
+    top_prijs = max(p for _, p in prijzen)
+    gedaald = prijs < top_prijs
+    drop_bedrag = top_prijs - prijs if gedaald else 0
+    drop_pct = round(drop_bedrag / top_prijs * 100, 1) if (gedaald and top_prijs) else 0.0
+    laatste_wijziging = prijzen[-1][0] if len(prijzen) > 1 else None
+
+    # Dagen op funda: liefst echte publicatiedatum, anders sinds wij volgen.
+    bron_datum = rec.get("pub_datum") or rec.get("first_seen")
+    dagen_bron = "funda" if rec.get("pub_datum") else "gevolgd"
+    try:
+        d0 = datetime.strptime(bron_datum, "%Y-%m-%d")
+        dagen = (datetime.now() - d0).days
+    except Exception:
+        dagen, dagen_bron = 0, "onbekend"
+
+    return {
+        "dagen": dagen,
+        "dagen_bron": dagen_bron,
+        "gedaald": gedaald,
+        "drop_bedrag": drop_bedrag,
+        "drop_pct": drop_pct,
+        "eerdere_prijs": top_prijs if gedaald else None,
+        "eerste_prijs": eerste_prijs,
+        "laatste_wijziging": laatste_wijziging,
+    }
 
 
 # === Hoofdroutine ===
@@ -230,30 +398,43 @@ def main() -> None:
     mode = " (debug-wijken)" if debug_wijken else ""
     log(f"Start{mode}. Postcode {POSTCODE}, radius {RADIUS_KM}km. Reeds gezien: {len(seen)}.")
 
-    # Eén query met radius, dat dekt Den Haag, Voorburg en omliggende plaatsen.
+    # Zoek per prijsband los, zodat we onder Funda's resultaatkap (~140) blijven
+    # en ook woningen vinden die al lang te koop staan. Dedup op id.
+    banden = maak_prijs_banden(PRIJS_MIN, PRIJS_MAX, PRIJS_BAND_STAP)
     rauwe = []
-    for pagina in range(PAGINAS):
-        try:
-            results = f.search_listing(
-                location=POSTCODE,
-                radius_km=RADIUS_KM,
-                offering_type="buy",
-                price_min=PRIJS_MIN,
-                price_max=PRIJS_MAX,
-                object_type=["apartment"],
-                availability=["available"],
-                area_min=M2_MIN,
-                page=pagina,
-            )
-        except Exception as exc:
-            log(f"Fout pagina {pagina}: {exc}")
-            break
-        if not results:
-            break
-        rauwe.extend(results)
-        time.sleep(0.4)
+    gezien_ids: set[str] = set()
+    for band_min, band_max in banden:
+        band_n = 0
+        for pagina in range(PAGINAS):
+            try:
+                results = f.search_listing(
+                    location=POSTCODE,
+                    radius_km=RADIUS_KM,
+                    offering_type="buy",
+                    price_min=band_min,
+                    price_max=band_max,
+                    object_type=["apartment"],
+                    availability=["available"],
+                    area_min=M2_MIN,
+                    page=pagina,
+                )
+            except Exception as exc:
+                log(f"Fout band {band_min}-{band_max} pagina {pagina}: {exc}")
+                break
+            if not results:
+                break
+            for r in results:
+                d = r.data
+                lid = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url"))
+                if lid in gezien_ids:
+                    continue
+                gezien_ids.add(lid)
+                rauwe.append(r)
+                band_n += 1
+            time.sleep(0.4)
+        log(f"Band € {band_min:,}-{band_max:,}: {band_n} nieuw.")
 
-    log(f"Totaal opgehaald: {len(rauwe)}.")
+    log(f"Totaal opgehaald (na dedup): {len(rauwe)}.")
 
     # Debug: alle binnenkomende wijken inventariseren.
     if debug_wijken:
@@ -304,6 +485,7 @@ def main() -> None:
     blacklist = laad_blacklist()
     goed: list[dict] = []
     afgewezen: list[tuple[dict, list[str]]] = []
+    pub_data: dict[str, str | None] = {}  # publicatiedatum per woning (indien gevonden)
     for r in voor:
         d = r.data
         lid = d.get("global_id") or d.get("listing_id")
@@ -328,7 +510,7 @@ def main() -> None:
             if woorden:
                 redenen.extend(woorden)
 
-            bg = is_begane_grond(tekst)
+            bg = is_begane_grond(tekst, details_data)
             if bg:
                 redenen.append(f"begane grond ({bg[0]})")
 
@@ -338,11 +520,27 @@ def main() -> None:
             if redenen:
                 afgewezen.append((d, redenen))
             else:
+                pub_data[sleutel] = _parse_pub_datum(details_data)
                 goed.append(d)
             time.sleep(0.5)
         except Exception as exc:
             log(f"Detail fout {lid}: {exc} - tonen by default.")
             goed.append(d)
+
+    # Werk prijs-/looptijd-tracking bij en hang afgeleide flags aan elke woning.
+    tracking = laad_tracking()
+    n_gedaald = n_lang = 0
+    for d in goed:
+        sleutel = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url"))
+        prijs = int(d.get("price") or 0)
+        flags = update_tracking(tracking, sleutel, prijs, pub_data.get(sleutel))
+        d["_track"] = flags
+        if flags["gedaald"]:
+            n_gedaald += 1
+        if flags["dagen"] >= LANG_OP_FUNDA_DAGEN:
+            n_lang += 1
+    bewaar_tracking(tracking)
+    log(f"Prijsdaling: {n_gedaald}. Lang op funda (>={LANG_OP_FUNDA_DAGEN}d): {n_lang}.")
 
     # Splits in nieuw vs eerder gezien.
     nieuw, bekend = [], []
@@ -350,11 +548,15 @@ def main() -> None:
         lid = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url"))
         (nieuw if lid not in seen else bekend).append(d)
 
-    # Sorteer twijfelbuurten naar onderen binnen elke groep.
+    # Sorteer: prijsdalers eerst, dan lang-op-funda (onderhandelkansen),
+    # twijfelbuurten naar onderen, daarna op prijs.
     def sort_key(d: dict):
         buurt = (d.get("neighbourhood") or "")
         twijfel = is_twijfelbuurt(buurt) is not None
-        return (twijfel, d.get("price", 0))
+        tr = d.get("_track") or {}
+        gedaald = bool(tr.get("gedaald"))
+        lang = tr.get("dagen", 0) >= LANG_OP_FUNDA_DAGEN
+        return (not gedaald, not lang, twijfel, d.get("price", 0))
 
     nieuw.sort(key=sort_key)
     bekend.sort(key=sort_key)
@@ -388,8 +590,22 @@ def main() -> None:
             nieuw_ids = {str(d.get("global_id") or d.get("listing_id") or d.get("detail_url")) for d in nieuw}
             pad = genereer_rapport(f, goed, nieuw_ids)
             log(f"Rapport: {pad.name}")
+
+            # Open HTML rapport in browser bij interactieve run.
+            # Niet bij Task Scheduler (sys.stdout.isatty() is dan False).
+            wil_open = "--open" in sys.argv or (
+                "--no-open" not in sys.argv and sys.stdout.isatty()
+            )
+            if wil_open:
+                import webbrowser
+                lokaal = Path(__file__).parent / "funda_rapport.html"
+                if lokaal.exists():
+                    webbrowser.open(lokaal.as_uri())
         except Exception as exc:
             log(f"Rapport-fout: {exc}")
+
+    # Auto-push docs/ naar GitHub (skipt zelf als er geen wijzigingen zijn).
+    auto_push()
 
 
 def toon(d: dict, prefix: str = "") -> None:
@@ -401,6 +617,14 @@ def toon(d: dict, prefix: str = "") -> None:
     buurt = d.get("neighbourhood", "")
     twijfel = is_twijfelbuurt(buurt)
     flag = f" /!\\ TWIJFELBUURT ({twijfel})" if twijfel else ""
+
+    tr = d.get("_track") or {}
+    if tr.get("gedaald"):
+        flag += f" /!\\ PRIJS GEDAALD -€{tr['drop_bedrag']:,} ({tr['drop_pct']}%)"
+    if tr.get("dagen", 0) >= LANG_OP_FUNDA_DAGEN:
+        bron = "" if tr.get("dagen_bron") == "funda" else "+"
+        flag += f" /!\\ LANG OP FUNDA ({tr['dagen']}{bron}d)"
+
     url = d.get("detail_url", "")
     if url and not url.startswith("http"):
         url = f"https://www.funda.nl{url}"
@@ -408,6 +632,8 @@ def toon(d: dict, prefix: str = "") -> None:
     print(f"  {d.get('title')}, {d.get('postcode')} {d.get('city')}")
     print(f"  Wijk: {buurt}")
     print(f"  {d.get('bedrooms')} slpk | {d.get('rooms')} kamers")
+    if tr.get("gedaald") and tr.get("eerdere_prijs"):
+        print(f"  Was € {tr['eerdere_prijs']:,}, nu € {prijs:,} (wijziging {tr.get('laatste_wijziging')})")
     print(f"  {url}")
 
 

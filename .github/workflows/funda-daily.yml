@@ -1,0 +1,112 @@
+name: Funda dagelijks rapport
+
+# Draait elke ochtend op GitHub (niet meer afhankelijk van de laptop).
+# Gevoelige gegevens komen uit GitHub Secrets en worden NOOIT gecommit.
+# State (seen-ids, prijs-tracking, werk-coordinaten) staat in de Actions-cache,
+# dus blijft bewaard maar staat niet publiek in de repo.
+
+on:
+  schedule:
+    # 05:00 UTC = 07:00 NL (zomertijd) / 06:00 NL (wintertijd).
+    # GitHub-cron is UTC en kan een paar minuten later starten.
+    - cron: "0 5 * * *"
+  workflow_dispatch: {}   # knop om handmatig te draaien
+
+# Voorkom dat twee runs tegelijk de repo pushen.
+concurrency:
+  group: funda-daily
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # nodig om het versleutelde docs/ rapport terug te pushen
+
+jobs:
+  rapport:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Python opzetten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Dependencies installeren
+        run: |
+          python -m pip install --upgrade pip
+          pip install cryptography
+          pip install "git+https://github.com/0xMH/pyfunda.git"
+
+      # State terughalen uit vorige run. Bevat geen persoonlijke gegevens van jou,
+      # wel je werk-coordinaten, daarom in de cache en niet in de publieke repo.
+      - name: State terughalen (cache)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            funda_seen_ids.json
+            funda_tracking.json
+            funda_werk_coords.json
+            funda_blacklist.json
+          key: funda-state-${{ github.run_id }}
+          restore-keys: |
+            funda-state-
+
+      # Secrets naar bestanden schrijven. Stopt hard als het wachtwoord ontbreekt,
+      # zodat er nooit per ongeluk een ONVERSLEUTELD rapport publiek wordt gezet.
+      - name: Geheime config klaarzetten
+        env:
+          FUNDA_PERSONAL_JSON: ${{ secrets.FUNDA_PERSONAL_JSON }}
+          FUNDA_PWA_PASSWORD: ${{ secrets.FUNDA_PWA_PASSWORD }}
+          FUNDA_BLACKLIST_JSON: ${{ secrets.FUNDA_BLACKLIST_JSON }}
+        run: |
+          if [ -z "$FUNDA_PWA_PASSWORD" ]; then
+            echo "::error::Secret FUNDA_PWA_PASSWORD ontbreekt. Gestopt om te voorkomen dat het rapport onversleuteld publiek wordt."
+            exit 1
+          fi
+          if [ -z "$FUNDA_PERSONAL_JSON" ]; then
+            echo "::error::Secret FUNDA_PERSONAL_JSON ontbreekt."
+            exit 1
+          fi
+          printf '%s' "$FUNDA_PERSONAL_JSON" > funda_personal.json
+          printf '%s' "$FUNDA_PWA_PASSWORD" > funda_pwa_password.txt
+          # Blacklist optioneel: alleen als secret bestaat en cache hem niet al gaf.
+          if [ -n "$FUNDA_BLACKLIST_JSON" ] && [ ! -f funda_blacklist.json ]; then
+            printf '%s' "$FUNDA_BLACKLIST_JSON" > funda_blacklist.json
+          fi
+          # Snelle sanity-check dat de JSON geldig is.
+          python -c "import json; json.load(open('funda_personal.json'))"
+
+      - name: Rapport genereren
+        env:
+          FUNDA_REQUIRE_ENCRYPTION: "1"   # weiger onversleuteld te publiceren
+        run: python funda_zoek.py --no-push --no-open
+
+      # Geheimen meteen wissen na generatie, voordat we iets committen of cachen.
+      - name: Geheimen wissen
+        if: always()
+        run: rm -f funda_personal.json funda_pwa_password.txt
+
+      - name: Versleuteld rapport publiceren
+        run: |
+          git config user.name "funda-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/
+          if git diff --cached --quiet; then
+            echo "Geen wijzigingen in het rapport."
+          else
+            git commit -m "auto: rapport $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+          fi
+
+      # State bewaren voor de run van morgen (rollende cache-sleutel).
+      - name: State bewaren (cache)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            funda_seen_ids.json
+            funda_tracking.json
+            funda_werk_coords.json
+            funda_blacklist.json
+          key: funda-state-${{ github.run_id }}

@@ -5,6 +5,7 @@ funda_seen_ids.json
 funda_blacklist.json
 funda_log.txt
 funda_werk_coords.json
+funda_tracking.json
 funda_rapport.md
 funda_rapport.html
 
@@ -16,5 +17,4 @@ __pycache__/
 
 # OS
 .DS_Store
-Thumbs.db
-desktop.ini
+Th

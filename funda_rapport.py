@@ -33,7 +33,7 @@ def _laad_personal() -> dict:
         "bruto_jaar": 50_000, "eigen_inleg": 0, "duo_maandlast": 0, "leeftijd": 30,
         "postcode_huidig": "1011AB",
         "werk_postcodes": [["1011AB", "voorbeeld"]],
-        "prijs_min": 200_000, "prijs_max": 350_000, "m2_min": 60, "radius_km": 5,
+        "prijs_min": 200_000, "prijs_max": 350_000, "m2_min": 52, "radius_km": 5,
     }
 
 
@@ -636,6 +636,14 @@ def bouw_rij(d: dict, details: dict | None, beschrijving: str) -> dict:
     else:
         budget = "PAST"
 
+    # Prijs-/looptijd-tracking (aangehangen door funda_zoek.py).
+    track = d.get("_track") or {}
+    basis_score = score(d, lasten, pros, cons, in_max)
+    if track.get("gedaald"):
+        basis_score += 4  # prijsdaling = kans, hoger in lijst
+    if track.get("dagen", 0) >= 90:
+        basis_score += 2  # lang te koop = onderhandelruimte
+
     return {
         "d": d,
         "details": details,
@@ -650,7 +658,8 @@ def bouw_rij(d: dict, details: dict | None, beschrijving: str) -> dict:
         "kk": kk,
         "inleg_tekort": inleg_tekort,
         "budget": budget,
-        "score": score(d, lasten, pros, cons, in_max),
+        "track": track,
+        "score": basis_score,
     }
 
 
@@ -796,6 +805,9 @@ h2 { margin: 32px 0 16px; font-size: 20px; border-bottom: 2px solid #d1d5db; pad
 .badge-label.F, .badge-label.G { background: #fee2e2; color: #991b1b; }
 .badge-nhg { background: #fef3c7; color: #92400e; }
 .badge-new { background: #10b981; color: #fff; }
+.badge-drop { background: #fca5a5; color: #7f1d1d; }
+.badge-lang { background: #fde68a; color: #78350f; }
+.pricedrop { font-size: 12px; color: #b91c1c; font-weight: 600; margin: 2px 0 8px; }
 .badge-budget-PAST { background: #d1fae5; color: #065f46; }
 .badge-budget-KRAP { background: #fef3c7; color: #92400e; }
 .badge-budget-NORM { background: #fed7aa; color: #9a3412; }
@@ -843,9 +855,17 @@ def _card_html(r: dict) -> str:
         if foto else '<div class="card-photo-placeholder">Geen foto beschikbaar</div>'
     )
 
+    tr = r.get("track") or {}
     badges = []
     if r["is_nieuw"]:
         badges.append('<span class="badge badge-new">NIEUW</span>')
+    if tr.get("gedaald"):
+        badges.append(
+            f'<span class="badge badge-drop">PRIJS -€{tr["drop_bedrag"]:,} ({tr["drop_pct"]}%)</span>'
+        )
+    if tr.get("dagen", 0) >= 90:
+        suffix = "" if tr.get("dagen_bron") == "funda" else "+"
+        badges.append(f'<span class="badge badge-lang">{tr["dagen"]}{suffix} dagen te koop</span>')
     badges.append(f'<span class="badge badge-label {r["label"]}">Label {r["label"]}</span>')
     if r["label"] in {"A", "B"}:
         badges.append('<span class="badge badge-nhg">NHG-bonus</span>')
@@ -888,6 +908,7 @@ def _card_html(r: dict) -> str:
         </div>
         <div class="card-meta">{r['m2']} m2 | {rooms} kamers, {bedrooms} slpk{bouwjaar}</div>
         <div class="badges">{''.join(badges)}</div>
+        {('<div class="pricedrop">Was € ' + format(tr['eerdere_prijs'], ',') + ', nu € ' + format(r['prijs'], ',') + (' (wijziging ' + str(tr['laatste_wijziging']) + ')' if tr.get('laatste_wijziging') else '') + '</div>') if tr.get('gedaald') and tr.get('eerdere_prijs') else ''}
         {routes_html}
         <div class="lasten">
           Maandlast: <span class="lasten-totaal">€ {l['totaal']:,}</span>
@@ -1194,7 +1215,9 @@ def schrijf_pwa_assets(rijen: list[dict]) -> Path:
             (pwa_dir / "index.html").write_text(beveiligd, encoding="utf-8")
             return pwa_dir
 
-    # Fallback: onbeveiligd, zelfde tags als eerder.
-    print("[rapport] WAARSCHUWING: geen funda_pwa_password.txt gevonden, PWA wordt onversleuteld geschreven!")
-    (pwa_dir / "index.html").write_text(render_html(rijen, is_pwa=True), encoding="utf-8")
-    return pwa_dir
+    # Vangrail: in CI (publieke repo) NOOIT onversleuteld publiceren.
+    import os
+    if os.environ.get("FUNDA_REQUIRE_ENCRYPTION") == "1":
+        raise RuntimeError(
+            "FUNDA_REQUIRE_ENCRYPTION=1 maar geen wachtwoord gevonden; "
+            "weiger om een onve
