@@ -1,0 +1,42 @@
+name: Test web push
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-web-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Maak test-summary
+        run: |
+          cat > funda_run_summary.json <<'JSON'
+          {
+            "nieuw_count": 1,
+            "nieuw": [
+              {
+                "title": "Testmelding vanuit GitHub Actions",
+                "city": "Den Haag",
+                "price": 350000,
+                "living_area": 75
+              }
+            ]
+          }
+          JSON
+
+      - name: Test Web Push
+        env:
+          WEB_PUSH_PUBLIC_KEY: ${{ secrets.WEB_PUSH_PUBLIC_KEY }}
+          WEB_PUSH_PRIVATE_KEY: ${{ secrets.WEB_PUSH_PRIVATE_KEY }}
+          WEB_PUSH_SUBSCRIPTION: ${{ secrets.WEB_PUSH_SUBSCRIPTION }}
+          WEB_PUSH_SUBJECT: ${{ secrets.WEB_PUSH_SUBJECT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ -z "$WEB_PUSH_PUBLIC_KEY" ] || [ -z "$WEB_PUSH_PRIVATE_KEY" ] || [ -z "$WEB_PUSH_SUBSCRIPTION" ]; then
+            echo "::error::Web Push secrets ontbreken."
+            exit 1
+          fi
+          node -e "JSON.parse(process.env.WEB_PUSH_SUBSCRIPTION); console.log('WEB_PUSH_SUBSCRIPTION is geldige JSON')"
+          npm install --no-save --no-package-lock web-push@3
+          node scripts/send_web_push.cjs
