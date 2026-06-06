@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import time
 import urllib.parse
@@ -53,6 +54,11 @@ ACTIONS_URL = _PERSONAL.get(
     "actions_url",
     "https://github.com/rpvos-dhg/Funda/actions/workflows/funda-daily.yml",
 )
+WEB_PUSH_PUBLIC_KEY = (
+    _PERSONAL.get("web_push_public_key")
+    or os.environ.get("WEB_PUSH_PUBLIC_KEY")
+    or ""
+).strip()
 
 # Tijd in Nederlandse tijdzone tonen (GitHub-runners draaien in UTC).
 try:
@@ -1481,6 +1487,65 @@ h2 { margin: 0; font-size: 21px; line-height: 1.2; }
   border-top: 1px solid var(--line);
   font-size: 13px;
 }
+.notification-section { margin-top: 18px; }
+.push-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+}
+.push-copy { min-width: 0; display: grid; gap: 4px; font-size: 13px; line-height: 1.35; }
+.push-copy strong { color: var(--ink); font-size: 14px; }
+.push-copy span { color: var(--muted); }
+.push-copy code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #eef3f6;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.push-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.push-actions button {
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 7px;
+  border: 1px solid var(--funda-blue);
+  background: var(--funda-blue);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 850;
+  cursor: pointer;
+}
+.push-actions button:disabled { opacity: .65; cursor: wait; }
+.push-actions button:nth-child(2) { background: #fff; color: var(--funda-blue-dark); border-color: var(--line); }
+#push-subscription-output {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 118px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #f8fafb;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  resize: vertical;
+}
+.push-status {
+  grid-column: 1 / -1;
+  min-height: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
 .leaflet-container { font: inherit; }
 .leaflet-control-attribution { font-size: 11px; }
 .funda-pin, .work-pin { background: transparent; border: 0; }
@@ -1765,6 +1830,9 @@ h2 { margin: 0; font-size: 21px; line-height: 1.2; }
   .section-row { margin: 22px 0 10px; align-items: flex-start; flex-direction: column; }
   #funda-map { height: 380px; min-height: 340px; }
   .map-legend { gap: 10px; padding: 10px 12px; }
+  .push-setup { grid-template-columns: 1fr; padding: 12px; }
+  .push-actions { justify-content: stretch; }
+  .push-actions button { flex: 1 1 150px; }
   .cards { grid-template-columns: 1fr; gap: 14px; }
   .card-title { font-size: 16px; }
   .card-prijs { font-size: 18px; }
@@ -1882,6 +1950,88 @@ function fundaInitMap(tries){
 window.fundaAfterReportLoad = function(){ fundaInitMap(); };
 document.addEventListener('DOMContentLoaded', function(){ window.fundaAfterReportLoad(); });
 window.addEventListener('pageshow', function(){ setTimeout(window.fundaAfterReportLoad, 80); });
+</script>
+"""
+
+def pwa_push_js() -> str:
+    if not WEB_PUSH_PUBLIC_KEY:
+        return ""
+    key = json.dumps(WEB_PUSH_PUBLIC_KEY)
+    return f"""
+<script>
+(function(){{
+  var WEB_PUSH_PUBLIC_KEY = {key};
+  function pushStatus(msg, isError){{
+    var el = document.getElementById('push-status');
+    if(!el) return;
+    el.textContent = msg || '';
+    el.style.color = isError ? '#b42318' : '';
+  }}
+  function b64ToUint8Array(base64){{
+    var padding = '='.repeat((4 - base64.length % 4) % 4);
+    var b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+    var raw = atob(b64);
+    var out = new Uint8Array(raw.length);
+    for(var i=0;i<raw.length;i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }}
+  async function ensurePushSubscription(){{
+    if(!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)){{
+      throw new Error('Web Push wordt niet ondersteund in deze browser.');
+    }}
+    var permission = await Notification.requestPermission();
+    if(permission !== 'granted') throw new Error('Notificaties zijn niet toegestaan.');
+    var reg = await navigator.serviceWorker.ready;
+    var sub = await reg.pushManager.getSubscription();
+    if(!sub){{
+      sub = await reg.pushManager.subscribe({{
+        userVisibleOnly: true,
+        applicationServerKey: b64ToUint8Array(WEB_PUSH_PUBLIC_KEY)
+      }});
+    }}
+    return sub;
+  }}
+  function wirePushSetup(){{
+    var btn = document.getElementById('push-subscribe-btn');
+    var copy = document.getElementById('push-copy-btn');
+    var output = document.getElementById('push-subscription-output');
+    if(!btn || !output || btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', async function(){{
+      btn.disabled = true;
+      pushStatus('Subscription maken...');
+      try {{
+        var sub = await ensurePushSubscription();
+        output.value = JSON.stringify(sub.toJSON(), null, 2);
+        output.hidden = false;
+        if(copy) copy.hidden = false;
+        pushStatus('Kopieer deze JSON naar GitHub secret WEB_PUSH_SUBSCRIPTION.');
+      }} catch(err) {{
+        pushStatus(err && err.message ? err.message : String(err), true);
+      }} finally {{
+        btn.disabled = false;
+      }}
+    }});
+    if(copy){{
+      copy.addEventListener('click', async function(){{
+        try {{
+          await navigator.clipboard.writeText(output.value || '');
+          pushStatus('Subscription gekopieerd.');
+        }} catch(err) {{
+          output.focus();
+          output.select();
+          pushStatus('Kopieer de geselecteerde JSON handmatig.', true);
+        }}
+      }});
+    }}
+  }}
+  var previous = window.fundaAfterReportLoad;
+  window.fundaAfterReportLoad = function(){{
+    if(previous) previous();
+    wirePushSetup();
+  }};
+  document.addEventListener('DOMContentLoaded', wirePushSetup);
+}})();
 </script>
 """
 
@@ -2110,6 +2260,33 @@ def _map_html(rijen: list[dict], werk_coords: dict[str, tuple[float, float]] | N
     """
 
 
+def _push_setup_html() -> str:
+    if not WEB_PUSH_PUBLIC_KEY:
+        return ""
+    return """
+    <section class="notification-section" aria-label="Push notificaties">
+      <div class="section-row">
+        <div>
+          <h2>Notificaties</h2>
+          <div class="section-note">iOS web push via GitHub Actions</div>
+        </div>
+      </div>
+      <div class="push-setup" data-push-ready="0">
+        <div class="push-copy">
+          <strong>Nieuwe woningen direct melden</strong>
+          <span>Activeer dit vanuit de iOS beginscherm-app. Plak de subscription daarna als GitHub secret <code>WEB_PUSH_SUBSCRIPTION</code>.</span>
+        </div>
+        <div class="push-actions">
+          <button type="button" id="push-subscribe-btn">Activeer push</button>
+          <button type="button" id="push-copy-btn" hidden>Kopieer secret</button>
+        </div>
+        <textarea id="push-subscription-output" readonly hidden spellcheck="false" aria-label="Web Push subscription"></textarea>
+        <div id="push-status" class="push-status"></div>
+      </div>
+    </section>
+    """
+
+
 def _card_html(r: dict) -> str:
     d = r["d"]
     url = _detail_url(d)
@@ -2297,6 +2474,7 @@ def render_report_body(
     <main class="container">
     {profiel}
     {_map_html(rijen, werk_coords)}
+    {_push_setup_html()}
     {section(nieuw_titel, nieuwe, nieuw_leeg)}
     {section(rest_titel, rest, rest_leeg)}
     {assumpties}
@@ -2347,6 +2525,7 @@ if ('serviceWorker' in navigator) {
 <body>
 {body}
 {MAP_JS}
+{pwa_push_js() if is_pwa else ""}
 {pwa_script}
 </body>
 </html>"""
@@ -2399,6 +2578,33 @@ self.addEventListener('fetch', e => {
       return resp;
     }).catch(() => caches.match(e.request).then(r => r || caches.match('index.html')))
   );
+});
+self.addEventListener('push', e => {
+  let data = {};
+  try { data = e.data ? e.data.json() : {}; } catch(_) {
+    data = { title: 'Nieuwe Funda woningen', body: e.data ? e.data.text() : '' };
+  }
+  const title = data.title || 'Nieuwe Funda woningen';
+  const options = {
+    body: data.body || 'Open de shortlist voor de nieuwste matches.',
+    icon: 'icon-512.png',
+    badge: 'apple-touch-icon.png',
+    data: { url: data.url || './' },
+    tag: data.tag || 'funda-new-listings',
+    renotify: true
+  };
+  e.waitUntil(self.registration.showNotification(title, options));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const target = e.notification.data && e.notification.data.url ? e.notification.data.url : './';
+  e.waitUntil((async () => {
+    const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of allClients) {
+      if ('focus' in client) return client.focus();
+    }
+    if (clients.openWindow) return clients.openWindow(target);
+  })());
 });
 """
 
@@ -2561,6 +2767,7 @@ def beveilig_html(html: str, password: str) -> str:
         .replace("__APP_CSS__", HTML_CSS)
         .replace("__MAP_HEAD__", MAP_HEAD)
         .replace("__MAP_JS__", MAP_JS)
+        .replace("__PWA_PUSH_JS__", pwa_push_js())
         .replace("__SALT__", salt_b64)
         .replace("__IV__", iv_b64)
         .replace("__CT__", ct_b64)
@@ -2599,6 +2806,7 @@ __APP_CSS__
 @keyframes s{to{transform:rotate(360deg)}}
 </style>
 __MAP_JS__
+__PWA_PUSH_JS__
 </head>
 <body>
 <div id="lock" class="lock">

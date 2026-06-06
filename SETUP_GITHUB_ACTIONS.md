@@ -26,6 +26,9 @@ New repository secret**. Maak deze twee aan:
 Optioneel:
 - **`FUNDA_BLACKLIST_JSON`** — alleen nodig als je een vaste blacklist wilt
   meegeven. Plak de inhoud van `funda_blacklist.json`. Anders gewoon overslaan.
+- **`WEB_PUSH_PUBLIC_KEY`**, **`WEB_PUSH_PRIVATE_KEY`** en
+  **`WEB_PUSH_SUBSCRIPTION`** — alleen nodig als je iOS PWA pushmeldingen wilt
+  bij nieuwe woningen. Zie de sectie hieronder.
 
 ### 2. Controleren waar GitHub Pages vandaan komt
 **Settings -> Pages.** Het moet staan op: **Deploy from a branch**, branch
@@ -62,12 +65,40 @@ veilig en werkt met twee klikken.
 Zet `actions_url` zowel in je lokale `funda_personal.json` (voor lokale runs) als
 in het secret `FUNDA_PERSONAL_JSON` (voor het rapport dat GitHub maakt).
 
+## iOS pushmeldingen via GitHub Actions
+
+Dit gebruikt Web Push voor iOS Home Screen webapps. Er is geen vaste backend
+nodig: de PWA maakt een subscription aan, jij slaat die als GitHub Secret op, en
+GitHub Actions verstuurt de push bij runs met nieuwe woningen.
+
+1. Genereer VAPID keys:
+
+   ```bash
+   npx web-push generate-vapid-keys
+   ```
+
+2. Maak GitHub Secrets:
+
+   - `WEB_PUSH_PUBLIC_KEY`
+   - `WEB_PUSH_PRIVATE_KEY`
+   - optioneel `WEB_PUSH_SUBJECT` met bijvoorbeeld `mailto:jij@example.com`
+
+3. Run de workflow een keer. Open daarna de PWA vanaf het iOS beginscherm,
+   ontgrendel het rapport en tik op **Activeer push** in de sectie
+   **Notificaties**.
+
+4. Kopieer de getoonde JSON en sla die op als GitHub Secret
+   `WEB_PUSH_SUBSCRIPTION`.
+
+Vanaf de volgende run stuurt Actions een push als `nieuw_count > 0`. Als iOS de
+subscription later intrekt of vervangt, herhaal stap 3 en 4.
+
 ## Wat waar staat (privacy)
 - **Secrets (nooit publiek):** je `funda_personal.json` (inkomen, postcode,
   werkpostcodes) en het wachtwoord. Staan versleuteld in GitHub Secrets, worden
   tijdens de run als bestand neergezet en direct daarna gewist.
-- **Cache (niet publiek):** seen-ids, prijs-tracking en je werk-coordinaten.
-  Blijven bewaard tussen runs, maar staan niet in de repo.
+- **Cache (niet publiek):** seen-ids, prijs-tracking, pyfunda-verrijking en je
+  werk-coordinaten. Blijven bewaard tussen runs, maar staan niet in de repo.
 - **Publiek (maar versleuteld):** alleen `docs/` met het AES-versleutelde rapport.
 - De run stopt expres met een foutmelding als het wachtwoord-secret ontbreekt, om
   te voorkomen dat er ooit een leesbaar rapport publiek komt te staan.

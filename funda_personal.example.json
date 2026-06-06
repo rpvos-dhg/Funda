@@ -14,5 +14,6 @@
   "m2_min": 55,
   "radius_km": 6,
   "zoek_sorts": [null, "oldest"],
+  "web_push_public_key": "",
   "actions_url": "https://github.com/<gebruiker>/<repo>/actions/workflows/funda-daily.yml"
 }

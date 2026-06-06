@@ -31,8 +31,9 @@ Deze leven alleen lokaal en mogen nooit gecommit worden:
 `funda_blacklist.json`, `funda_log.txt`.
 
 Op GitHub komen dezelfde gegevens uit Secrets: `FUNDA_PERSONAL_JSON` en
-`FUNDA_PWA_PASSWORD`. De state (seen-ids, tracking, werk-coords) staat in de
-Actions-cache, niet in de repo.
+`FUNDA_PWA_PASSWORD`. Optionele PWA push gebruikt `WEB_PUSH_PUBLIC_KEY`,
+`WEB_PUSH_PRIVATE_KEY` en `WEB_PUSH_SUBSCRIPTION`. De state (seen-ids, tracking,
+werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
 
 ## Belangrijke valkuilen (eerder tegengekomen)
 
@@ -72,3 +73,6 @@ tracking, prijsdaling-detectie en rapport-rendering offline (geen netwerk nodig)
   los van wat Funda teruggeeft. Flags voor prijsdaling en "lang op funda".
 - **Verversknop** in het rapport linkt naar de Actions "Run workflow"-pagina
   (geen token nodig, dus veilig op een publieke pagina).
+- **iOS PWA push** werkt zonder vaste backend: de webapp toont een subscription
+  JSON, die als GitHub Secret `WEB_PUSH_SUBSCRIPTION` wordt opgeslagen. Actions
+  stuurt daarna met `scripts/send_web_push.cjs` een Web Push bij nieuwe woningen.

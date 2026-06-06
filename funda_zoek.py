@@ -159,6 +159,7 @@ BLACKLIST_FILE = Path(__file__).parent / "funda_blacklist.json"
 # Prijs- en datumgeschiedenis die we zelf bijhouden. Onafhankelijk van wat
 # Funda wel/niet teruggeeft, dus betrouwbaar voor prijsdaling-detectie.
 TRACKING_FILE = Path(__file__).parent / "funda_tracking.json"
+SUMMARY_FILE = Path(__file__).parent / "funda_run_summary.json"
 
 
 # === Helpers ===
@@ -182,6 +183,39 @@ def log(msg: str) -> None:
     print(line)
     with LOG_FILE.open("a", encoding="utf-8") as fp:
         fp.write(line + "\n")
+
+
+def _detail_url(d: dict) -> str:
+    url = d.get("detail_url") or ""
+    if url and not url.startswith("http"):
+        url = f"https://www.funda.nl{url}"
+    return url
+
+
+def schrijf_run_summary(nieuw: list[dict], bekend: list[dict], afgewezen: list[tuple[dict, list[str]]]) -> None:
+    """Schrijf compacte run-uitkomst voor GitHub Actions notificaties."""
+    def item(d: dict) -> dict:
+        prijs = int(d.get("price") or 0)
+        m2 = int(d.get("living_area") or 0)
+        return {
+            "id": str(d.get("global_id") or d.get("listing_id") or d.get("detail_url") or ""),
+            "title": d.get("title") or "Woning",
+            "city": d.get("city") or "",
+            "neighbourhood": d.get("neighbourhood") or "",
+            "price": prijs,
+            "living_area": m2,
+            "energy_label": d.get("energy_label") or "?",
+            "url": _detail_url(d),
+        }
+
+    payload = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "nieuw_count": len(nieuw),
+        "bekend_count": len(bekend),
+        "afgewezen_count": len(afgewezen),
+        "nieuw": [item(d) for d in nieuw],
+    }
+    SUMMARY_FILE.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def is_uitgesloten_buurt(buurt: str) -> str | None:
@@ -570,6 +604,7 @@ def main() -> None:
 
     nieuw.sort(key=sort_key)
     bekend.sort(key=sort_key)
+    schrijf_run_summary(nieuw, bekend, afgewezen)
 
     # Output.
     print("\n" + "=" * 78)

@@ -50,6 +50,7 @@ jobs:
             funda_seen_ids.json
             funda_tracking.json
             funda_werk_coords.json
+            funda_enrichment_cache.json
             funda_blacklist.json
           key: funda-state-${{ github.run_id }}
           restore-keys: |
@@ -83,6 +84,7 @@ jobs:
       - name: Rapport genereren
         env:
           FUNDA_REQUIRE_ENCRYPTION: "1"   # weiger onversleuteld te publiceren
+          WEB_PUSH_PUBLIC_KEY: ${{ secrets.WEB_PUSH_PUBLIC_KEY }}
         run: python funda_zoek.py --no-push --no-open
 
       # Geheimen meteen wissen na generatie, voordat we iets committen of cachen.
@@ -102,6 +104,20 @@ jobs:
             git push
           fi
 
+      - name: Push-notificatie bij nieuwe woningen
+        env:
+          WEB_PUSH_PUBLIC_KEY: ${{ secrets.WEB_PUSH_PUBLIC_KEY }}
+          WEB_PUSH_PRIVATE_KEY: ${{ secrets.WEB_PUSH_PRIVATE_KEY }}
+          WEB_PUSH_SUBSCRIPTION: ${{ secrets.WEB_PUSH_SUBSCRIPTION }}
+          WEB_PUSH_SUBJECT: ${{ secrets.WEB_PUSH_SUBJECT }}
+        run: |
+          if [ -z "$WEB_PUSH_PUBLIC_KEY" ] || [ -z "$WEB_PUSH_PRIVATE_KEY" ] || [ -z "$WEB_PUSH_SUBSCRIPTION" ]; then
+            echo "Web Push secrets ontbreken; notificatie overgeslagen."
+            exit 0
+          fi
+          npm install --no-save --no-package-lock web-push@3
+          node scripts/send_web_push.cjs
+
       # State bewaren voor de run van morgen (rollende cache-sleutel).
       - name: State bewaren (cache)
         if: always()
@@ -111,5 +127,6 @@ jobs:
             funda_seen_ids.json
             funda_tracking.json
             funda_werk_coords.json
+            funda_enrichment_cache.json
             funda_blacklist.json
           key: funda-state-${{ github.run_id }}
