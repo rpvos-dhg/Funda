@@ -1,0 +1,4 @@
+# Pin pyfunda op v2.9.0: v3+ heeft een andere API (geen search_listing/.data).
+# Zelfde versie als in .github/workflows/funda-daily.yml.
+pyfunda @ git+https://github.com/0xMH/pyfunda.git@v2.9.0
+cryptography>=42
