@@ -13,6 +13,7 @@ import re
 import time
 import urllib.parse
 import urllib.request
+import html as html_lib
 from pathlib import Path
 from datetime import datetime
 
@@ -597,6 +598,8 @@ def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None)
         rij["routes"] = []
         wlat = details.get("latitude") if details else None
         wlon = details.get("longitude") if details else None
+        rij["lat"] = wlat
+        rij["lon"] = wlon
         if wlat and wlon and werk_coords:
             for pc, label in WERK_POSTCODES:
                 if pc in werk_coords:
@@ -616,11 +619,11 @@ def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None)
 
     # Schrijf HTML
     pad_html = Path(__file__).parent / "funda_rapport.html"
-    html = render_html(rijen)
+    html = render_html(rijen, werk_coords=werk_coords)
     pad_html.write_text(html, encoding="utf-8")
 
     # Schrijf PWA assets (manifest, sw, icon, index.html)
-    pwa_dir = schrijf_pwa_assets(rijen)
+    pwa_dir = schrijf_pwa_assets(rijen, werk_coords=werk_coords)
 
     print(f"[rapport] Geschreven: {pad_md.name}, {pad_html.name}, en {pwa_dir.name}/")
     return pad_html
@@ -799,111 +802,416 @@ def render_markdown(rijen: list[dict]) -> str:
 
 HTML_CSS = """
 :root {
-  --funda: #e2007a;          /* Funda magenta-roze huisstijl */
-  --funda-dark: #c10068;
-  --ink: #2a2d34;
-  --muted: #6b7280;
-  --line: #ececef;
-  --bg: #f7f7f5;
-  --card-shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.10);
-  --radius: 14px;
+  --funda-blue: #0a5f8f;
+  --funda-blue-dark: #06446b;
+  --funda-orange: #f47b20;
+  --funda-orange-dark: #cf5f0d;
+  --ink: #1f2a37;
+  --muted: #617082;
+  --line: #d9e1e8;
+  --bg: #eef3f6;
+  --surface: #ffffff;
+  --green: #0e9f6e;
+  --red: #b42318;
+  --yellow: #f6c54f;
+  --card-shadow: 0 1px 2px rgba(16,24,40,.06), 0 8px 22px rgba(16,24,40,.08);
+  --radius: 8px;
 }
 * { box-sizing: border-box; }
-body { font-family: 'Inter', -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 0 0 48px; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
-.container { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
-a { color: var(--funda); }
-
-/* Topbar in Funda-stijl */
-.topbar { background: #fff; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 500; }
-.topbar-inner { max-width: 1180px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; letter-spacing: -.4px; color: var(--ink); }
-.brand .logo { width: 30px; height: 30px; }
-.brand span.accent { color: var(--funda); }
-.refresh-btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; background: var(--funda); color: #fff; text-decoration: none; border-radius: 999px; font-size: 14px; font-weight: 600; white-space: nowrap; transition: background .15s; }
-.refresh-btn:hover { background: var(--funda-dark); }
-
-h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -.5px; }
-h2 { margin: 40px 0 18px; font-size: 21px; letter-spacing: -.3px; display: flex; align-items: center; gap: 10px; }
-h2 .count { font-size: 13px; font-weight: 600; color: var(--funda); background: #fde6f2; padding: 2px 10px; border-radius: 999px; }
+html { min-height: 100%; background: var(--bg); -webkit-text-size-adjust: 100%; }
+body {
+  min-height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  margin: 0;
+  padding: 0 0 calc(42px + env(safe-area-inset-bottom));
+  background: linear-gradient(#dfeaf0 0, #eef3f6 280px, #eef3f6 100%);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+a { color: var(--funda-blue); }
+button, input, textarea, select { font: inherit; }
+.container { width: min(1160px, 100%); margin: 0 auto; padding: 18px 18px 0; }
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 700;
+  padding-top: env(safe-area-inset-top);
+  background: var(--funda-blue);
+  color: #fff;
+  box-shadow: 0 1px 0 rgba(255,255,255,.12) inset, 0 8px 22px rgba(10,95,143,.18);
+}
+.topbar-inner {
+  width: min(1160px, 100%);
+  height: 58px;
+  margin: 0 auto;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: #fff;
+  text-decoration: none;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  background: var(--funda-orange);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 900;
+  box-shadow: 0 0 0 2px rgba(255,255,255,.22);
+}
+.brand-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 8px;
+  background: var(--funda-orange);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.22);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.refresh-btn:hover { background: var(--funda-orange-dark); }
+h1, h2, h3 { letter-spacing: 0; }
+h1 { margin: 0 0 6px; font-size: clamp(24px, 3vw, 34px); line-height: 1.08; }
+h2 { margin: 0; font-size: 21px; line-height: 1.2; }
 .subtitle { color: var(--muted); font-size: 14px; }
 
-.profile { background: #fff; border-radius: var(--radius); padding: 24px; box-shadow: var(--card-shadow); margin-top: 24px; }
-.profile-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-.profile dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px 24px; margin: 0; }
-.profile dl > div { border-left: 3px solid var(--line); padding-left: 12px; }
-.profile dt { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
-.profile dd { margin: 2px 0 0; color: var(--ink); font-size: 15px; font-weight: 600; }
+.profile {
+  display: grid;
+  grid-template-columns: minmax(260px, .9fr) minmax(0, 1.25fr);
+  gap: 18px;
+  align-items: stretch;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,.96);
+  box-shadow: var(--card-shadow);
+}
+.profile-intro {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+}
+.profile-kicker {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #e8f3f9;
+  color: var(--funda-blue-dark);
+  font-size: 12px;
+  font-weight: 750;
+}
+.profile dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.profile dl > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #f8fafb;
+}
+.profile dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.profile dd {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.25;
+  font-weight: 750;
+}
 
-/* Kaart */
-.map-wrap { background: #fff; border-radius: var(--radius); box-shadow: var(--card-shadow); overflow: hidden; margin-top: 8px; }
-#funda-map { height: 460px; width: 100%; background: #e8e8e6; }
-.map-legend { display: flex; gap: 18px; flex-wrap: wrap; padding: 12px 18px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
+.section-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 28px 0 12px;
+}
+.section-note { color: var(--muted); font-size: 13px; }
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 8px;
+  margin-left: 8px;
+  border-radius: 6px;
+  background: #e8f3f9;
+  color: var(--funda-blue-dark);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.map-section { margin-top: 18px; }
+.map-wrap {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+}
+#funda-map {
+  width: 100%;
+  height: min(58vh, 520px);
+  min-height: 360px;
+  background: #dce7ec;
+  touch-action: pan-x pan-y;
+}
+.map-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 11px 14px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
 .map-legend span { display: inline-flex; align-items: center; gap: 7px; }
-.dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.15); }
-.dot.new { background: #10b981; }
-.dot.hit { background: var(--funda); }
-.dot.work { background: #2563eb; }
+.dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(31,42,55,.22); }
+.dot.new { background: var(--green); }
+.dot.hit { background: var(--funda-orange); }
+.dot.work { background: var(--funda-blue); }
+.map-empty {
+  padding: 10px 14px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.leaflet-container { font: inherit; }
+.leaflet-control-attribution { font-size: 11px; }
+.funda-pin, .work-pin { background: transparent; border: 0; }
+.funda-pin span, .work-pin span {
+  position: absolute;
+  left: 2px;
+  top: 0;
+  width: 30px;
+  height: 30px;
+  border: 3px solid #fff;
+  border-radius: 50% 50% 50% 0;
+  background: var(--funda-orange);
+  box-shadow: 0 4px 12px rgba(31,42,55,.28);
+  transform: rotate(-45deg);
+}
+.funda-pin span::after, .work-pin span::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: #fff;
+}
+.funda-pin.is-new span { background: var(--green); }
+.work-pin span { background: var(--funda-blue); width: 26px; height: 26px; left: 4px; top: 3px; }
 
-/* Popup context-kaart */
-.leaflet-popup-content-wrapper { border-radius: 12px; padding: 0; overflow: hidden; }
-.leaflet-popup-content { margin: 0; width: 230px !important; }
-.mp { font-family: 'Inter', -apple-system, Segoe UI, sans-serif; }
-.mp img { width: 100%; height: 116px; object-fit: cover; display: block; background: #e5e7eb; }
-.mp-b { padding: 10px 12px; }
-.mp-title { font-weight: 700; font-size: 14px; line-height: 1.25; color: var(--ink); }
-.mp-meta { color: var(--muted); font-size: 12px; margin: 2px 0 6px; }
+.leaflet-popup-content-wrapper {
+  border-radius: 8px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 14px 34px rgba(31,42,55,.24);
+}
+.leaflet-popup-content { margin: 0; width: 272px !important; }
+.mp { background: #fff; color: var(--ink); }
+.mp img { width: 100%; height: 132px; object-fit: cover; display: block; background: #dde4eb; }
+.mp-b { padding: 12px; }
+.mp-title { font-weight: 800; font-size: 15px; line-height: 1.25; color: var(--ink); }
+.mp-meta { color: var(--muted); font-size: 12px; margin: 3px 0 8px; line-height: 1.35; }
 .mp-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.mp-prijs { font-weight: 800; font-size: 16px; color: var(--ink); }
+.mp-prijs { font-weight: 900; font-size: 17px; color: var(--ink); }
 .mp-lasten { font-size: 12px; color: var(--muted); }
-.mp-tags { margin: 6px 0; display: flex; gap: 5px; flex-wrap: wrap; }
-.mp-actions { display: flex; gap: 8px; margin-top: 8px; }
-.mp-actions a, .mp-actions button { flex: 1; text-align: center; font: inherit; font-size: 12px; font-weight: 600; padding: 7px 8px; border-radius: 8px; cursor: pointer; text-decoration: none; border: 1px solid var(--line); }
-.mp-actions .primary { background: var(--funda); color: #fff; border-color: var(--funda); }
-.mp-actions .ghost { background: #fff; color: var(--ink); }
+.mp-tags { margin: 8px 0; display: flex; gap: 5px; flex-wrap: wrap; }
+.mp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.mp-actions a, .mp-actions button {
+  min-height: 34px;
+  text-align: center;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px;
+  border-radius: 7px;
+  cursor: pointer;
+  text-decoration: none;
+  border: 1px solid var(--line);
+}
+.mp-actions .primary { background: var(--funda-orange); color: #fff; border-color: var(--funda-orange); }
+.mp-actions .ghost { background: #fff; color: var(--funda-blue-dark); }
 
-.cards { display: grid; gap: 20px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
-.card { background: #fff; border-radius: var(--radius); overflow: hidden; box-shadow: var(--card-shadow); display: flex; flex-direction: column; transition: transform .12s, box-shadow .12s; scroll-margin-top: 90px; }
-.card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(16,24,40,.12); }
-.card.is-new { box-shadow: 0 0 0 2px #10b981, var(--card-shadow); }
-.card.flash { box-shadow: 0 0 0 3px var(--funda), var(--card-shadow); }
-.card-photo-wrap { position: relative; }
-.card-photo { background: #e5e7eb; aspect-ratio: 4/3; object-fit: cover; width: 100%; display: block; }
-.card-photo-placeholder { display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 14px; aspect-ratio: 4/3; background: #e5e7eb; }
-.card-prijs-overlay { position: absolute; left: 0; bottom: 0; background: linear-gradient(transparent, rgba(0,0,0,.65)); color: #fff; font-weight: 800; font-size: 19px; padding: 28px 14px 10px; width: 100%; }
-.card-body { padding: 16px; flex: 1; display: flex; flex-direction: column; }
-.card-header { margin-bottom: 8px; }
-.card-title { font-weight: 700; font-size: 16px; line-height: 1.3; margin: 0; }
-.card-meta { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+.cards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); }
+.card {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+  scroll-margin-top: calc(76px + env(safe-area-inset-top));
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.card:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(16,24,40,.14); }
+.card.is-new { border-color: rgba(14,159,110,.65); box-shadow: 0 0 0 2px rgba(14,159,110,.18), var(--card-shadow); }
+.card.flash { border-color: var(--funda-orange); box-shadow: 0 0 0 3px rgba(244,123,32,.34), var(--card-shadow); }
+.card-photo-wrap { position: relative; background: #dce4ea; }
+.card-photo { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; background: #dce4ea; }
+.card-photo-placeholder { display: grid; place-items: center; color: var(--muted); font-size: 14px; aspect-ratio: 16 / 10; background: #dce4ea; }
+.card-prijs {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  max-width: calc(100% - 24px);
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: rgba(255,255,255,.96);
+  color: var(--ink);
+  font-weight: 900;
+  font-size: 20px;
+  line-height: 1;
+  box-shadow: 0 8px 20px rgba(31,42,55,.18);
+}
+.card-body { padding: 14px; flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.card-header { margin-bottom: 8px; min-width: 0; }
+.card-title { margin: 0; font-weight: 850; font-size: 17px; line-height: 1.25; overflow-wrap: anywhere; }
+.card-title a { color: var(--ink); text-decoration: none; }
+.card-title a:hover { color: var(--funda-blue); }
+.card-meta { color: var(--muted); font-size: 13px; line-height: 1.35; margin-bottom: 10px; overflow-wrap: anywhere; }
 .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-.badge { display: inline-block; padding: 4px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-.badge-label { background: #e8eaf0; color: #3a3f4b; }
-.badge-label.A, .badge-label.B { background: #d1fae5; color: #065f46; }
-.badge-label.F, .badge-label.G { background: #fee2e2; color: #991b1b; }
-.badge-nhg { background: #fde6f2; color: var(--funda-dark); }
-.badge-new { background: #10b981; color: #fff; }
-.badge-drop { background: #fca5a5; color: #7f1d1d; }
-.badge-lang { background: #fde68a; color: #78350f; }
-.pricedrop { font-size: 12px; color: #b91c1c; font-weight: 600; margin: 2px 0 8px; }
-.badge-budget-PAST { background: #d1fae5; color: #065f46; }
-.badge-budget-KRAP { background: #fef3c7; color: #92400e; }
-.badge-budget-NORM { background: #fed7aa; color: #9a3412; }
-.badge-budget-MAX { background: #fee2e2; color: #991b1b; }
-.routes { background: #eff6ff; padding: 7px 12px; border-radius: 8px; font-size: 12px; margin: 6px 0; color: #1e40af; }
-.lasten { background: #faf9f7; padding: 9px 12px; border-radius: 8px; font-size: 13px; margin: 8px 0; }
-.lasten-totaal { font-weight: 800; color: var(--ink); }
-.proscons { font-size: 13px; margin: 8px 0; }
-.proscons div { margin: 4px 0; }
+.badge { display: inline-flex; align-items: center; min-height: 22px; padding: 3px 7px; border-radius: 6px; font-size: 11px; font-weight: 800; line-height: 1.1; }
+.badge-label { background: #e7edf3; color: #31465b; }
+.badge-label.A, .badge-label.B { background: #d9f3e7; color: #046c4e; }
+.badge-label.F, .badge-label.G { background: #fde2df; color: var(--red); }
+.badge-nhg { background: #fff2d1; color: #7c4b00; }
+.badge-new { background: var(--green); color: #fff; }
+.badge-drop { background: #ffd7d2; color: var(--red); }
+.badge-lang { background: #ffefbd; color: #775300; }
+.pricedrop { font-size: 12px; color: var(--red); font-weight: 750; margin: 0 0 8px; }
+.badge-budget-PAST { background: #d9f3e7; color: #046c4e; }
+.badge-budget-KRAP { background: #fff2d1; color: #7c4b00; }
+.badge-budget-NORM { background: #ffe4c7; color: #91410a; }
+.badge-budget-MAX { background: #fde2df; color: var(--red); }
+.routes {
+  background: #e8f3f9;
+  padding: 8px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1.35;
+  margin: 2px 0 8px;
+  color: var(--funda-blue-dark);
+}
+.lasten {
+  background: #f7f9fb;
+  border: 1px solid #edf1f5;
+  padding: 9px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  line-height: 1.35;
+  margin: 0 0 8px;
+}
+.lasten-totaal { font-weight: 900; color: var(--ink); }
+.proscons { font-size: 13px; line-height: 1.35; margin: 6px 0; }
+.proscons div { margin: 5px 0; }
 .pros { color: #047857; }
-.cons { color: #b91c1c; }
+.cons { color: var(--red); }
 .card-footer { margin-top: auto; padding-top: 12px; }
-.card-footer a { display: inline-block; padding: 9px 16px; background: var(--funda); color: #fff; text-decoration: none; border-radius: 999px; font-size: 13px; font-weight: 600; }
-.card-footer a:hover { background: var(--funda-dark); }
-.empty { text-align: center; padding: 40px; color: var(--muted); background: #fff; border-radius: var(--radius); }
-.assumptions { background: #fff; border-radius: var(--radius); padding: 18px 22px; font-size: 13px; color: var(--muted); margin-top: 36px; box-shadow: var(--card-shadow); }
+.card-footer a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 13px;
+  background: var(--funda-blue);
+  color: #fff;
+  border-radius: 7px;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 850;
+}
+.card-footer a:hover { background: var(--funda-blue-dark); }
+.empty {
+  text-align: center;
+  padding: 34px 18px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.assumptions {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+  margin-top: 30px;
+  box-shadow: var(--card-shadow);
+}
 .assumptions ul { margin: 8px 0 0; padding-left: 18px; }
+@media (max-width: 760px) {
+  body { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+  .topbar-inner { height: 54px; padding: 0 12px; }
+  .brand { font-size: 16px; gap: 8px; }
+  .brand-mark { width: 32px; height: 32px; font-size: 20px; }
+  .refresh-btn { min-height: 38px; padding: 0 10px; font-size: 13px; }
+  .container { padding: 14px 12px 0; }
+  .profile { grid-template-columns: 1fr; padding: 14px; gap: 12px; }
+  .profile dl { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .profile dl > div { padding: 10px; }
+  .section-row { margin: 22px 0 10px; align-items: flex-start; flex-direction: column; }
+  #funda-map { height: 380px; min-height: 340px; }
+  .map-legend { gap: 10px; padding: 10px 12px; }
+  .cards { grid-template-columns: 1fr; gap: 14px; }
+  .card-title { font-size: 16px; }
+  .card-prijs { font-size: 18px; }
+  .leaflet-popup-content { width: 254px !important; }
+}
+@media (max-width: 430px) {
+  .profile dl { grid-template-columns: 1fr; }
+  .brand-text { max-width: 50vw; }
+  .refresh-btn { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
+  .mp-actions { grid-template-columns: 1fr; }
+}
 @media print {
   body { background: #fff; padding: 0; }
-  .topbar { position: static; }
+  .topbar { position: static; box-shadow: none; }
   .map-wrap { display: none; }
   .card { box-shadow: none; border: 1px solid #d1d5db; page-break-inside: avoid; }
   .profile, .assumptions { box-shadow: none; border: 1px solid #d1d5db; }
@@ -915,10 +1223,8 @@ h2 .count { font-size: 13px; font-weight: 600; color: var(--funda); background: 
 MAP_HEAD = """
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
   integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+<script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
   integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 """
 
 # Init-functie voor de kaart. Idempotent + wacht desnoods op Leaflet.
@@ -932,6 +1238,7 @@ function fundaPopup(p){
   tags += '<span class="badge badge-label '+fundaEsc(p.label)+'">Label '+fundaEsc(p.label)+'</span>';
   if(p.budget) tags += '<span class="badge badge-budget-'+fundaEsc(p.bcls)+'">'+fundaEsc(p.budget)+'</span>';
   var lijst = p.id ? '<button class="ghost" onclick="fundaToCard(\\''+fundaEsc(p.id)+'\\')">In lijst</button>' : '';
+  var open = p.url ? '<a class="primary" href="'+fundaEsc(p.url)+'" target="_blank" rel="noopener">Funda</a>' : '';
   return '<div class="mp">'+img+'<div class="mp-b">'
     + '<div class="mp-title">'+fundaEsc(p.title)+'</div>'
     + '<div class="mp-meta">'+fundaEsc(p.meta)+'</div>'
@@ -939,7 +1246,7 @@ function fundaPopup(p){
     + '<span class="mp-lasten">'+fundaEsc(p.m2)+' m&sup2;</span></div>'
     + '<div class="mp-lasten">Maandlast '+fundaEsc(p.maandlast)+'</div>'
     + '<div class="mp-tags">'+tags+'</div>'
-    + '<div class="mp-actions"><a class="primary" href="'+fundaEsc(p.url)+'" target="_blank" rel="noopener">Funda</a>'+lijst+'</div>'
+    + '<div class="mp-actions">'+open+lijst+'</div>'
     + '</div></div>';
 }
 function fundaToCard(id){
@@ -949,38 +1256,61 @@ function fundaToCard(id){
   el.classList.add('flash');
   setTimeout(function(){ el.classList.remove('flash'); }, 1800);
 }
+function fundaPinIcon(isNew){
+  return L.divIcon({
+    className: 'funda-pin' + (isNew ? ' is-new' : ''),
+    html: '<span></span>',
+    iconSize: [34, 40],
+    iconAnchor: [17, 36],
+    popupAnchor: [0, -32]
+  });
+}
+function fundaWorkIcon(){
+  return L.divIcon({
+    className: 'work-pin',
+    html: '<span></span>',
+    iconSize: [34, 40],
+    iconAnchor: [17, 34],
+    popupAnchor: [0, -30]
+  });
+}
 function fundaInitMap(tries){
   tries = tries || 0;
   var el = document.getElementById('funda-map');
-  if(!el || el._init) return;
+  if(!el) return;
+  if(el.dataset.mapInit === '1'){
+    if(el._fundaMap) setTimeout(function(){ el._fundaMap.invalidateSize(); }, 100);
+    return;
+  }
   if(!window.L){ if(tries < 50) setTimeout(function(){ fundaInitMap(tries+1); }, 100); return; }
   var dataEl = document.getElementById('funda-map-data');
   if(!dataEl) return;
   var d; try { d = JSON.parse(dataEl.textContent); } catch(e){ return; }
-  el._init = true;
-  var map = L.map(el, {scrollWheelZoom:false});
+  el.dataset.mapInit = '1';
+  var map = L.map(el, {scrollWheelZoom:false, tap:true});
+  el._fundaMap = map;
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    {maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(map);
+    {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
   var bounds = [];
   (d.hits||[]).forEach(function(p){
     if(p.lat==null||p.lon==null) return;
-    var m = L.circleMarker([p.lat,p.lon],
-      {radius:9, weight:2, color:'#fff', fillColor:(p.is_nieuw?'#10b981':'#e2007a'), fillOpacity:1});
-    m.addTo(map).bindPopup(fundaPopup(p), {maxWidth:240, minWidth:230});
+    var m = L.marker([p.lat,p.lon], {icon: fundaPinIcon(p.is_nieuw), title: p.title || 'Woning'});
+    m.addTo(map).bindPopup(fundaPopup(p), {maxWidth:272, minWidth:254});
     bounds.push([p.lat,p.lon]);
   });
   (d.werk||[]).forEach(function(w){
     if(w.lat==null||w.lon==null) return;
-    L.circleMarker([w.lat,w.lon],
-      {radius:8, weight:2, color:'#fff', fillColor:'#2563eb', fillOpacity:1})
+    L.marker([w.lat,w.lon], {icon: fundaWorkIcon(), title: w.label || 'Werk'})
       .addTo(map).bindPopup('<div class="mp"><div class="mp-b"><div class="mp-title">Werk</div><div class="mp-meta">'+fundaEsc(w.label)+'</div></div></div>');
     bounds.push([w.lat,w.lon]);
   });
-  if(bounds.length) map.fitBounds(bounds, {padding:[40,40], maxZoom:15});
-  else map.setView([52.08,4.30], 12);
+  if(bounds.length) map.fitBounds(bounds, {padding:[34,34], maxZoom:15});
+  else map.setView([52.08,4.30], 11);
   setTimeout(function(){ map.invalidateSize(); }, 150);
 }
-document.addEventListener('DOMContentLoaded', function(){ fundaInitMap(); });
+window.fundaAfterReportLoad = function(){ fundaInitMap(); };
+document.addEventListener('DOMContentLoaded', function(){ window.fundaAfterReportLoad(); });
+window.addEventListener('pageshow', function(){ setTimeout(window.fundaAfterReportLoad, 80); });
 </script>
 """
 
@@ -995,15 +1325,136 @@ def _budget_class(status: str) -> str:
     return "PAST"
 
 
-def _card_html(r: dict) -> str:
-    d = r["d"]
+def _h(value) -> str:
+    return html_lib.escape("" if value is None else str(value), quote=True)
+
+
+def _detail_url(d: dict) -> str:
     url = d.get("detail_url") or ""
     if url and not url.startswith("http"):
         url = f"https://www.funda.nl{url}"
+    return url
+
+
+def _listing_key(r: dict) -> str:
+    d = r.get("d") or {}
+    return str(
+        d.get("global_id")
+        or d.get("listing_id")
+        or d.get("detail_url")
+        or d.get("title")
+        or "woning"
+    )
+
+
+def _card_id(r: dict) -> str:
+    cid = re.sub(r"[^A-Za-z0-9_-]+", "-", _listing_key(r)).strip("-")
+    return cid or "woning"
+
+
+def _money(value: int | float | None) -> str:
+    return f"€ {int(value or 0):,}"
+
+
+def _to_float(value) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        try:
+            return float(str(value).replace(",", "."))
+        except (TypeError, ValueError):
+            return None
+
+
+def _map_data(rijen: list[dict], werk_coords: dict[str, tuple[float, float]] | None = None) -> dict:
+    hits = []
+    for r in rijen:
+        d = r["d"]
+        lat = _to_float(r.get("lat") or ((r.get("details") or {}).get("latitude")))
+        lon = _to_float(r.get("lon") or ((r.get("details") or {}).get("longitude")))
+        if lat is None or lon is None:
+            continue
+
+        plaats = " ".join(str(x) for x in (d.get("postcode"), d.get("city")) if x).strip()
+        buurt = d.get("neighbourhood")
+        meta = f"{plaats} | {buurt}" if plaats and buurt else plaats or str(buurt or "")
+        hits.append({
+            "id": _card_id(r),
+            "title": d.get("title") or "Woning",
+            "meta": meta,
+            "prijs": _money(r.get("prijs")),
+            "m2": r.get("m2") or "?",
+            "maandlast": _money((r.get("lasten") or {}).get("totaal")),
+            "label": r.get("label") or "?",
+            "budget": r.get("budget") or "",
+            "bcls": _budget_class(r.get("budget") or ""),
+            "foto": r.get("foto_url") or "",
+            "url": _detail_url(d),
+            "lat": lat,
+            "lon": lon,
+            "is_nieuw": bool(r.get("is_nieuw")),
+        })
+
+    werk = []
+    if werk_coords:
+        for pc, label in WERK_POSTCODES:
+            coords = werk_coords.get(pc)
+            if not coords:
+                continue
+            werk.append({
+                "label": f"{label} ({pc})",
+                "lat": float(coords[0]),
+                "lon": float(coords[1]),
+            })
+
+    return {"hits": hits, "werk": werk}
+
+
+def _json_script(data: dict) -> str:
+    return json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+
+
+def _map_html(rijen: list[dict], werk_coords: dict[str, tuple[float, float]] | None = None) -> str:
+    data = _map_data(rijen, werk_coords)
+    pins = len(data["hits"])
+    pin_label = "1 woning" if pins == 1 else f"{pins} woningen"
+    empty = (
+        '<div class="map-empty">Geen coordinaten gevonden voor de huidige shortlist.</div>'
+        if pins == 0 else ""
+    )
+    werk_legend = '<span><i class="dot work"></i>Werk</span>' if data["werk"] else ""
+    return f"""
+    <section class="map-section" aria-label="Woningen op OpenStreetMap">
+      <div class="section-row">
+        <div>
+          <h2>Kaart</h2>
+          <div class="section-note">Woningen op OpenStreetMap</div>
+        </div>
+        <span class="count">{pin_label}</span>
+      </div>
+      <div class="map-wrap">
+        <div id="funda-map"></div>
+        <div class="map-legend">
+          <span><i class="dot hit"></i>Woning</span>
+          <span><i class="dot new"></i>Nieuw</span>
+          {werk_legend}
+        </div>
+        {empty}
+      </div>
+      <script id="funda-map-data" type="application/json">{_json_script(data)}</script>
+    </section>
+    """
+
+
+def _card_html(r: dict) -> str:
+    d = r["d"]
+    url = _detail_url(d)
 
     foto = r.get("foto_url")
     foto_html = (
-        f'<img class="card-photo" src="{foto}" alt="" loading="lazy">'
+        f'<img class="card-photo" src="{_h(foto)}" alt="" loading="lazy">'
         if foto else '<div class="card-photo-placeholder">Geen foto beschikbaar</div>'
     )
 
@@ -1013,29 +1464,41 @@ def _card_html(r: dict) -> str:
         badges.append('<span class="badge badge-new">NIEUW</span>')
     if tr.get("gedaald"):
         badges.append(
-            f'<span class="badge badge-drop">PRIJS -€{tr["drop_bedrag"]:,} ({tr["drop_pct"]}%)</span>'
+            f'<span class="badge badge-drop">PRIJS -€{int(tr["drop_bedrag"]):,} ({_h(tr["drop_pct"])}%)</span>'
         )
     if tr.get("dagen", 0) >= 90:
         suffix = "" if tr.get("dagen_bron") == "funda" else "+"
-        badges.append(f'<span class="badge badge-lang">{tr["dagen"]}{suffix} dagen te koop</span>')
-    badges.append(f'<span class="badge badge-label {r["label"]}">Label {r["label"]}</span>')
+        badges.append(f'<span class="badge badge-lang">{_h(tr["dagen"])}{suffix} dagen te koop</span>')
+    label = r.get("label") or "?"
+    label_class = re.sub(r"[^A-Za-z0-9_-]+", "-", str(label)).strip("-") or "unknown"
+    badges.append(f'<span class="badge badge-label {label_class}">Label {_h(label)}</span>')
     if r["label"] in {"A", "B"}:
         badges.append('<span class="badge badge-nhg">NHG-bonus</span>')
     bcls = _budget_class(r["budget"])
-    badges.append(f'<span class="badge badge-budget-{bcls}">{r["budget"]}</span>')
+    badges.append(f'<span class="badge badge-budget-{bcls}">{_h(r["budget"])}</span>')
 
-    pros_html = "".join(f'<div class="pros">+ {p}</div>' for p in r["pros"])
-    cons_html = "".join(f'<div class="cons">- {c}</div>' for c in r["cons"])
+    pros_html = "".join(f'<div class="pros">+ {_h(p)}</div>' for p in r["pros"])
+    cons_html = "".join(f'<div class="cons">- {_h(c)}</div>' for c in r["cons"])
 
     bouwjaar = ""
     if r["details"] and r["details"].get("construction_year"):
-        bouwjaar = f' | bouwjaar {r["details"]["construction_year"]}'
+        bouwjaar = f' | bouwjaar {_h(r["details"]["construction_year"])}'
 
     l = r["lasten"]
-    rooms = d.get("rooms") or "?"
-    bedrooms = d.get("bedrooms") or "?"
+    rooms = _h(d.get("rooms") or "?")
+    bedrooms = _h(d.get("bedrooms") or "?")
 
     nieuw_class = " is-new" if r["is_nieuw"] else ""
+    card_id = _card_id(r)
+    title = _h(d.get("title") or "Woning")
+    title_html = (
+        f'<a href="{_h(url)}" target="_blank" rel="noopener">{title}</a>'
+        if url else title
+    )
+    footer_html = (
+        f'<div class="card-footer"><a href="{_h(url)}" target="_blank" rel="noopener">Bekijk op Funda</a></div>'
+        if url else ""
+    )
 
     # Routes naar werk
     routes_html = ""
@@ -1044,38 +1507,50 @@ def _card_html(r: dict) -> str:
         for rt in r["routes"]:
             kmtxt = f'{rt["km"]:.1f} km'
             soort = "" if rt["soort"] == "weg" else " (~)"
-            chunks.append(f'<span title="{rt["postcode"]}">{rt["label"]}: <strong>{kmtxt}</strong>{soort}</span>')
+            chunks.append(
+                f'<span title="{_h(rt["postcode"])}">{_h(rt["label"])}: '
+                f'<strong>{_h(kmtxt)}</strong>{soort}</span>'
+            )
         routes_html = '<div class="routes">Naar werk: ' + ' &middot; '.join(chunks) + '</div>'
 
+    pricedrop_html = ""
+    if tr.get("gedaald") and tr.get("eerdere_prijs"):
+        wijziging = f" (wijziging {_h(tr['laatste_wijziging'])})" if tr.get("laatste_wijziging") else ""
+        pricedrop_html = (
+            f'<div class="pricedrop">Was {_money(tr["eerdere_prijs"])}, '
+            f'nu {_money(r["prijs"])}{wijziging}</div>'
+        )
+
     return f"""
-    <div class="card{nieuw_class}">
-      {foto_html}
+    <article id="card-{card_id}" class="card{nieuw_class}">
+      <div class="card-photo-wrap">
+        {foto_html}
+        <div class="card-prijs">{_money(r['prijs'])}</div>
+      </div>
       <div class="card-body">
         <div class="card-header">
-          <div>
-            <div class="card-title">{d.get('title')}</div>
-            <div class="card-meta">{d.get('postcode')} {d.get('city')} | {d.get('neighbourhood')}</div>
-          </div>
-          <div class="card-prijs">€ {r['prijs']:,}</div>
+          <h3 class="card-title">{title_html}</h3>
+          <div class="card-meta">{_h(d.get('postcode'))} {_h(d.get('city'))} | {_h(d.get('neighbourhood'))}</div>
         </div>
-        <div class="card-meta">{r['m2']} m2 | {rooms} kamers, {bedrooms} slpk{bouwjaar}</div>
+        <div class="card-meta">{_h(r['m2'])} m2 | {rooms} kamers, {bedrooms} slpk{bouwjaar}</div>
         <div class="badges">{''.join(badges)}</div>
-        {('<div class="pricedrop">Was € ' + format(tr['eerdere_prijs'], ',') + ', nu € ' + format(r['prijs'], ',') + (' (wijziging ' + str(tr['laatste_wijziging']) + ')' if tr.get('laatste_wijziging') else '') + '</div>') if tr.get('gedaald') and tr.get('eerdere_prijs') else ''}
+        {pricedrop_html}
         {routes_html}
         <div class="lasten">
-          Maandlast: <span class="lasten-totaal">€ {l['totaal']:,}</span>
-          (hyp €{l['hypotheek']:,} + VvE €{l['servicekosten']} + energie €{l['energie']}{' + erfpacht €' + str(l['canon']) if l.get('canon') else ''} + overig €{l['woz_verzekering']+l['onderhoud']})
+          Maandlast: <span class="lasten-totaal">{_money(l['totaal'])}</span>
+          (hyp {_money(l['hypotheek'])} + VvE {_money(l['servicekosten'])} + energie {_money(l['energie'])}{' + erfpacht ' + _money(l['canon']) if l.get('canon') else ''} + overig {_money(l['woz_verzekering']+l['onderhoud'])})
         </div>
         <div class="proscons">{pros_html}{cons_html}</div>
-        <div class="card-footer">
-          <a href="{url}" target="_blank">Bekijk op Funda</a>
-        </div>
+        {footer_html}
       </div>
-    </div>
+    </article>
     """
 
 
-def render_html(rijen: list[dict], is_pwa: bool = False) -> str:
+def render_report_body(
+    rijen: list[dict],
+    werk_coords: dict[str, tuple[float, float]] | None = None,
+) -> str:
     nu = _nu_nl()
     norm = int((BRUTO_JAAR / 12) * NORM_MAANDLAST_PCT)
     nieuwe = [r for r in rijen if r["is_nieuw"]]
@@ -1083,33 +1558,54 @@ def render_html(rijen: list[dict], is_pwa: bool = False) -> str:
 
     # Helper: render een lijst kaarten
     def section(titel: str, ws: list[dict], leeg_msg: str) -> str:
+        aantal = len(ws)
         if not ws:
-            return f"<h2>{titel}</h2><div class='empty'>{leeg_msg}</div>"
-        cards = "".join(_card_html(r) for r in ws)
-        return f"<h2>{titel}</h2><div class='cards'>{cards}</div>"
+            inhoud = f"<div class='empty'>{_h(leeg_msg)}</div>"
+        else:
+            inhoud = f"<div class='cards'>{''.join(_card_html(r) for r in ws)}</div>"
+        return f"""
+        <section class="listing-section">
+          <div class="section-row">
+            <h2>{_h(titel)}</h2>
+            <span class="count">{aantal}</span>
+          </div>
+          {inhoud}
+        </section>
+        """
 
     ververs_knop = (
-        f'<a class="refresh-btn" href="{ACTIONS_URL}" target="_blank" rel="noopener">'
-        f'&#x21bb; Nieuwe run starten</a>'
+        f'<a class="refresh-btn" href="{_h(ACTIONS_URL)}" target="_blank" rel="noopener">'
+        f'Nieuwe run</a>'
         if ACTIONS_URL else ""
     )
-
-    profiel = f"""
-    <div class="profile">
-      <div class="profile-top">
-        <div>
-          <h1>Funda shortlist</h1>
-          <div class="subtitle">Gegenereerd {nu}</div>
+    topbar = f"""
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand" aria-label="Funda shortlist">
+          <span class="brand-mark">f</span>
+          <span class="brand-text">funda shortlist</span>
         </div>
         {ververs_knop}
       </div>
+    </header>
+    """
+
+    profiel = f"""
+    <div class="profile">
+      <div class="profile-intro">
+        <div>
+          <div class="profile-kicker">Rapport</div>
+          <h1>Funda shortlist</h1>
+          <div class="subtitle">Gegenereerd {nu}</div>
+        </div>
+      </div>
       <dl>
-        <dt>Bruto jaarinkomen</dt><dd>€ {BRUTO_JAAR:,}</dd>
-        <dt>Eigen inleg beschikbaar</dt><dd>€ {EIGEN_INLEG:,} (rest = buffer)</dd>
-        <dt>Max hypotheek regulier</dt><dd>€ {MAX_HYPOTHEEK:,} (label A/B: € {MAX_HYPOTHEEK_AB:,})</dd>
-        <dt>Norm maandlast</dt><dd>€ {norm:,} ({int(NORM_MAANDLAST_PCT*100)}% bruto/m)</dd>
-        <dt>NHG</dt><dd>Ja, premie 0,4% eenmalig, ~0,5%-pt rentekorting</dd>
-        <dt>Startersregeling</dt><dd>Geen overdrachtsbelasting (geldig tot 1 april 2029)</dd>
+        <div><dt>Bruto jaarinkomen</dt><dd>€ {BRUTO_JAAR:,}</dd></div>
+        <div><dt>Eigen inleg beschikbaar</dt><dd>€ {EIGEN_INLEG:,} (rest = buffer)</dd></div>
+        <div><dt>Max hypotheek regulier</dt><dd>€ {MAX_HYPOTHEEK:,} (label A/B: € {MAX_HYPOTHEEK_AB:,})</dd></div>
+        <div><dt>Norm maandlast</dt><dd>€ {norm:,} ({int(NORM_MAANDLAST_PCT*100)}% bruto/m)</dd></div>
+        <div><dt>NHG</dt><dd>Ja, premie 0,4% eenmalig, ~0,5%-pt rentekorting</dd></div>
+        <div><dt>Startersregeling</dt><dd>Geen overdrachtsbelasting (geldig tot 1 april 2029)</dd></div>
       </dl>
     </div>
     """
@@ -1128,34 +1624,46 @@ def render_html(rijen: list[dict], is_pwa: bool = False) -> str:
     </div>
     """
 
-    nieuw_titel = f"Nieuw vandaag ({len(nieuwe)})"
+    nieuw_titel = "Nieuw vandaag"
     nieuw_leeg = "Geen nieuwe matches sinds vorige run."
-    rest_titel = f"Volledige shortlist ({len(rest)})"
+    rest_titel = "Volledige shortlist"
     rest_leeg = "Geen overige woningen op de shortlist."
 
-    body = f"""
+    return f"""
+    {topbar}
+    <main class="container">
     {profiel}
+    {_map_html(rijen, werk_coords)}
     {section(nieuw_titel, nieuwe, nieuw_leeg)}
     {section(rest_titel, rest, rest_leeg)}
     {assumpties}
+    </main>
     """
+
+
+def render_html(
+    rijen: list[dict],
+    is_pwa: bool = False,
+    werk_coords: dict[str, tuple[float, float]] | None = None,
+) -> str:
+    nu = _nu_nl()
+    body = render_report_body(rijen, werk_coords=werk_coords)
+    asset_prefix = "" if is_pwa else "docs/"
 
     pwa_head = ""
     pwa_script = ""
     if is_pwa:
         pwa_head = """
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#2563eb">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Funda">
-<link rel="apple-touch-icon" href="icon.svg">
 """
         pwa_script = """
 <script>
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(()=>{}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js', {scope:'./'}).catch(()=>{}));
 }
 </script>
 """
@@ -1164,14 +1672,18 @@ if ('serviceWorker' in navigator) {
 <html lang="nl">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a5f8f">
 <title>Funda shortlist {nu}</title>
+<link rel="icon" href="{asset_prefix}favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" sizes="180x180" href="{asset_prefix}apple-touch-icon.png">
 {pwa_head}
+{MAP_HEAD}
 <style>{HTML_CSS}</style>
 </head>
 <body>
-<div class="container">
 {body}
-</div>
+{MAP_JS}
 {pwa_script}
 </body>
 </html>"""
@@ -1185,27 +1697,36 @@ PWA_PASSWORD_FILE = Path(__file__).parent / "funda_pwa_password.txt"
 PWA_MANIFEST = """{
   "name": "Funda Shortlist Remco",
   "short_name": "Funda",
+  "id": "./",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#f4f5f7",
-  "theme_color": "#2563eb",
+  "background_color": "#eef3f6",
+  "theme_color": "#0a5f8f",
   "icons": [
-    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+    { "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }
 """
 
 PWA_SERVICE_WORKER = """// Funda PWA service worker
-const CACHE = 'funda-shortlist-v1';
+const CACHE = 'funda-shortlist-v3';
+const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png'];
 self.addEventListener('install', e => {
   self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(['./', 'index.html', 'manifest.json', 'icon.svg'])));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
 });
-self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('activate', e => e.waitUntil(
+  caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    .then(() => self.clients.claim())
+));
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  if (url.origin !== location.origin) return;
   e.respondWith(
     fetch(e.request).then(resp => {
       if (resp.ok) {
@@ -1213,19 +1734,143 @@ self.addEventListener('fetch', e => {
         caches.open(CACHE).then(c => c.put(e.request, clone)).catch(()=>{});
       }
       return resp;
-    }).catch(() => caches.match(e.request))
+    }).catch(() => caches.match(e.request).then(r => r || caches.match('index.html')))
   );
 });
 """
 
-PWA_ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <rect width="192" height="192" fill="#2563eb" rx="32"/>
-  <path d="M40 100 L96 52 L152 100 L152 156 L40 156 Z" fill="#ffffff"/>
-  <rect x="80" y="118" width="32" height="38" fill="#2563eb"/>
-  <rect x="58" y="116" width="20" height="20" fill="#dbeafe"/>
-  <rect x="114" y="116" width="20" height="20" fill="#dbeafe"/>
+PWA_ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0a5f8f"/>
+  <path d="M256 64c-82 0-148 66-148 148 0 104 148 236 148 236s148-132 148-236c0-82-66-148-148-148Z" fill="#f47b20"/>
+  <circle cx="256" cy="210" r="78" fill="#fff"/>
+  <path d="M199 218 256 169l57 49v71h-37v-43h-40v43h-37v-71Z" fill="#0a5f8f"/>
+  <path d="M231 314c16 0 25 15 25 15s9-15 25-15c16 0 28 13 28 29 0 30-53 58-53 58s-53-28-53-58c0-16 12-29 28-29Z" fill="#fff"/>
 </svg>
 """
+
+PWA_FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#0a5f8f"/>
+  <path d="M32 7c-11 0-20 9-20 20 0 14 20 32 20 32s20-18 20-32C52 16 43 7 32 7Z" fill="#f47b20"/>
+  <circle cx="32" cy="27" r="10" fill="#fff"/>
+  <path d="M24 29 32 22l8 7v9h-5v-5h-6v5h-5v-9Z" fill="#0a5f8f"/>
+</svg>
+"""
+
+
+def _write_png_icon(path: Path, size: int) -> None:
+    """Schrijf een simpele PNG zonder externe dependencies."""
+    import struct
+    import zlib
+
+    target_size = size
+    scale = 3 if target_size <= 256 else 2
+    size = target_size * scale
+
+    bg = (10, 95, 143, 255)
+    bg2 = (8, 74, 112, 255)
+    orange = (244, 123, 32, 255)
+    white = (255, 255, 255, 255)
+    blue = (10, 95, 143, 255)
+
+    buf = bytearray(size * size * 4)
+
+    def put(x: int, y: int, color: tuple[int, int, int, int]) -> None:
+        if 0 <= x < size and 0 <= y < size:
+            i = (y * size + x) * 4
+            buf[i:i+4] = bytes(color)
+
+    for y in range(size):
+        mix = y / max(1, size - 1)
+        color = tuple(int(bg[i] * (1 - mix) + bg2[i] * mix) for i in range(4))
+        for x in range(size):
+            put(x, y, color)
+
+    def circle(cx: int, cy: int, r: int, color: tuple[int, int, int, int]) -> None:
+        rr = r * r
+        for yy in range(max(0, cy - r), min(size, cy + r + 1)):
+            dy = yy - cy
+            for xx in range(max(0, cx - r), min(size, cx + r + 1)):
+                dx = xx - cx
+                if dx * dx + dy * dy <= rr:
+                    put(xx, yy, color)
+
+    def poly(points: list[tuple[int, int]], color: tuple[int, int, int, int]) -> None:
+        min_x = max(0, min(p[0] for p in points))
+        max_x = min(size - 1, max(p[0] for p in points))
+        min_y = max(0, min(p[1] for p in points))
+        max_y = min(size - 1, max(p[1] for p in points))
+        for yy in range(min_y, max_y + 1):
+            for xx in range(min_x, max_x + 1):
+                inside = False
+                j = len(points) - 1
+                for i, (xi, yi) in enumerate(points):
+                    xj, yj = points[j]
+                    if ((yi > yy) != (yj > yy)) and (xx < (xj - xi) * (yy - yi) / (yj - yi) + xi):
+                        inside = not inside
+                    j = i
+                if inside:
+                    put(xx, yy, color)
+
+    def rect(x1: int, y1: int, x2: int, y2: int, color: tuple[int, int, int, int]) -> None:
+        for yy in range(max(0, y1), min(size, y2)):
+            for xx in range(max(0, x1), min(size, x2)):
+                put(xx, yy, color)
+
+    cx = size // 2
+    cy = int(size * .40)
+    circle(cx, cy, int(size * .23), orange)
+    poly([
+        (int(size * .31), int(size * .46)),
+        (int(size * .69), int(size * .46)),
+        (cx, int(size * .86)),
+    ], orange)
+    circle(cx, cy, int(size * .14), white)
+    poly([
+        (int(size * .38), int(size * .40)),
+        (cx, int(size * .30)),
+        (int(size * .62), int(size * .40)),
+    ], blue)
+    rect(int(size * .41), int(size * .40), int(size * .59), int(size * .53), blue)
+    rect(int(size * .48), int(size * .46), int(size * .53), int(size * .53), orange)
+    circle(int(size * .47), int(size * .64), int(size * .035), white)
+    circle(int(size * .53), int(size * .64), int(size * .035), white)
+    poly([
+        (int(size * .43), int(size * .65)),
+        (int(size * .57), int(size * .65)),
+        (cx, int(size * .75)),
+    ], white)
+
+    if scale > 1:
+        small = bytearray(target_size * target_size * 4)
+        block = scale * scale
+        for y in range(target_size):
+            for x in range(target_size):
+                sums = [0, 0, 0, 0]
+                for yy in range(scale):
+                    for xx in range(scale):
+                        i = ((y * scale + yy) * size + (x * scale + xx)) * 4
+                        sums[0] += buf[i]
+                        sums[1] += buf[i + 1]
+                        sums[2] += buf[i + 2]
+                        sums[3] += buf[i + 3]
+                o = (y * target_size + x) * 4
+                small[o:o+4] = bytes(int(v / block) for v in sums)
+        buf = small
+        size = target_size
+
+    stride = size * 4
+    raw = b"".join(b"\x00" + bytes(buf[y*stride:(y+1)*stride]) for y in range(size))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
+
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
+    path.write_bytes(png)
 
 
 def beveilig_html(html: str, password: str) -> str:
@@ -1250,6 +1895,9 @@ def beveilig_html(html: str, password: str) -> str:
 
     return (
         PWA_PASSWORD_WRAPPER
+        .replace("__APP_CSS__", HTML_CSS)
+        .replace("__MAP_HEAD__", MAP_HEAD)
+        .replace("__MAP_JS__", MAP_JS)
         .replace("__SALT__", salt_b64)
         .replace("__IV__", iv_b64)
         .replace("__CT__", ct_b64)
@@ -1264,33 +1912,43 @@ PWA_PASSWORD_WRAPPER = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Funda</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#2563eb">
+<meta name="theme-color" content="#0a5f8f">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Funda">
-<link rel="apple-touch-icon" href="icon.svg">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+__MAP_HEAD__
 <style>
-body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#f4f5f7;color:#1f2937;overflow-x:hidden}
-.lock{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;background:#f4f5f7;z-index:9999}
-.lock h1{margin:0 0 8px;font-size:22px}
-.lock p{color:#6b7280;margin:0 0 24px}
-.lock input{width:100%;max-width:300px;padding:12px;font-size:16px;border:1px solid #d1d5db;border-radius:8px;margin-bottom:12px}
-.lock button{width:100%;max-width:300px;padding:12px;font-size:16px;background:#2563eb;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600}
+__APP_CSS__
+#content[hidden]{display:none}
+.lock{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));text-align:center;background:#eef3f6;z-index:9999}
+.lock-card{width:min(360px,100%);padding:24px;border-radius:8px;background:#fff;border:1px solid #d9e1e8;box-shadow:0 12px 34px rgba(16,24,40,.14)}
+.lock-mark{width:48px;height:48px;margin:0 auto 14px;border-radius:10px;display:grid;place-items:center;background:#f47b20;color:#fff;font-size:31px;font-weight:900}
+.lock h1{margin:0 0 8px;font-size:22px;letter-spacing:0}
+.lock p{color:#617082;margin:0 0 22px;line-height:1.4}
+.lock input{width:100%;padding:13px 12px;font-size:16px;border:1px solid #d9e1e8;border-radius:8px;margin-bottom:12px;background:#fff;color:#1f2a37}
+.lock button{width:100%;min-height:44px;padding:12px;font-size:16px;background:#f47b20;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:800}
 .lock button:disabled{opacity:0.6;cursor:wait}
 .err{color:#b91c1c;margin-top:8px;font-size:14px;min-height:20px}
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:s 0.8s linear infinite;margin-right:6px;vertical-align:middle}
 @keyframes s{to{transform:rotate(360deg)}}
 </style>
+__MAP_JS__
 </head>
 <body>
 <div id="lock" class="lock">
-  <h1>Funda Shortlist</h1>
-  <p>Voer wachtwoord in om de inhoud te ontgrendelen.</p>
-  <form onsubmit="return unlock(event)">
-    <input id="pw" type="password" autocomplete="current-password" placeholder="Wachtwoord" autofocus>
-    <button id="btn" type="submit">Ontgrendelen</button>
-  </form>
-  <div id="err" class="err"></div>
+  <div class="lock-card">
+    <div class="lock-mark">f</div>
+    <h1>Funda Shortlist</h1>
+    <p>Voer wachtwoord in om de inhoud te ontgrendelen.</p>
+    <form onsubmit="return unlock(event)">
+      <input id="pw" type="password" autocomplete="current-password" placeholder="Wachtwoord" autofocus>
+      <button id="btn" type="submit">Ontgrendelen</button>
+    </form>
+    <div id="err" class="err"></div>
+  </div>
 </div>
 <div id="content" hidden></div>
 <script>
@@ -1328,6 +1986,7 @@ async function unlock(e){
     c.innerHTML = html;
     // Verberg lock screen pas NA injectie zodat geen flash van lege body
     document.getElementById("lock").style.display = "none";
+    if(window.fundaAfterReportLoad) window.fundaAfterReportLoad();
     sessionStorage.setItem("funda_pw", pw);
   } catch(ex){
     err.textContent = "Fout wachtwoord";
@@ -1347,6 +2006,7 @@ async function unlock(e){
       c.hidden = false;
       c.innerHTML = html;
       document.getElementById("lock").style.display = "none";
+      if(window.fundaAfterReportLoad) window.fundaAfterReportLoad();
     }catch(_){
       sessionStorage.removeItem("funda_pw");
     }
@@ -1354,23 +2014,29 @@ async function unlock(e){
 })();
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(()=>{}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js', {scope:'./'}).catch(()=>{}));
 }
 </script>
 </body>
 </html>"""
 
 
-def schrijf_pwa_assets(rijen: list[dict]) -> Path:
+def schrijf_pwa_assets(
+    rijen: list[dict],
+    werk_coords: dict[str, tuple[float, float]] | None = None,
+) -> Path:
     """Genereer alle PWA bestanden in pwa/ subfolder."""
     pwa_dir = Path(__file__).parent / PWA_DIR_NAAM
     pwa_dir.mkdir(exist_ok=True)
     (pwa_dir / "manifest.json").write_text(PWA_MANIFEST, encoding="utf-8")
     (pwa_dir / "service-worker.js").write_text(PWA_SERVICE_WORKER, encoding="utf-8")
     (pwa_dir / "icon.svg").write_text(PWA_ICON_SVG, encoding="utf-8")
+    (pwa_dir / "favicon.svg").write_text(PWA_FAVICON_SVG, encoding="utf-8")
+    _write_png_icon(pwa_dir / "apple-touch-icon.png", 180)
+    _write_png_icon(pwa_dir / "icon-512.png", 512)
 
     # Lees password en versleutel als beschikbaar.
-    inner_html = render_html(rijen, is_pwa=False)  # standalone body
+    inner_html = render_report_body(rijen, werk_coords=werk_coords)
     if PWA_PASSWORD_FILE.exists():
         password = PWA_PASSWORD_FILE.read_text(encoding="utf-8").strip()
         if password:
@@ -1388,5 +2054,8 @@ def schrijf_pwa_assets(rijen: list[dict]) -> Path:
 
     # Fallback (lokaal): onbeveiligd, zelfde tags als eerder.
     print("[rapport] WAARSCHUWING: geen funda_pwa_password.txt gevonden, PWA wordt onversleuteld geschreven!")
-    (pwa_dir / "index.html").write_text(render_html(rijen, is_pwa=True), encoding="utf-8")
+    (pwa_dir / "index.html").write_text(
+        render_html(rijen, is_pwa=True, werk_coords=werk_coords),
+        encoding="utf-8",
+    )
     return pwa_dir
