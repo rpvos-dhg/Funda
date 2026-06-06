@@ -36,7 +36,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install cryptography
-          pip install "git+https://github.com/0xMH/pyfunda.git"
+          pip install "git+https://github.com/0xMH/pyfunda.git@v2.9.0"   # pin: v3+ heeft andere API (geen search_listing/.data)
 
       # State terughalen uit vorige run. Bevat geen persoonlijke gegevens van jou,
       # wel je werk-coordinaten, daarom in de cache en niet in de publieke repo.
