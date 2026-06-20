@@ -1,5 +1,5 @@
 // Funda PWA service worker
-const CACHE = 'funda-shortlist-v3';
+const CACHE = 'funda-shortlist-v4';
 const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png'];
 self.addEventListener('install', e => {
   self.skipWaiting();
