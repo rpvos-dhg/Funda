@@ -104,6 +104,11 @@ jobs:
             git push
           fi
 
+      # GitHub Pages heeft typisch 30-90s nodig om docs/ te deployen na de push.
+      # Wacht zodat het rapport online staat voordat de iOS-notificatie aankomt.
+      - name: Wachten op Pages-deploy
+        run: sleep 90
+
       - name: Push-notificatie bij nieuwe woningen
         env:
           WEB_PUSH_PUBLIC_KEY: ${{ secrets.WEB_PUSH_PUBLIC_KEY }}
