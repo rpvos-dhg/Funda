@@ -1154,6 +1154,7 @@ def bouw_rij(d: dict, details: dict | None, beschrijving: str) -> dict:
         "budget": budget,
         "track": track,
         "score": basis_score,
+        "erfpacht": erf_info,
     }
 
 
@@ -1874,6 +1875,117 @@ h2 { margin: 0; font-size: 23px; line-height: 1.18; font-weight: 700; }
 }
 .card-footer a:hover { background: var(--brand-deep); }
 .card-footer a:active { transform: scale(.98); }
+/* Sorteer-/filterbalk -- sticky onder de topbar, paper-on-paper met borders. */
+.controls {
+  position: sticky;
+  top: calc(58px + env(safe-area-inset-top));
+  z-index: 600;
+  display: grid;
+  gap: 12px;
+  margin: 30px 0 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+}
+.controls-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.control-group { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.control-group--block { align-items: flex-start; }
+.control-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.controls select,
+.controls input[type="number"] {
+  min-height: 38px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.controls input[type="number"] { width: 118px; }
+.sortdir-btn {
+  min-height: 38px;
+  padding: 0 12px;
+  cursor: pointer;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background .14s var(--motion-ease);
+}
+.sortdir-btn:hover { background: var(--surface-2); }
+.sortdir-btn:active { transform: scale(.97); }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 5px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+}
+.chip input { width: auto; margin: 0; accent-color: var(--brand); }
+.chip:has(input:checked) {
+  background: var(--brand-tint);
+  color: var(--brand-deep);
+  border-color: var(--brand);
+}
+.controls-toggles { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.controls-toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+.controls-toggles input { accent-color: var(--brand); }
+.controls-result {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.reset-btn {
+  min-height: 38px;
+  padding: 0 13px;
+  cursor: pointer;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--brand-deep);
+  font-size: 13px;
+  font-weight: 650;
+  transition: background .14s var(--motion-ease);
+}
+.reset-btn:hover { background: var(--surface-2); }
+.filter-empty { margin-top: 16px; }
+@media (max-width: 760px) {
+  .controls { position: static; padding: 12px; margin-top: 24px; }
+  .controls-result { margin-left: 0; }
+  .control-group { flex-wrap: wrap; }
+  .controls input[type="number"] { width: 100%; flex: 1 1 96px; }
+}
 .empty {
   text-align: center;
   padding: 36px 18px;
@@ -2035,6 +2147,191 @@ function fundaInitMap(tries){
 window.fundaAfterReportLoad = function(){ fundaInitMap(); };
 document.addEventListener('DOMContentLoaded', function(){ window.fundaAfterReportLoad(); });
 window.addEventListener('pageshow', function(){ setTimeout(window.fundaAfterReportLoad, 80); });
+</script>
+"""
+
+# Sorteer-/filterlogica voor de shortlist. Draait na het injecteren van de body
+# (chained op fundaAfterReportLoad, net als de kaart). Volledig client-side.
+CONTROLS_JS = """
+<script>
+(function(){
+  var LABEL_ORDER = ['g','f','e','d','c','b','a','a+','a++','a+++'];
+  function num(v){ if(v==null||v==='') return null; var n = parseFloat(v); return isNaN(n)?null:n; }
+  function el(id){ return document.getElementById(id); }
+
+  function cardVal(card, key){
+    if(key.indexOf('afstand:') === 0){
+      return num(card.getAttribute('data-afstand-' + key.slice(8)));
+    }
+    var map = {score:'score', prijs:'prijs', maandlast:'maandlast', m2:'m2',
+      ppm:'ppm', label:'labelrank', recency:'recency'};
+    return num(card.getAttribute('data-' + (map[key] || key)));
+  }
+
+  function compareCards(a, b, key, dir){
+    var va = cardVal(a, key), vb = cardVal(b, key);
+    if(va === null && vb === null) return 0;
+    if(va === null) return 1;   // ontbrekende waarden altijd achteraan
+    if(vb === null) return -1;
+    return dir === 'asc' ? (va - vb) : (vb - va);
+  }
+
+  function readFilters(){
+    var cityChecks = [].slice.call(document.querySelectorAll('.funda-f-city'));
+    var cities = cityChecks.filter(function(c){ return c.checked; })
+      .map(function(c){ return c.value; });
+    return {
+      erfpacht: (el('funda-f-erfpacht')||{}).value || 'alle',
+      minLabel: (el('funda-f-label')||{}).value || 'alle',
+      budget: (el('funda-f-budget')||{}).value || 'alle',
+      maxPrijs: num((el('funda-f-maxprijs')||{}).value),
+      maxLast: num((el('funda-f-maxlast')||{}).value),
+      minM2: num((el('funda-f-minm2')||{}).value),
+      onlyNew: !!(el('funda-f-nieuw')||{}).checked,
+      onlyDrop: !!(el('funda-f-drop')||{}).checked,
+      hasCityFilter: cityChecks.length > 0,
+      cities: cities
+    };
+  }
+
+  function passes(card, f){
+    if(f.onlyNew && card.getAttribute('data-nieuw') !== '1') return false;
+    if(f.onlyDrop && card.getAttribute('data-drop') !== '1') return false;
+    if(f.erfpacht !== 'alle' && card.getAttribute('data-erfpacht') !== f.erfpacht) return false;
+    if(f.budget === 'past' && card.getAttribute('data-budget') !== 'PAST') return false;
+    if(f.budget === 'fin' && card.getAttribute('data-budget') === 'MAX') return false;
+    if(f.hasCityFilter && f.cities.indexOf(card.getAttribute('data-city')) === -1) return false;
+    if(f.minLabel !== 'alle'){
+      var need = LABEL_ORDER.indexOf(f.minLabel.toLowerCase());
+      var have = num(card.getAttribute('data-labelrank'));
+      if(have === null || have < need) return false;
+    }
+    if(f.maxPrijs !== null && (num(card.getAttribute('data-prijs')) || 0) > f.maxPrijs) return false;
+    if(f.maxLast !== null && (num(card.getAttribute('data-maandlast')) || 0) > f.maxLast) return false;
+    if(f.minM2 !== null && (num(card.getAttribute('data-m2')) || 0) < f.minM2) return false;
+    return true;
+  }
+
+  function apply(){
+    var sortSel = el('funda-sort');
+    if(!sortSel) return;
+    var key = sortSel.value;
+    var dirBtn = el('funda-sortdir');
+    var dir = (dirBtn && dirBtn.getAttribute('data-dir')) || 'desc';
+    var f = readFilters();
+
+    var sections = document.querySelectorAll('.listing-section');
+    var totalVisible = 0, totalAll = 0;
+    sections.forEach(function(sec){
+      var grid = sec.querySelector('.cards');
+      if(!grid) return;
+      var cards = [].slice.call(grid.children).filter(function(c){
+        return c.classList && c.classList.contains('card');
+      });
+      var visible = [];
+      cards.forEach(function(c){
+        var ok = passes(c, f);
+        c.style.display = ok ? '' : 'none';
+        if(ok) visible.push(c);
+      });
+      visible.sort(function(a, b){ return compareCards(a, b, key, dir); });
+      visible.forEach(function(c){ grid.appendChild(c); });
+
+      totalVisible += visible.length;
+      totalAll += cards.length;
+
+      var cnt = sec.querySelector('.count');
+      if(cnt) cnt.textContent = visible.length;
+
+      var note = sec.querySelector('.filter-empty');
+      if(cards.length > 0 && visible.length === 0){
+        if(!note){
+          note = document.createElement('div');
+          note.className = 'empty filter-empty';
+          note.textContent = 'Geen woningen na filteren.';
+          grid.parentNode.insertBefore(note, grid.nextSibling);
+        }
+        note.hidden = false;
+      } else if(note){
+        note.hidden = true;
+      }
+    });
+
+    var res = el('funda-f-result');
+    if(res) res.textContent = totalVisible + ' van ' + totalAll + ' woningen';
+  }
+
+  function updateDirLabel(btn){
+    var asc = btn.getAttribute('data-dir') === 'asc';
+    btn.textContent = asc ? '↑ Laag–hoog' : '↓ Hoog–laag';
+  }
+
+  function wireControls(){
+    var bar = document.querySelector('.controls');
+    if(!bar || bar.getAttribute('data-bound') === '1') return;
+    bar.setAttribute('data-bound', '1');
+
+    var sortSel = el('funda-sort');
+    var dirBtn = el('funda-sortdir');
+
+    if(sortSel){
+      sortSel.addEventListener('change', function(){
+        var opt = this.options[this.selectedIndex];
+        var dd = (opt && opt.getAttribute('data-dir')) || 'desc';
+        if(dirBtn){ dirBtn.setAttribute('data-dir', dd); updateDirLabel(dirBtn); }
+        apply();
+      });
+    }
+    if(dirBtn){
+      updateDirLabel(dirBtn);
+      dirBtn.addEventListener('click', function(){
+        this.setAttribute('data-dir', this.getAttribute('data-dir') === 'asc' ? 'desc' : 'asc');
+        updateDirLabel(this);
+        apply();
+      });
+    }
+
+    ['funda-f-erfpacht','funda-f-label','funda-f-budget',
+     'funda-f-maxprijs','funda-f-maxlast','funda-f-minm2',
+     'funda-f-nieuw','funda-f-drop'].forEach(function(id){
+      var node = el(id);
+      if(node){ node.addEventListener('change', apply); node.addEventListener('input', apply); }
+    });
+    [].slice.call(document.querySelectorAll('.funda-f-city')).forEach(function(c){
+      c.addEventListener('change', apply);
+    });
+
+    var reset = el('funda-f-reset');
+    if(reset){
+      reset.addEventListener('click', function(){
+        if(sortSel){ sortSel.value = 'score'; }
+        if(dirBtn){ dirBtn.setAttribute('data-dir', 'desc'); updateDirLabel(dirBtn); }
+        ['funda-f-erfpacht','funda-f-label','funda-f-budget'].forEach(function(id){
+          var n = el(id); if(n) n.value = 'alle';
+        });
+        ['funda-f-maxprijs','funda-f-maxlast','funda-f-minm2'].forEach(function(id){
+          var n = el(id); if(n) n.value = '';
+        });
+        ['funda-f-nieuw','funda-f-drop'].forEach(function(id){
+          var n = el(id); if(n) n.checked = false;
+        });
+        [].slice.call(document.querySelectorAll('.funda-f-city')).forEach(function(c){
+          c.checked = true;
+        });
+        apply();
+      });
+    }
+
+    apply();
+  }
+
+  var previous = window.fundaAfterReportLoad;
+  window.fundaAfterReportLoad = function(){
+    if(previous) previous();
+    wireControls();
+  };
+  document.addEventListener('DOMContentLoaded', wireControls);
+})();
 </script>
 """
 
@@ -2372,6 +2669,68 @@ def _push_setup_html() -> str:
     """
 
 
+# Energielabel-ranking voor sorteren/filteren (hoger = beter).
+LABEL_RANK = {
+    "G": 0, "F": 1, "E": 2, "D": 3, "C": 4, "B": 5,
+    "A": 6, "A+": 7, "A++": 8, "A+++": 9,
+}
+
+
+def _werk_slug(label: str | None) -> str:
+    """Stabiele slug voor een werk-locatie, gebruikt in data-attributen."""
+    return re.sub(r"[^a-z0-9]+", "-", str(label or "").lower()).strip("-") or "werk"
+
+
+def _card_data_attrs(r: dict) -> str:
+    """Bouw de data-* attributen waarop client-side gesorteerd/gefilterd wordt."""
+    d = r["d"]
+    l = r["lasten"]
+    prijs = r.get("prijs") or 0
+    m2 = r.get("m2") or 0
+    ppm = (prijs // m2) if (prijs and m2) else 0
+
+    label = str(r.get("label") or "?").upper()
+    labelrank = LABEL_RANK.get(label, -1)
+
+    # Recency: lager = recenter. Dagen-te-koop indien bekend, anders nieuw vooraan.
+    tr = r.get("track") or {}
+    dagen = tr.get("dagen")
+    if dagen is None:
+        recency = 0 if r.get("is_nieuw") else 99999
+    else:
+        recency = dagen
+
+    erf = r.get("erfpacht") or {}
+    erf_status = erf.get("status") or "onbekend"
+    if erf_status == "eigen":
+        erfpacht_val = "geen"
+    elif erf_status == "onbekend":
+        erfpacht_val = "onbekend"
+    else:
+        erfpacht_val = "wel"
+
+    city = (d.get("city") or "").strip().lower()
+    bcls = _budget_class(r.get("budget") or "")
+
+    attrs = (
+        f' data-score="{float(r.get("score") or 0):.3f}"'
+        f' data-prijs="{prijs}"'
+        f' data-maandlast="{l.get("totaal") or 0}"'
+        f' data-m2="{m2}"'
+        f' data-ppm="{ppm}"'
+        f' data-labelrank="{labelrank}"'
+        f' data-recency="{recency}"'
+        f' data-nieuw="{1 if r.get("is_nieuw") else 0}"'
+        f' data-drop="{1 if tr.get("gedaald") else 0}"'
+        f' data-erfpacht="{erfpacht_val}"'
+        f' data-city="{_h(city)}"'
+        f' data-budget="{bcls}"'
+    )
+    for rt in r.get("routes") or []:
+        attrs += f' data-afstand-{_werk_slug(rt.get("label"))}="{rt.get("km", 0):.2f}"'
+    return attrs
+
+
 def _card_html(r: dict) -> str:
     d = r["d"]
     url = _detail_url(d)
@@ -2447,7 +2806,7 @@ def _card_html(r: dict) -> str:
         )
 
     return f"""
-    <article id="card-{card_id}" class="card budget-{bcls}{nieuw_class}">
+    <article id="card-{card_id}" class="card budget-{bcls}{nieuw_class}"{_card_data_attrs(r)}>
       <div class="card-photo-wrap">
         {foto_html}
         <div class="card-prijs">{_money(r['prijs'])}</div>
@@ -2470,6 +2829,114 @@ def _card_html(r: dict) -> str:
         {footer_html}
       </div>
     </article>
+    """
+
+
+def _controls_html(rijen: list[dict]) -> str:
+    """Sorteer- en filterbalk. Werkt volledig client-side (zie CONTROLS_JS)."""
+    if not rijen:
+        return ""
+
+    # Sorteeropties: vaste set + per werk-locatie een afstandsoptie.
+    sort_opts = [
+        ("score", "Geschiktheid", "desc"),
+        ("prijs", "Prijs", "asc"),
+        ("maandlast", "Maandlast", "asc"),
+        ("m2", "Oppervlakte", "desc"),
+        ("ppm", "Prijs per m²", "asc"),
+        ("label", "Energielabel", "desc"),
+        ("recency", "Laatst toegevoegd", "asc"),
+    ]
+    for _pc, label in WERK_POSTCODES:
+        sort_opts.append((f"afstand:{_werk_slug(label)}", f"Afstand: {label}", "asc"))
+
+    options_html = "".join(
+        f'<option value="{_h(value)}" data-dir="{direction}"'
+        f'{" selected" if value == "score" else ""}>{_h(text)}</option>'
+        for value, text, direction in sort_opts
+    )
+
+    # Steden uit de huidige shortlist (voor stad-filter).
+    cities = sorted(
+        {(r["d"].get("city") or "").strip() for r in rijen if (r["d"].get("city") or "").strip()},
+        key=str.lower,
+    )
+    city_html = "".join(
+        f'<label class="chip"><input type="checkbox" class="funda-f-city" '
+        f'value="{_h(c.lower())}" checked>{_h(c)}</label>'
+        for c in cities
+    )
+    city_group = (
+        f'<div class="control-group control-group--block">'
+        f'<span class="control-label">Stad</span>'
+        f'<div class="chip-row">{city_html}</div></div>'
+        if city_html else ""
+    )
+
+    label_opts = "".join(
+        f'<option value="{x}">{x} of beter</option>' for x in ["A", "B", "C", "D", "E", "F"]
+    )
+
+    return f"""
+    <section class="controls" data-bound="0" aria-label="Sorteren en filteren">
+      <div class="controls-row">
+        <div class="control-group">
+          <span class="control-label">Sorteer</span>
+          <select id="funda-sort">{options_html}</select>
+          <button type="button" id="funda-sortdir" class="sortdir-btn"
+            data-dir="desc" title="Sorteervolgorde omdraaien" aria-label="Sorteervolgorde omdraaien">
+            ↓ Hoog&ndash;laag
+          </button>
+        </div>
+        <span id="funda-f-result" class="controls-result" aria-live="polite"></span>
+      </div>
+      <div class="controls-row filters">
+        {city_group}
+        <div class="control-group">
+          <span class="control-label">Erfpacht</span>
+          <select id="funda-f-erfpacht">
+            <option value="alle">Alle</option>
+            <option value="geen">Eigen grond</option>
+            <option value="wel">Wel erfpacht</option>
+            <option value="onbekend">Onbekend</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <span class="control-label">Min. label</span>
+          <select id="funda-f-label">
+            <option value="alle">Alle</option>
+            {label_opts}
+          </select>
+        </div>
+        <div class="control-group">
+          <span class="control-label">Financiering</span>
+          <select id="funda-f-budget">
+            <option value="alle">Alle</option>
+            <option value="past">Past (binnen norm)</option>
+            <option value="fin">Financierbaar</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <span class="control-label">Max prijs</span>
+          <input type="number" id="funda-f-maxprijs" inputmode="numeric" min="0" step="10000" placeholder="–">
+        </div>
+        <div class="control-group">
+          <span class="control-label">Max maandlast</span>
+          <input type="number" id="funda-f-maxlast" inputmode="numeric" min="0" step="50" placeholder="–">
+        </div>
+        <div class="control-group">
+          <span class="control-label">Min m²</span>
+          <input type="number" id="funda-f-minm2" inputmode="numeric" min="0" step="5" placeholder="–">
+        </div>
+      </div>
+      <div class="controls-row">
+        <div class="controls-toggles">
+          <label><input type="checkbox" id="funda-f-nieuw"> Alleen nieuw</label>
+          <label><input type="checkbox" id="funda-f-drop"> Alleen prijsdaling</label>
+        </div>
+        <button type="button" id="funda-f-reset" class="reset-btn">Reset filters</button>
+      </div>
+    </section>
     """
 
 
@@ -2561,6 +3028,7 @@ def render_report_body(
     {profiel}
     {_map_html(rijen, werk_coords)}
     {_push_setup_html()}
+    {_controls_html(rijen)}
     {section(nieuw_titel, nieuwe, nieuw_leeg)}
     {section(rest_titel, rest, rest_leeg)}
     {assumpties}
@@ -2611,6 +3079,7 @@ if ('serviceWorker' in navigator) {
 <body>
 {body}
 {MAP_JS}
+{CONTROLS_JS}
 {pwa_push_js() if is_pwa else ""}
 {pwa_script}
 </body>
@@ -2853,6 +3322,7 @@ def beveilig_html(html: str, password: str) -> str:
         .replace("__APP_CSS__", HTML_CSS)
         .replace("__MAP_HEAD__", MAP_HEAD)
         .replace("__MAP_JS__", MAP_JS)
+        .replace("__CONTROLS_JS__", CONTROLS_JS)
         .replace("__PWA_PUSH_JS__", pwa_push_js())
         .replace("__SALT__", salt_b64)
         .replace("__IV__", iv_b64)
@@ -2897,6 +3367,7 @@ __APP_CSS__
 @media (prefers-reduced-motion: reduce){.spinner{animation-duration:1.5s}}
 </style>
 __MAP_JS__
+__CONTROLS_JS__
 __PWA_PUSH_JS__
 </head>
 <body>
