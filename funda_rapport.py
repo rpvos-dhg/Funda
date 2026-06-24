@@ -1875,19 +1875,64 @@ h2 { margin: 0; font-size: 23px; line-height: 1.18; font-weight: 700; }
 }
 .card-footer a:hover { background: var(--brand-deep); }
 .card-footer a:active { transform: scale(.98); }
-/* Sorteer-/filterbalk -- sticky onder de topbar, paper-on-paper met borders. */
+/* Sorteer-/filtermenu -- inklapbaar (details/summary), sticky onder de topbar. */
 .controls {
   position: sticky;
   top: calc(58px + env(safe-area-inset-top));
   z-index: 600;
-  display: grid;
-  gap: 12px;
   margin: 30px 0 8px;
-  padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--surface);
   box-shadow: var(--shadow-overlay);
+  overflow: hidden;
+}
+.controls-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.controls-summary::-webkit-details-marker { display: none; }
+.controls-summary-label { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
+.controls-summary .chev {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform .15s var(--motion-ease);
+  flex: 0 0 auto;
+}
+.controls[open] .controls-summary .chev { transform: rotate(-135deg); }
+.controls-badge {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.controls-badge.is-active { display: inline-flex; }
+.controls-body {
+  display: grid;
+  gap: 14px;
+  padding: 4px 16px 16px;
+  border-top: 1px solid var(--line);
 }
 .controls-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
 .control-group { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
@@ -1981,8 +2026,9 @@ h2 { margin: 0; font-size: 23px; line-height: 1.18; font-weight: 700; }
 .reset-btn:hover { background: var(--surface-2); }
 .filter-empty { margin-top: 16px; }
 @media (max-width: 760px) {
-  .controls { position: static; padding: 12px; margin-top: 24px; }
-  .controls-result { margin-left: 0; }
+  .controls { position: static; margin-top: 24px; }
+  .controls-summary { padding: 12px; }
+  .controls-body { padding: 4px 12px 12px; }
   .control-group { flex-wrap: wrap; }
   .controls input[type="number"] { width: 100%; flex: 1 1 96px; }
 }
@@ -2259,6 +2305,24 @@ CONTROLS_JS = """
 
     var res = el('funda-f-result');
     if(res) res.textContent = totalVisible + ' van ' + totalAll + ' woningen';
+
+    // Badge: aantal actieve filters (sortering telt niet mee).
+    var active = 0;
+    if(f.erfpacht !== 'alle') active++;
+    if(f.minLabel !== 'alle') active++;
+    if(f.budget !== 'alle') active++;
+    if(f.maxPrijs !== null) active++;
+    if(f.maxLast !== null) active++;
+    if(f.minM2 !== null) active++;
+    if(f.onlyNew) active++;
+    if(f.onlyDrop) active++;
+    var allCity = document.querySelectorAll('.funda-f-city').length;
+    if(allCity > 0 && f.cities.length < allCity) active++;
+    var badge = el('funda-f-active');
+    if(badge){
+      badge.textContent = active;
+      badge.classList.toggle('is-active', active > 0);
+    }
   }
 
   function updateDirLabel(btn){
@@ -2878,65 +2942,74 @@ def _controls_html(rijen: list[dict]) -> str:
     )
 
     return f"""
-    <section class="controls" data-bound="0" aria-label="Sorteren en filteren">
-      <div class="controls-row">
-        <div class="control-group">
-          <span class="control-label">Sorteer</span>
-          <select id="funda-sort">{options_html}</select>
-          <button type="button" id="funda-sortdir" class="sortdir-btn"
-            data-dir="desc" title="Sorteervolgorde omdraaien" aria-label="Sorteervolgorde omdraaien">
-            ↓ Hoog&ndash;laag
-          </button>
-        </div>
+    <details class="controls" data-bound="0" aria-label="Sorteren en filteren">
+      <summary class="controls-summary">
+        <span class="controls-summary-label">
+          <span class="chev" aria-hidden="true"></span>
+          Sorteer &amp; filter
+          <span id="funda-f-active" class="controls-badge" aria-label="actieve filters">0</span>
+        </span>
         <span id="funda-f-result" class="controls-result" aria-live="polite"></span>
+      </summary>
+      <div class="controls-body">
+        <div class="controls-row">
+          <div class="control-group">
+            <span class="control-label">Sorteer</span>
+            <select id="funda-sort">{options_html}</select>
+            <button type="button" id="funda-sortdir" class="sortdir-btn"
+              data-dir="desc" title="Sorteervolgorde omdraaien" aria-label="Sorteervolgorde omdraaien">
+              ↓ Hoog&ndash;laag
+            </button>
+          </div>
+        </div>
+        <div class="controls-row filters">
+          {city_group}
+          <div class="control-group">
+            <span class="control-label">Erfpacht</span>
+            <select id="funda-f-erfpacht">
+              <option value="alle">Alle</option>
+              <option value="geen">Eigen grond</option>
+              <option value="wel">Wel erfpacht</option>
+              <option value="onbekend">Onbekend</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <span class="control-label">Min. label</span>
+            <select id="funda-f-label">
+              <option value="alle">Alle</option>
+              {label_opts}
+            </select>
+          </div>
+          <div class="control-group">
+            <span class="control-label">Financiering</span>
+            <select id="funda-f-budget">
+              <option value="alle">Alle</option>
+              <option value="past">Past (binnen norm)</option>
+              <option value="fin">Financierbaar</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <span class="control-label">Max prijs</span>
+            <input type="number" id="funda-f-maxprijs" inputmode="numeric" min="0" step="10000" placeholder="–">
+          </div>
+          <div class="control-group">
+            <span class="control-label">Max maandlast</span>
+            <input type="number" id="funda-f-maxlast" inputmode="numeric" min="0" step="50" placeholder="–">
+          </div>
+          <div class="control-group">
+            <span class="control-label">Min m²</span>
+            <input type="number" id="funda-f-minm2" inputmode="numeric" min="0" step="5" placeholder="–">
+          </div>
+        </div>
+        <div class="controls-row">
+          <div class="controls-toggles">
+            <label><input type="checkbox" id="funda-f-nieuw"> Alleen nieuw</label>
+            <label><input type="checkbox" id="funda-f-drop"> Alleen prijsdaling</label>
+          </div>
+          <button type="button" id="funda-f-reset" class="reset-btn">Reset filters</button>
+        </div>
       </div>
-      <div class="controls-row filters">
-        {city_group}
-        <div class="control-group">
-          <span class="control-label">Erfpacht</span>
-          <select id="funda-f-erfpacht">
-            <option value="alle">Alle</option>
-            <option value="geen">Eigen grond</option>
-            <option value="wel">Wel erfpacht</option>
-            <option value="onbekend">Onbekend</option>
-          </select>
-        </div>
-        <div class="control-group">
-          <span class="control-label">Min. label</span>
-          <select id="funda-f-label">
-            <option value="alle">Alle</option>
-            {label_opts}
-          </select>
-        </div>
-        <div class="control-group">
-          <span class="control-label">Financiering</span>
-          <select id="funda-f-budget">
-            <option value="alle">Alle</option>
-            <option value="past">Past (binnen norm)</option>
-            <option value="fin">Financierbaar</option>
-          </select>
-        </div>
-        <div class="control-group">
-          <span class="control-label">Max prijs</span>
-          <input type="number" id="funda-f-maxprijs" inputmode="numeric" min="0" step="10000" placeholder="–">
-        </div>
-        <div class="control-group">
-          <span class="control-label">Max maandlast</span>
-          <input type="number" id="funda-f-maxlast" inputmode="numeric" min="0" step="50" placeholder="–">
-        </div>
-        <div class="control-group">
-          <span class="control-label">Min m²</span>
-          <input type="number" id="funda-f-minm2" inputmode="numeric" min="0" step="5" placeholder="–">
-        </div>
-      </div>
-      <div class="controls-row">
-        <div class="controls-toggles">
-          <label><input type="checkbox" id="funda-f-nieuw"> Alleen nieuw</label>
-          <label><input type="checkbox" id="funda-f-drop"> Alleen prijsdaling</label>
-        </div>
-        <button type="button" id="funda-f-reset" class="reset-btn">Reset filters</button>
-      </div>
-    </section>
+    </details>
     """
 
 
