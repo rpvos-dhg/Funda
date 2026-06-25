@@ -103,6 +103,7 @@ UITSLUIT_BUURTEN = [
     "Landen",
     "Burgen en Horsten",
     "Oostbroek",
+    "Rivierenbuurt",  # Noord + Zuid: veel huur/belegging, hoge criminaliteit/overlast, grenst aan Schilderswijk/Laak
 ]
 
 # Steden die je niet wil zien (substring match op city-veld, case-insensitive).
