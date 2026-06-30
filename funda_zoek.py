@@ -104,6 +104,7 @@ UITSLUIT_BUURTEN = [
     "Burgen en Horsten",
     "Oostbroek",
     "Rivierenbuurt",  # Noord + Zuid: veel huur/belegging, hoge criminaliteit/overlast, grenst aan Schilderswijk/Laak
+    "Laakhaven",  # Laakhaven-West/-Oost: bedrijvigheid/studentenbouw, grenst aan Laakkwartier/Schilderswijk
 ]
 
 # Steden die je niet wil zien (substring match op city-veld, case-insensitive).
