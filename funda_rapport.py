@@ -67,10 +67,16 @@ try:
 except Exception:
     _TZ_NL = None
 
+_NL_MAANDEN = [
+    "januari", "februari", "maart", "april", "mei", "juni",
+    "juli", "augustus", "september", "oktober", "november", "december",
+]
+
 
 def _nu_nl() -> str:
+    """Huidig moment als leesbare NL-datum, bv. '9 juli 2026 om 10:34'."""
     dt = datetime.now(_TZ_NL) if _TZ_NL else datetime.now()
-    return dt.strftime("%Y-%m-%d %H:%M")
+    return f"{dt.day} {_NL_MAANDEN[dt.month - 1]} {dt.year} om {dt:%H:%M}"
 
 # === Hypotheek-config (handmatig updaten) ===
 
