@@ -27,12 +27,34 @@ from collections import Counter
 from pathlib import Path
 from datetime import datetime
 
-from funda import Funda
+from funda import Funda as _Funda
 
 try:
     from funda_rapport import genereer_rapport
 except ImportError:
     genereer_rapport = None
+
+
+class Funda(_Funda):
+    """Patch voor pyfunda v2.9.0 (gepind, zie CLAUDE.md).
+
+    Funda migreerde op 2 juli 2026 hun search-template server-side van
+    "search_result_20250805" naar "search_result_20260227". pyfunda v2.9.0
+    stuurt nog de oude, verouderde id mee: de API antwoordt dan met HTTP 200
+    maar een error per deel-query, wat v2.9.0 stil als "0 resultaten"
+    interpreteert (geen exception, geen foutmelding - vandaar dat dit
+    onopgemerkt bleef). Pas is er in pyfunda v3.1.2, maar v3 is een
+    incompatibele dataclass-rewrite. Daarom hier alleen de template-id
+    patchen in plaats van te upgraden.
+    """
+
+    _STALE_SEARCH_TEMPLATE_ID = "search_result_20250805"
+    _FIXED_SEARCH_TEMPLATE_ID = "search_result_20260227"
+
+    def _post(self, url, headers_list, data=None, json_data=None, for_search=False):
+        if for_search and data and self._STALE_SEARCH_TEMPLATE_ID in data:
+            data = data.replace(self._STALE_SEARCH_TEMPLATE_ID, self._FIXED_SEARCH_TEMPLATE_ID)
+        return super()._post(url, headers_list, data=data, json_data=json_data, for_search=for_search)
 
 
 # === Configuratie — laad uit gitignored config bestand ===
@@ -632,7 +654,9 @@ def main() -> None:
     log(f"Klaar. Nieuw vandaag: {len(nieuw)}. State bevat nu {len(seen | nieuwe_set)} id's.")
 
     # Rapport genereren over alle goedgekeurde woningen, met markering nieuw vs eerder.
-    if genereer_rapport and goed:
+    # Altijd genereren (ook bij 0 matches) zodat de "Gegenereerd"-datum in het
+    # rapport nooit blijft hangen op de laatste run met resultaten.
+    if genereer_rapport:
         try:
             nieuw_ids = {str(d.get("global_id") or d.get("listing_id") or d.get("detail_url")) for d in nieuw}
             pad = genereer_rapport(f, goed, nieuw_ids)
