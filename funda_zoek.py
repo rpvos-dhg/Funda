@@ -465,6 +465,13 @@ def main() -> None:
     banden = maak_prijs_banden(PRIJS_MIN, PRIJS_MAX, PRIJS_BAND_STAP)
     rauwe = []
     gezien_ids: set[str] = set()
+    # Onderscheid "de markt heeft niets" van "de API doet het niet": tel geslaagde
+    # en mislukte zoek-calls apart. Zonder dit onderscheid ziet een kapotte API er
+    # precies hetzelfde uit als een lege markt, en overschrijft een stukgelopen run
+    # een goed rapport met een leeg rapport.
+    zoek_ok = 0
+    zoek_fout = 0
+    zoek_fout_redenen: Counter[str] = Counter()
     for band_min, band_max in banden:
         band_n = 0
         for sort in ZOEK_SORTS:
@@ -485,8 +492,11 @@ def main() -> None:
                         page=pagina,
                     )
                 except Exception as exc:
+                    zoek_fout += 1
+                    zoek_fout_redenen[str(exc)[:80]] += 1
                     log(f"Fout band {band_min}-{band_max} sort {sort_label} pagina {pagina}: {exc}")
                     break
+                zoek_ok += 1
                 if not results:
                     break
                 for r in results:
@@ -503,6 +513,24 @@ def main() -> None:
         log(f"Band € {band_min:,}-{band_max:,}: {band_n} uniek na alle sorteringen.")
 
     log(f"Totaal opgehaald (na dedup): {len(rauwe)}.")
+
+    # Geen enkele geslaagde zoek-call = de API is stuk (bijv. 401), niet de markt.
+    # Hard stoppen: geen rapport schrijven, geen state bijwerken. Zo blijft het
+    # vorige (gevulde) rapport staan en kleurt de Action rood in plaats van dat
+    # het probleem onopgemerkt doorsijpelt als "0 woningen".
+    if zoek_ok == 0 and zoek_fout:
+        top = ", ".join(f"{reden} ({n}x)" for reden, n in zoek_fout_redenen.most_common(3))
+        boodschap = (
+            f"Alle {zoek_fout} zoekopdrachten mislukt, geen enkele geslaagde call. "
+            f"Meest voorkomend: {top}. Rapport NIET bijgewerkt."
+        )
+        log(boodschap)
+        print(f"::error::{boodschap}")
+        raise SystemExit(2)
+
+    if zoek_fout:
+        log(f"Let op: {zoek_fout} van {zoek_ok + zoek_fout} zoek-calls mislukt; "
+            f"resultaat kan onvolledig zijn.")
 
     # Debug: alle binnenkomende wijken inventariseren.
     if debug_wijken:
