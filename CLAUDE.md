@@ -37,6 +37,19 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
 
 ## Belangrijke valkuilen (eerder tegengekomen)
 
+- **Zoek-API zit sinds 18 aug 2026 achter auth (`401 no token provided`).**
+  `listing-search-wonen.funda.io/_msearch/template` eist nu een token dat
+  pyfunda niet meestuurt; ook v3.1.4 niet (upstream issue 0xMH/pyfunda#15, zelfde
+  datum). Het detail-endpoint (`listing-detail-page.funda.io`) werkt nog wel,
+  net als de publieke zoekpagina op www.funda.nl (server-rendered HTML, geen
+  bot-muur vanaf een Actions-runner). Zoeken via HTML-scrapen is dus de meest
+  kansrijke terugvaloptie zolang er geen token-oplossing is.
+  Diagnose herhalen: `python scripts/funda_api_debug.py` (draait ook automatisch
+  in de workflow zodra een run faalt).
+- **"0 woningen" is niet hetzelfde als "API stuk".** Een run zonder enkele
+  geslaagde zoek-call stopt nu met exit code 2 en laat rapport en state met rust.
+  Zonder die check schreef een kapotte API een leeg rapport over het gevulde
+  rapport heen terwijl de Action groen bleef.
 - **pyfunda pin.** Het script gebruikt de v2.x API (`f.search_listing(...)` en
   `r.data` dicts). v3+ is een dataclass-rewrite zonder die methodes. Daarom is
   pyfunda vastgepind op `v2.9.0` in zowel `requirements.txt` als de workflow.
