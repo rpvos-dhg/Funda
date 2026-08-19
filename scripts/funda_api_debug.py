@@ -162,6 +162,38 @@ def main() -> int:
         ),
     )
 
+    # Terugvaloptie verkennen: is de publieke zoekpagina server-rendered en
+    # bruikbaar vanaf een Actions-runner, of staat er een bot-muur voor?
+    zoek_url = (
+        "https://www.funda.nl/zoeken/koop"
+        "?selected_area=%5B%22den-haag%22%5D&price=%22230000-310000%22"
+    )
+    print("\n--- ZOEKPAGINA (HTML-fallback) ---")
+    try:
+        resp = curl_requests.get(
+            zoek_url,
+            headers={
+                "user-agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+                    "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+                ),
+                "accept-language": "nl-NL,nl;q=0.9",
+            },
+            impersonate="safari15_5",
+            timeout=30,
+        )
+        html = resp.text or ""
+        print(f"  status: {resp.status_code}")
+        print(f"  lengte: {len(html)}")
+        print(f"  bot-interstitial: {'Je bent bijna op de pagina' in html}")
+        print(f"  aantal /koop/-links: {html.count('/koop/')}")
+        print(f"  __NEXT_DATA__ aanwezig: {'__NEXT_DATA__' in html}")
+        print(f"  title: {html[html.find('<title>'):html.find('</title>') + 8][:120]!r}")
+        resultaten["zoekpagina HTML"] = resp.status_code
+    except Exception as exc:
+        print(f"  EXCEPTIE: {type(exc).__name__}: {exc}")
+        resultaten["zoekpagina HTML"] = -1
+
     # Wat doet pyfunda zelf? (gebruikt de geïnstalleerde versie, incl. onze patch)
     print("\n--- pyfunda via de eigen client ---")
     try:
