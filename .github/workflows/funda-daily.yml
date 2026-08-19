@@ -92,6 +92,13 @@ jobs:
         if: always()
         run: rm -f funda_personal.json funda_pwa_password.txt
 
+      # Ging de run stuk (bijv. alle zoekopdrachten 401)? Dan meteen de rauwe
+      # API-antwoorden loggen, zodat de oorzaak in dezelfde run zichtbaar is en
+      # niet pas na handmatig naspeuren. Gebruikt geen secrets.
+      - name: API-probe bij mislukte run
+        if: failure()
+        run: python scripts/funda_api_debug.py
+
       - name: Versleuteld rapport publiceren
         run: |
           git config user.name "funda-bot"
