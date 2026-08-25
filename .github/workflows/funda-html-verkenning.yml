@@ -1,13 +1,14 @@
-name: Funda API debug
+name: Funda HTML verkenning
 
-# Handmatige probe om te zien wat de Funda-API precies terugstuurt.
-# Gebruikt geen secrets en publiceert niets; alleen logging in de Actions-output.
+# Eenmalige verkenning van funda.nl's zoekpagina, als voorbereiding op de
+# HTML-fallback. Gebruikt geen secrets en publiceert niets naar de repo;
+# de opgehaalde HTML komt als artifact beschikbaar.
 
 on:
   workflow_dispatch: {}
 
 jobs:
-  probe:
+  verkennen:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -21,14 +22,9 @@ jobs:
       - name: Dependencies installeren
         run: |
           python -m pip install --upgrade pip
-          pip install "git+https://github.com/0xMH/pyfunda.git@v2.9.0"
+          pip install curl-cffi
 
-      - name: API-probe draaien
-        run: python scripts/funda_api_debug.py
-
-      # TIJDELIJK (wordt voor de merge teruggedraaid): verkenning van de
-      # HTML-zoekpagina, zodat de fallback op echte structuur gebouwd wordt.
-      - name: HTML-verkenning draaien
+      - name: Verkenning draaien
         run: python scripts/funda_html_verkenning.py
 
       - name: HTML als artifact bewaren
