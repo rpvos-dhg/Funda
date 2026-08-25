@@ -31,6 +31,9 @@ jobs:
       - name: HTML-verkenning draaien
         run: python scripts/funda_html_verkenning.py
 
+      - name: HTML-structuur analyseren
+        run: python scripts/funda_html_analyse.py
+
       - name: HTML als artifact bewaren
         uses: actions/upload-artifact@v4
         with:
