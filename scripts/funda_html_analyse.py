@@ -68,7 +68,7 @@ def toon_json_ld(html: str) -> None:
             items = data.get("itemListElement") or []
             print(f"      itemListElement: {len(items)} items")
             if items:
-                print(f"      eerste item: {json.dumps(items[0], ensure_ascii=False)[:600]}")
+                print(f"      eerste item: {json.dumps(items[0], ensure_ascii=False)[:900]}")
         elif isinstance(data, dict):
             print(f"      sleutels: {list(data.keys())[:15]}")
 
@@ -103,14 +103,14 @@ def toon_kaart_markup(html: str) -> None:
             uniek.append(m)
     print(f"unieke detail-links: {len(uniek)}\n")
 
-    for m in uniek[:2]:
-        start = max(0, m.start() - 2200)
-        eind = min(len(html), m.end() + 2200)
+    for m in uniek[:1]:
+        start = max(0, m.start() - 1500)
+        eind = min(len(html), m.end() + 1500)
         fragment = html[start:eind]
         # Whitespace indikken zodat het leesbaar in de log past.
         fragment = re.sub(r"\s+", " ", fragment)
         print(f"--- kaart rond {m.group(1)} ---")
-        print(fragment[:3500])
+        print(fragment[:2600])
         print()
 
 
