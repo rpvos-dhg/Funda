@@ -24,8 +24,14 @@ PRIJS_MIN = 230_000
 PRIJS_MAX = 310_000
 M2_MIN = 52
 
-# Velden waar de rest van de code op leunt.
-VERWACHT = ("global_id", "city", "neighbourhood", "price", "living_area", "energy_label")
+# Velden die er écht moeten zijn: hier draaien de filters en het rapport op.
+# neighbourhood staat erbij omdat de buurt-uitsluiting de hele reden is dat we
+# per woning een detail-call doen.
+VERPLICHT = ("global_id", "city", "neighbourhood", "price", "living_area")
+
+# Mag ontbreken: niet elke funda-advertentie heeft een energielabel. De rest van
+# de code toont dan "?" en slaat de NHG-check over.
+OPTIONEEL = ("energy_label", "bedrooms", "rooms")
 
 
 def main() -> int:
@@ -84,16 +90,20 @@ def main() -> int:
 
     fouten = 0
     for d in verrijkt:
-        ontbreekt = [v for v in VERWACHT if not d.get(v)]
         print(f"  {d.get('global_id')} | {d.get('title')} | {d.get('city')} "
               f"| buurt={d.get('neighbourhood')} | EUR {d.get('price')} "
-              f"| {d.get('living_area')} m2 | label={d.get('energy_label')}")
-        if ontbreekt:
-            print(f"    ONTBREEKT: {ontbreekt}")
-            fouten += 1
+              f"| {d.get('living_area')} m2 | label={d.get('energy_label') or '?'}")
+
+        ontbreekt = [v for v in VERPLICHT if not d.get(v)]
         if not (d.get("description") or "").strip():
-            print("    ONTBREEKT: description (nodig voor belegging/begane-grond-check)")
+            ontbreekt.append("description")
+        if ontbreekt:
+            print(f"    ONTBREEKT (verplicht): {ontbreekt}")
             fouten += 1
+
+        leeg_optioneel = [v for v in OPTIONEEL if not d.get(v)]
+        if leeg_optioneel:
+            print(f"    leeg maar toegestaan: {leeg_optioneel}")
 
     if not verrijkt:
         print("FOUT: geen enkele woning verrijkt via het detail-endpoint.")
