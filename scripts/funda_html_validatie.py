@@ -18,8 +18,11 @@ from funda import Funda  # noqa: E402
 
 from funda_html_zoek import HtmlZoeker, bouw_zoek_url, parse_kaarten  # noqa: E402
 
-GEBIED = "den-haag"
-STRAAL = 5
+# Bewust de vórm van de echte config: zoeken vanaf een postcode met een straal
+# die funda niet rechtstreeks ondersteunt. Valideren met een plaatsnaam en een
+# ronde straal verborg eerder een bug die pas in productie opviel.
+GEBIED = "2563bk"
+STRAAL = 6
 PRIJS_MIN = 230_000
 PRIJS_MAX = 310_000
 M2_MIN = 52
@@ -46,6 +49,10 @@ def main() -> int:
         oppervlakte_min=M2_MIN,
     )
     print(f"URL: {url}\n")
+    if f",{STRAAL}km" in url:
+        print(f"FOUT: straal {STRAAL} is niet gesnapt naar een waarde die funda kent; "
+              "dat geeft stil nul resultaten.")
+        return 1
 
     html = zoeker._haal(url)
     kaarten = parse_kaarten(html)

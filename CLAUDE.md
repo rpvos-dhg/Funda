@@ -60,6 +60,11 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
     Structuur opnieuw afleiden: `scripts/funda_html_analyse.py`.
   - Detail-calls zijn het dure deel. Ze worden gecacht en overgeslagen voor
     woningen die op stad of straat-segment toch al afvallen.
+  - **De straal moet een waarde zijn die funda kent** (1, 2, 5, 10, 15, 30, 50).
+    Een andere waarde, zoals de 6 km uit de config, geeft géén foutmelding maar
+    een lege resultatenpagina: status 200, nul kaarten. `snap_straal()` rondt
+    daarom af op de dichtstbijzijnde ondersteunde waarde, net als de oude API.
+    Zelfde valkuil bij het gebied: een postcode moet lowercase en zonder spatie.
 - **"0 woningen" is niet hetzelfde als "zoeken stuk".** Een run stopt met exit
   code 2 - rapport en state onaangeroerd - in twee gevallen: geen enkele
   geslaagde zoek-call (API dicht), of wél geslaagde calls maar samen nul

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sys
 
-from funda_html_zoek import HtmlZoeker, bouw_zoek_url, parse_kaarten
+from funda_html_zoek import HtmlZoeker, bouw_zoek_url, parse_kaarten, snap_straal
 
 
 def kaart_html(
@@ -151,6 +151,25 @@ def test_url() -> bool:
     return ok
 
 
+def test_straal() -> bool:
+    print("test: straal snappen naar wat funda accepteert")
+    # Een niet-ondersteunde straal geeft geen fout maar een lege resultatenpagina
+    # (status 200, nul kaarten). Dat kostte een productierun met radius_km=6.
+    ok = True
+    ok &= check("geen straal blijft None", snap_straal(None) is None)
+    ok &= check("6 -> 5", snap_straal(6) == 5, str(snap_straal(6)))
+    ok &= check("7 -> 5", snap_straal(7) == 5, str(snap_straal(7)))
+    ok &= check("8 -> 10", snap_straal(8) == 10, str(snap_straal(8)))
+    ok &= check("3 -> 2", snap_straal(3) == 2, str(snap_straal(3)))
+    ok &= check("100 -> 50", snap_straal(100) == 50, str(snap_straal(100)))
+    ok &= check("5 blijft 5", snap_straal(5) == 5)
+
+    url = bouw_zoek_url(gebied="2596EC", radius_km=6)
+    ok &= check("URL gebruikt gesnapte straal", "2596ec%2C5km" in url, url)
+    ok &= check("geen 6km in URL", "6km" not in url)
+    return ok
+
+
 def test_parse() -> bool:
     print("test: kaarten parsen")
     ok = True
@@ -288,7 +307,7 @@ def test_botmuur() -> bool:
 
 
 def main() -> int:
-    resultaten = [test_url(), test_parse(), test_zoeker(), test_dedup(), test_delegatie(), test_botmuur()]
+    resultaten = [test_url(), test_straal(), test_parse(), test_zoeker(), test_dedup(), test_delegatie(), test_botmuur()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")
