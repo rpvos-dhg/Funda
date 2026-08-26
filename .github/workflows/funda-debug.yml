@@ -37,3 +37,7 @@ jobs:
       # HTML-zoekpagina nog zoals de parser verwacht?
       - name: HTML-fallback valideren tegen funda.nl
         run: python scripts/funda_html_validatie.py
+
+      # TIJDELIJK: welke gebied-/straalnotaties accepteert funda.nl?
+      - name: Gebied-notaties meten
+        run: python scripts/funda_gebied_probe.py
