@@ -590,6 +590,22 @@ def main() -> None:
         print(f"::error::{boodschap}")
         raise SystemExit(2)
 
+    # Variant op hetzelfde probleem: alle calls slagen, maar er komt niets terug.
+    # Zo faalt de HTML-route als funda hun markup wijzigt - de pagina geeft netjes
+    # 200 en de parser vindt simpelweg nul kaarten, zonder exception. Voor deze
+    # zoekopdracht (hele regio, brede prijsband) is nul woningen in de praktijk
+    # geen lege markt maar een stukke zoekmethode. Dus dezelfde behandeling:
+    # rapport en state met rust laten en de run rood laten worden.
+    if not rauwe:
+        boodschap = (
+            f"Nul woningen gevonden terwijl alle {zoek_ok} zoek-calls slaagden "
+            f"(methode: {zoek_methode}). Dat wijst op een stukke zoekmethode, niet "
+            f"op een lege markt. Rapport NIET bijgewerkt."
+        )
+        log(boodschap)
+        print(f"::error::{boodschap}")
+        raise SystemExit(2)
+
     if zoek_fout:
         log(f"Let op: {zoek_fout} van {zoek_ok + zoek_fout} zoek-calls mislukt; "
             f"resultaat kan onvolledig zijn.")

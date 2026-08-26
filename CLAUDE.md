@@ -60,10 +60,13 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
     Structuur opnieuw afleiden: `scripts/funda_html_analyse.py`.
   - Detail-calls zijn het dure deel. Ze worden gecacht en overgeslagen voor
     woningen die op stad of straat-segment toch al afvallen.
-- **"0 woningen" is niet hetzelfde als "API stuk".** Een run zonder enkele
-  geslaagde zoek-call stopt nu met exit code 2 en laat rapport en state met rust.
-  Zonder die check schreef een kapotte API een leeg rapport over het gevulde
-  rapport heen terwijl de Action groen bleef.
+- **"0 woningen" is niet hetzelfde als "zoeken stuk".** Een run stopt met exit
+  code 2 - rapport en state onaangeroerd - in twee gevallen: geen enkele
+  geslaagde zoek-call (API dicht), of wél geslaagde calls maar samen nul
+  woningen. Dat tweede is de faalmodus van de HTML-route: gewijzigde markup geeft
+  netjes 200 en nul kaarten, zonder exception. Zonder deze checks schrijft een
+  kapotte zoekmethode een leeg rapport over het gevulde rapport heen terwijl de
+  Action groen blijft.
 - **pyfunda pin.** Het script gebruikt de v2.x API (`f.search_listing(...)` en
   `r.data` dicts). v3+ is een dataclass-rewrite zonder die methodes. Daarom is
   pyfunda vastgepind op `v2.9.0` in zowel `requirements.txt` als de workflow.
@@ -87,6 +90,9 @@ python funda_zoek.py --no-open  # zonder browser
 
 ## Tests
 
+- `python test_funda_zoek.py` - offline tests voor de veiligheidschecks in
+  `main()`: een run stopt met exit 2 als álle zoek-calls falen én als ze allemaal
+  slagen maar samen nul woningen opleveren.
 - `python test_funda_html.py` - offline tests voor de HTML-zoekfallback
   (URL-opbouw, kaart-parser, drop-in-gedrag, dedup). Draait op een fixture die is
   nagebouwd op echte markup, dus geen netwerk nodig.
