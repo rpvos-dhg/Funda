@@ -40,6 +40,19 @@ KAART_SPLITS = '<div class="@container'
 # funda.nl toont 15 resultaten per pagina.
 PER_PAGINA = 15
 
+# funda's zoekpagina kent alleen deze stralen. Een andere waarde (bijv. 6km)
+# geeft géén foutmelding maar gewoon een lege resultatenpagina: status 200, nul
+# kaarten. Dat kostte een productierun. Daarom snappen we naar de dichtstbijzijnde
+# ondersteunde waarde, precies zoals de oude zoek-API dat deed.
+ONDERSTEUNDE_STRALEN = (1, 2, 5, 10, 15, 30, 50)
+
+
+def snap_straal(radius_km: int | None) -> int | None:
+    """Rond een straal af op de dichtstbijzijnde waarde die funda accepteert."""
+    if not radius_km:
+        return None
+    return min(ONDERSTEUNDE_STRALEN, key=lambda kandidaat: abs(kandidaat - radius_km))
+
 # Sorteringen van de oude API vertaald naar wat de zoekpagina verwacht.
 SORT_VERTALING = {
     None: None,
@@ -98,8 +111,9 @@ def bouw_zoek_url(
     `"plaats,5km"`, wat funda's straalzoekopdracht is.
     """
     plaats = gebied.strip().lower().replace(" ", "-")
-    if radius_km:
-        plaats = f"{plaats},{int(radius_km)}km"
+    straal = snap_straal(radius_km)
+    if straal:
+        plaats = f"{plaats},{straal}km"
 
     params: dict[str, str] = {"selected_area": f'["{plaats}"]'}
 
@@ -211,6 +225,7 @@ class HtmlZoeker:
         self._log = log or (lambda _bericht: None)
         self._cache: dict[str, Any] = {}
         self._sessie = None
+        self._url_gelogd = False
 
     # -- HTTP ---------------------------------------------------------------
 
@@ -262,6 +277,10 @@ class HtmlZoeker:
             sort=SORT_VERTALING.get(sort, sort),
             pagina=page + 1,
         )
+
+        if not self._url_gelogd:
+            self._url_gelogd = True
+            self._log(f"Zoek-URL (eerste van deze run): {url}")
 
         kaarten = parse_kaarten(self._haal(url))
         if not kaarten:
