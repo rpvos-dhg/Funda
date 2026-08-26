@@ -1,7 +1,9 @@
 name: Funda API debug
 
-# Handmatige probe om te zien wat de Funda-API precies terugstuurt.
-# Gebruikt geen secrets en publiceert niets; alleen logging in de Actions-output.
+# Handmatige diagnose: wat doen de Funda-endpoints, en werkt de HTML-fallback
+# nog op de echte site? Gebruikt geen secrets en publiceert niets.
+#
+# Draai dit als het rapport leeg blijft of als een run faalt.
 
 on:
   workflow_dispatch: {}
@@ -21,7 +23,17 @@ jobs:
       - name: Dependencies installeren
         run: |
           python -m pip install --upgrade pip
-          pip install "git+https://github.com/0xMH/pyfunda.git@v2.9.0"
+          pip install -r requirements.txt
+
+      - name: Offline tests
+        run: |
+          python test_funda_html.py
+          python test_funda_zoek.py
 
       - name: API-probe draaien
         run: python scripts/funda_api_debug.py
+
+      # Als laatste, zodat de uitkomst in de log-staart staat: werkt de
+      # HTML-zoekpagina nog zoals de parser verwacht?
+      - name: HTML-fallback valideren tegen funda.nl
+        run: python scripts/funda_html_validatie.py

@@ -2,3 +2,5 @@
 # Zelfde versie als in .github/workflows/funda-daily.yml.
 pyfunda @ git+https://github.com/0xMH/pyfunda.git@v2.9.0
 cryptography>=42
+# Voor de HTML-zoekfallback (komt ook met pyfunda mee, hier expliciet).
+curl-cffi>=0.7

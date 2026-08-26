@@ -22,3 +22,6 @@ __pycache__/
 Thumbs.db
 desktop.ini
 subscription.json
+
+# Tijdelijke map van test_funda_zoek.py
+.test_tmp/
