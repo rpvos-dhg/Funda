@@ -224,6 +224,26 @@ def test_zoeker() -> bool:
     return ok
 
 
+def test_dedup() -> bool:
+    print("test: duplicaten kosten geen tweede detail-call")
+    ok = True
+    client = StubClient()
+    zoeker = HtmlZoeker(client)
+    zoeker._haal = lambda url: PAGINA
+    zoeker._pauze = 0
+
+    zoeker.search_listing(location="den-haag", page=0)
+    na_eerste = len(client.calls)
+    ok &= check("eerste ronde doet calls", na_eerste == 3, str(na_eerste))
+
+    # Zelfde pagina nog eens (andere prijsband of sortering): alles uit cache.
+    res = zoeker.search_listing(location="den-haag", sort="oldest", page=0)
+    ok &= check("tweede ronde zonder extra calls", len(client.calls) == na_eerste,
+                f"{na_eerste} -> {len(client.calls)}")
+    ok &= check("tweede ronde levert wel resultaten", len(res) == 3, str(len(res)))
+    return ok
+
+
 def test_delegatie() -> bool:
     print("test: onbekende methodes vallen door naar de client")
     ok = True
@@ -268,7 +288,7 @@ def test_botmuur() -> bool:
 
 
 def main() -> int:
-    resultaten = [test_url(), test_parse(), test_zoeker(), test_delegatie(), test_botmuur()]
+    resultaten = [test_url(), test_parse(), test_zoeker(), test_dedup(), test_delegatie(), test_botmuur()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

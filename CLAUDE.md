@@ -40,12 +40,26 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
 - **Zoek-API zit sinds 18 aug 2026 achter auth (`401 no token provided`).**
   `listing-search-wonen.funda.io/_msearch/template` eist nu een token dat
   pyfunda niet meestuurt; ook v3.1.4 niet (upstream issue 0xMH/pyfunda#15, zelfde
-  datum). Het detail-endpoint (`listing-detail-page.funda.io`) werkt nog wel,
-  net als de publieke zoekpagina op www.funda.nl (server-rendered HTML, geen
-  bot-muur vanaf een Actions-runner). Zoeken via HTML-scrapen is dus de meest
-  kansrijke terugvaloptie zolang er geen token-oplossing is.
-  Diagnose herhalen: `python scripts/funda_api_debug.py` (draait ook automatisch
-  in de workflow zodra een run faalt).
+  datum, nog steeds open en zonder commits sinds 17 juli). Daarom zoekt het
+  script nu via de publieke zoekpagina, zie hieronder.
+  Diagnose herhalen: workflow "Funda API debug" (draait ook automatisch zodra een
+  dagelijkse run faalt).
+- **Zoeken gaat via HTML, verrijken via de API.** `funda_html_zoek.py` haalt de
+  woning-URL's van `www.funda.nl/zoeken/koop` (server-rendered Vue/Nuxt, geen
+  bot-muur vanaf een Actions-runner) en laat het detail-endpoint - dat nog wél
+  werkt - de rest invullen. Dat detail-antwoord bevat exact dezelfde velden als
+  de oude zoek-API, inclusief `neighbourhood`, waar de buurtfilters op draaien.
+  `HtmlZoeker` is een drop-in voor het `Funda`-object, dus `main()` en het
+  rapport weten hier niets van.
+  - Schakelen met `FUNDA_ZOEK_METHODE` of `zoek_methode` in de config:
+    `auto` (standaard, probeert eerst de API en valt terug op HTML), `api`, `html`.
+    Zodra Funda de API weer openzet, schakelt `auto` vanzelf terug.
+  - De parser leunt op de klasse `@container` per woningkaart en op de tekst in
+    die kaart. Verandert funda's markup, dan faalt `test_funda_html.py` niet
+    (die draait op een fixture) maar `scripts/funda_html_validatie.py` wél.
+    Structuur opnieuw afleiden: `scripts/funda_html_analyse.py`.
+  - Detail-calls zijn het dure deel. Ze worden gecacht en overgeslagen voor
+    woningen die op stad of straat-segment toch al afvallen.
 - **"0 woningen" is niet hetzelfde als "API stuk".** Een run zonder enkele
   geslaagde zoek-call stopt nu met exit code 2 en laat rapport en state met rust.
   Zonder die check schreef een kapotte API een leeg rapport over het gevulde
@@ -73,9 +87,13 @@ python funda_zoek.py --no-open  # zonder browser
 
 ## Tests
 
-`test_funda.py` (indien aanwezig) stubt de funda-library en test band-splitsing,
-tracking, prijsdaling-detectie en rapport-rendering offline (geen netwerk nodig):
-`python test_funda.py`.
+- `python test_funda_html.py` - offline tests voor de HTML-zoekfallback
+  (URL-opbouw, kaart-parser, drop-in-gedrag, dedup). Draait op een fixture die is
+  nagebouwd op echte markup, dus geen netwerk nodig.
+- `python scripts/funda_html_validatie.py` - controleert diezelfde parser tegen
+  de échte funda.nl. Dit is de test die afgaat als funda hun HTML verandert.
+- `test_funda.py` (indien aanwezig) stubt de funda-library en test
+  band-splitsing, tracking, prijsdaling-detectie en rapport-rendering offline.
 
 ## Kernfeatures (waarom de code is zoals hij is)
 

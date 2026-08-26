@@ -304,15 +304,25 @@ class HtmlZoeker:
     def _detail_data(self, kaart: dict[str, Any]) -> dict[str, Any] | None:
         """Haal detaildata op en vul aan met wat de kaart al wist."""
         sleutel = kaart.get("tiny_id") or kaart.get("detail_url")
-        try:
-            listing = self._client.get_listing(f"https://www.funda.nl{kaart['detail_url']}")
-        except Exception as exc:
-            self._log(f"Detail mislukt voor {kaart.get('detail_url')}: {exc}")
-            # Zonder detail missen we buurt/label; de kaartgegevens alleen zijn
-            # te mager om betrouwbaar op te filteren, dus overslaan.
-            return None
-        finally:
-            time.sleep(self._pauze)
+
+        # Dezelfde woning komt terug in meerdere prijsbanden en sorteringen. De
+        # aanroeper dedupliceert pas ná deze call, dus zonder deze check betalen
+        # we voor elk duplicaat opnieuw een detail-call.
+        gecacht = self._cache.get(str(sleutel)) if sleutel else None
+        if gecacht is not None:
+            listing = gecacht
+        else:
+            try:
+                listing = self._client.get_listing(
+                    f"https://www.funda.nl{kaart['detail_url']}"
+                )
+            except Exception as exc:
+                self._log(f"Detail mislukt voor {kaart.get('detail_url')}: {exc}")
+                # Zonder detail missen we buurt/label; de kaartgegevens alleen zijn
+                # te mager om betrouwbaar op te filteren, dus overslaan.
+                return None
+            finally:
+                time.sleep(self._pauze)
 
         data = dict(getattr(listing, "data", None) or {})
         if not data:
