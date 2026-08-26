@@ -19,6 +19,7 @@ Gebruik:
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -451,6 +452,65 @@ def update_tracking(tracking: dict, sleutel: str, prijs: int, pub_datum: str | N
     }
 
 
+# === Zoekmethode kiezen ===
+
+def _mag_detail_call_overslaan(kaart: dict) -> bool:
+    """Voorfilter voor de HTML-zoeker: is een detail-call zinloos?
+
+    Alleen op wat de zoekpagina zelf al prijsgeeft. Scheelt honderden calls per
+    run; de gewone filters verderop wijzen deze woningen alsnog af.
+    """
+    if is_uitgesloten_stad((kaart.get("city") or "").strip()):
+        return True
+    return is_uitgesloten_straat_nr(kaart) is not None
+
+
+def kies_zoeker(f: "Funda") -> tuple[object, str]:
+    """Bepaal waarmee we zoeken: de API of de HTML-fallback.
+
+    'auto' (standaard) probeert eerst de API en valt terug op HTML zodra die
+    faalt. Zo schakelt het zichzelf terug zodra Funda de API weer openzet.
+    """
+    methode = (os.environ.get("FUNDA_ZOEK_METHODE")
+               or _PERSONAL.get("zoek_methode") or "auto").lower()
+
+    if methode not in {"auto", "api", "html"}:
+        log(f"Onbekende zoek_methode {methode!r}, val terug op 'auto'.")
+        methode = "auto"
+
+    def html_zoeker():
+        from funda_html_zoek import HtmlZoeker
+
+        return HtmlZoeker(f, overslaan=_mag_detail_call_overslaan, log=log)
+
+    if methode == "html":
+        log("Zoekmethode: HTML (afgedwongen via configuratie).")
+        return html_zoeker(), "html"
+
+    if methode == "api":
+        log("Zoekmethode: API (afgedwongen via configuratie).")
+        return f, "api"
+
+    # auto: eerst even kijken of de zoek-API überhaupt antwoordt.
+    try:
+        f.search_listing(
+            location=POSTCODE,
+            radius_km=RADIUS_KM,
+            offering_type="buy",
+            price_min=PRIJS_MIN,
+            price_max=PRIJS_MAX,
+            object_type=["apartment"],
+            availability=["available"],
+            page=0,
+        )
+    except Exception as exc:
+        log(f"Zoek-API doet het niet ({exc}); schakel over op de HTML-zoekpagina.")
+        return html_zoeker(), "html"
+
+    log("Zoekmethode: API.")
+    return f, "api"
+
+
 # === Hoofdroutine ===
 
 def main() -> None:
@@ -459,6 +519,8 @@ def main() -> None:
     seen = laad_state()
     mode = " (debug-wijken)" if debug_wijken else ""
     log(f"Start{mode}. Postcode {POSTCODE}, radius {RADIUS_KM}km. Reeds gezien: {len(seen)}.")
+
+    zoeker, zoek_methode = kies_zoeker(f)
 
     # Zoek per prijsband los, zodat we onder Funda's resultaatkap (~140) blijven
     # en ook woningen vinden die al lang te koop staan. Dedup op id.
@@ -479,7 +541,7 @@ def main() -> None:
             sort_label = sort or "standaard"
             for pagina in range(PAGINAS):
                 try:
-                    results = f.search_listing(
+                    results = zoeker.search_listing(
                         location=POSTCODE,
                         radius_km=RADIUS_KM,
                         offering_type="buy",
@@ -512,7 +574,7 @@ def main() -> None:
             log(f"Band € {band_min:,}-{band_max:,} ({sort_label}): {sort_n} nieuw.")
         log(f"Band € {band_min:,}-{band_max:,}: {band_n} uniek na alle sorteringen.")
 
-    log(f"Totaal opgehaald (na dedup): {len(rauwe)}.")
+    log(f"Totaal opgehaald (na dedup): {len(rauwe)} (via {zoek_methode}).")
 
     # Geen enkele geslaagde zoek-call = de API is stuk (bijv. 401), niet de markt.
     # Hard stoppen: geen rapport schrijven, geen state bijwerken. Zo blijft het
@@ -593,7 +655,7 @@ def main() -> None:
             continue
 
         try:
-            details = f.get_listing(lid)
+            details = zoeker.get_listing(lid)
             details_data = details.data if hasattr(details, "data") else None
             tekst = ""
             if details_data:
@@ -687,7 +749,7 @@ def main() -> None:
     if genereer_rapport:
         try:
             nieuw_ids = {str(d.get("global_id") or d.get("listing_id") or d.get("detail_url")) for d in nieuw}
-            pad = genereer_rapport(f, goed, nieuw_ids)
+            pad = genereer_rapport(zoeker, goed, nieuw_ids)
             log(f"Rapport: {pad.name}")
 
             # Open HTML rapport in browser bij interactieve run.
