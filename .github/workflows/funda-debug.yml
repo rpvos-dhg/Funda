@@ -36,9 +36,4 @@ jobs:
       # Als laatste, zodat de uitkomst in de log-staart staat: werkt de
       # HTML-zoekpagina nog zoals de parser verwacht?
       - name: HTML-fallback valideren tegen funda.nl
-        continue-on-error: true
         run: python scripts/funda_html_validatie.py
-
-      # TIJDELIJK: welke client-presentatie komt nog door de 403 heen?
-      - name: 403-matrix meten
-        run: python scripts/funda_403_probe.py

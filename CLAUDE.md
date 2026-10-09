@@ -44,6 +44,19 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
   script nu via de publieke zoekpagina, zie hieronder.
   Diagnose herhalen: workflow "Funda API debug" (draait ook automatisch zodra een
   dagelijkse run faalt).
+- **Zoekpagina geeft sinds 8 okt 2026 een 403 vanaf GitHub Actions.** Daarmee
+  ligt ook de HTML-route eruit; de dagelijkse run faalt luid en publiceert niets.
+  Gemeten op 9 oktober met `scripts/funda_403_probe.py`: zes TLS-profielen
+  (safari15_5/17_0, chrome120/124/131, firefox133) x drie headersets (minimaal,
+  browser-achtig, met referer) plus twee varianten die eerst de homepage
+  bezoeken - **alle twintig 403**, body ~536 bytes. De blokkade zit dus op het
+  netwerk/IP van de runner, niet op hoe de client zich voordoet; headers of TLS-
+  profielen aanpassen helpt niet. Upstream pyfunda v3.1.5 voegde juist dat toe
+  (chrome124 + roteren bij 403 + backoff), dus upgraden lost dit óók niet op.
+  Wat nog wél werkt vanaf een runner: de homepage (200) en het detail-endpoint
+  (200). De zoek-API blijft 401. Zoeken vereist dus een ander uitgaand IP, bijv.
+  een self-hosted runner op een eigen netwerk - waar dit project oorspronkelijk
+  liep.
 - **Zoeken gaat via HTML, verrijken via de API.** `funda_html_zoek.py` haalt de
   woning-URL's van `www.funda.nl/zoeken/koop` (server-rendered Vue/Nuxt, geen
   bot-muur vanaf een Actions-runner) en laat het detail-endpoint - dat nog wél

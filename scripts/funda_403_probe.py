@@ -8,7 +8,12 @@ Dit script probeert een matrix van TLS-profielen en headersets en rapporteert pe
 combinatie de status en het aantal gevonden woningkaarten. Daarmee is te zien óf
 er nog een werkende combinatie is - en zo niet, dan is dat ook een antwoord.
 
-Tijdelijk diagnostisch script; hoort niet in de dagelijkse run.
+Hoort niet in de dagelijkse run: het doet twintig verzoeken achter elkaar. Draai
+het met de hand als je wilt weten of de blokkade nog staat.
+
+Uitkomst 9 oktober 2026: alle twintig combinaties gaven 403 met een body van
+~536 bytes. De blokkade zit dus niet op de client-presentatie maar op het
+netwerk/IP van de runner.
 """
 
 from __future__ import annotations
