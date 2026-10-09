@@ -36,4 +36,14 @@ jobs:
       # Als laatste, zodat de uitkomst in de log-staart staat: werkt de
       # HTML-zoekpagina nog zoals de parser verwacht?
       - name: HTML-fallback valideren tegen funda.nl
+        continue-on-error: true
         run: python scripts/funda_html_validatie.py
+
+      # TIJDELIJK: antwoord op 'zijn er andere ingangen, en doet pyfunda het weer?'
+      - name: Alternatieve ingangen meten
+        run: python scripts/funda_bronnen_probe.py
+
+      - name: pyfunda v3.1.5 webroute meten
+        run: |
+          pip install --target /tmp/pf315 --quiet "git+https://github.com/0xMH/pyfunda.git@v3.1.5"
+          PYTHONPATH=/tmp/pf315 python scripts/funda_v315_probe.py
