@@ -14,7 +14,12 @@ Benodigde instellingen, uit omgeving of uit funda_personal.json:
 - `FUNDA_MAIL_PASSWORD` - het app-wachtwoord. **Alleen uit de omgeving**, zodat
   het in Actions uit een Secret komt en nooit in een configbestand belandt.
 - `FUNDA_MAIL_HOST` / `mail_host` - optioneel, standaard imap.gmail.com.
-- `FUNDA_MAIL_MAP` / `mail_map` - optioneel, standaard INBOX.
+- `FUNDA_MAIL_MAP` / `mail_map` - optioneel. Leeg laten is het beste: dan zoekt
+  `kies_map()` zelf de map met de `\All`-vlag op ("alle mail"). **Niet INBOX**:
+  een gearchiveerde mail zit daar niet meer in. Dat is geen theorie - op 9 okt
+  2026 gaf INBOX nul funda-mails terwijl er diezelfde dag een funda-mail was,
+  zonder INBOX-label. En de naam van die map is taalafhankelijk
+  (`[Gmail]/All Mail` versus `[Gmail]/Alle berichten`), de vlag niet.
 
 Het decoderen is hier het echte werk: een funda-mail is multipart met
 quoted-printable of base64 gecodeerde delen, en in de ruwe bytes staan URL's
@@ -29,12 +34,22 @@ import email.message
 import email.policy
 import imaplib
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 IMAP_HOST_STANDAARD = "imap.gmail.com"
-MAP_STANDAARD = "INBOX"
 AFZENDER_STANDAARD = "funda.nl"
+
+# Welke map: leeg betekent zelf uitzoeken, zie kies_map(). Niet INBOX, want een
+# gearchiveerde mail zit daar niet meer in - gemeten, zie de moduledocstring.
+MAP_AUTO = ""
+
+# Eén LIST-regel: (vlaggen) "scheidingsteken" "naam"
+LIST_REGEL = re.compile(
+    r'\((?P<vlaggen>[^)]*)\)\s+(?:"(?:[^"\\]|\\.)*"|NIL)\s+'
+    r'(?P<naam>"(?:[^"\\]|\\.)*"|\S+)\s*$'
+)
 
 
 def mail_config(personal: dict[str, Any] | None = None) -> dict[str, str] | None:
@@ -55,8 +70,59 @@ def mail_config(personal: dict[str, Any] | None = None) -> dict[str, str] | None
         "gebruiker": gebruiker,
         "wachtwoord": wachtwoord,
         "map_naam": (os.environ.get("FUNDA_MAIL_MAP")
-                     or personal.get("mail_map") or MAP_STANDAARD).strip(),
+                     or personal.get("mail_map") or MAP_AUTO).strip(),
     }
+
+
+def _naam_uit_listregel(regel: str) -> str | None:
+    treffer = LIST_REGEL.search(regel.strip())
+    if not treffer:
+        return None
+    naam = treffer.group("naam")
+    if naam.startswith('"') and naam.endswith('"'):
+        naam = naam[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    return naam or None
+
+
+def kies_map(verbinding: Any, gewenst: str = MAP_AUTO,
+             log: Callable[[str], None] | None = None) -> str:
+    """Welke map doorzoeken: de opgegeven, of zelf de "alle mail"-map vinden.
+
+    INBOX is hier de verkeerde standaard: een gearchiveerde mail zit daar niet
+    meer in, en dan vindt de zoekopdracht niets terwijl de mail er wél is. Dat
+    is echt gebeurd - gemeten op 9 okt 2026 tegen de eigen mailbox: nul mails in
+    INBOX, terwijl Gmail een funda-mail van diezelfde dag liet zien zonder
+    INBOX-label.
+
+    Daarom zoeken we de map met de speciale vlag `\\All` op in plaats van een
+    naam te hardcoden. Die naam is namelijk taalafhankelijk: bij Gmail
+    `[Gmail]/All Mail`, maar op een Nederlandstalig account
+    `[Gmail]/Alle berichten`. De vlag is dat niet.
+    """
+    zeg = log or (lambda _b: None)
+    if gewenst:
+        return gewenst
+
+    try:
+        status, regels = verbinding.list()
+    except Exception as exc:
+        zeg(f"Mappen niet op te vragen ({exc}); val terug op INBOX.")
+        return "INBOX"
+
+    if status == "OK" and regels:
+        for regel in regels:
+            tekst = (regel.decode("utf-8", errors="replace")
+                     if isinstance(regel, (bytes, bytearray)) else str(regel))
+            if "\\All" not in tekst:
+                continue
+            naam = _naam_uit_listregel(tekst)
+            if naam:
+                zeg(f"Map met de \\All-vlag gevonden: {naam!r}.")
+                return naam
+
+    zeg("Geen map met de \\All-vlag; val terug op INBOX. Een gearchiveerde mail "
+        "wordt dan niet gevonden; zet desnoods FUNDA_MAIL_MAP.")
+    return "INBOX"
 
 
 def _decodeer(deel: email.message.Message) -> str:
@@ -109,7 +175,7 @@ def haal_mail_teksten(
     host: str,
     gebruiker: str,
     wachtwoord: str,
-    map_naam: str = MAP_STANDAARD,
+    map_naam: str = MAP_AUTO,
     afzender: str = AFZENDER_STANDAARD,
     sinds_dagen: int = 3,
     max_mails: int = 25,
@@ -127,7 +193,10 @@ def haal_mail_teksten(
     verbinding = maak(host)
     try:
         verbinding.login(gebruiker, wachtwoord)
-        verbinding.select(map_naam)
+        gekozen = kies_map(verbinding, map_naam, zeg)
+        status, antwoord = verbinding.select(gekozen)
+        if status != "OK":
+            raise RuntimeError(f"Map {gekozen!r} niet te openen: {status} {antwoord!r}")
 
         criterium = f'(FROM "{afzender}" SINCE "{_imap_datum(sinds_dagen)}")'
         status, antwoord = verbinding.search(None, criterium)
@@ -135,7 +204,7 @@ def haal_mail_teksten(
             raise RuntimeError(f"IMAP-zoekopdracht gaf {status}: {antwoord!r}")
 
         ids = (antwoord[0].split() if antwoord and antwoord[0] else [])
-        zeg(f"Mailbox: {len(ids)} mail(s) van {afzender} in de laatste "
+        zeg(f"Map {gekozen!r}: {len(ids)} mail(s) van {afzender} in de laatste "
             f"{sinds_dagen} dag(en).")
         if not ids:
             return []

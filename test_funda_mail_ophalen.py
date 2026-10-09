@@ -18,6 +18,7 @@ from funda_mail_ophalen import (
     _eerste_payload,
     _imap_datum,
     haal_mail_teksten,
+    kies_map,
     mail_config,
     tekst_uit_mail,
 )
@@ -109,20 +110,41 @@ def test_payload_vissen() -> bool:
 class StubImap:
     """Genoeg imaplib om haal_mail_teksten te laten draaien."""
 
+    # Zoals Gmail het teruggeeft: de "alle mail"-map heet hier Nederlands, zodat
+    # de test aantoont dat er op de vlag en niet op de naam gezocht wordt.
+    LIST_GMAIL = [
+        b'(\\HasNoChildren) "/" "INBOX"',
+        b'(\\HasChildren \\Noselect) "/" "[Gmail]"',
+        b'(\\All \\HasNoChildren) "/" "[Gmail]/Alle berichten"',
+        b'(\\Trash \\HasNoChildren) "/" "[Gmail]/Prullenbak"',
+    ]
+
     def __init__(self, ids: bytes = b"1 2", *, zoek_status: str = "OK",
-                 fetch_status: str = "OK", faal_op_sluiten: bool = False):
+                 fetch_status: str = "OK", faal_op_sluiten: bool = False,
+                 lijst: list[bytes] | None = None, lijst_status: str = "OK",
+                 select_status: str = "OK"):
         self.ids = ids
         self.zoek_status = zoek_status
         self.fetch_status = fetch_status
         self.faal_op_sluiten = faal_op_sluiten
+        self.lijst = self.LIST_GMAIL if lijst is None else lijst
+        self.lijst_status = lijst_status
+        self.select_status = select_status
         self.acties: list[str] = []
         self.criterium = ""
+        self.gekozen_map = ""
 
     def login(self, gebruiker, wachtwoord):
         self.acties.append(f"login:{gebruiker}")
 
+    def list(self, *_a, **_k):
+        self.acties.append("list")
+        return self.lijst_status, self.lijst
+
     def select(self, map_naam):
         self.acties.append(f"select:{map_naam}")
+        self.gekozen_map = map_naam
+        return self.select_status, [b"42"]
 
     def search(self, charset, criterium):
         self.criterium = criterium
@@ -195,6 +217,62 @@ def test_ophalen() -> bool:
     return ok
 
 
+def test_mapkeuze() -> bool:
+    """INBOX is de verkeerde standaard: een gearchiveerde mail zit daar niet in."""
+    print("test: welke map wordt doorzocht")
+    ok = True
+
+    # Zonder opgave: de map met de \All-vlag, ook al heet die Nederlands.
+    stub = StubImap()
+    ok &= check("\\All-map gekozen op vlag, niet op naam",
+                kies_map(stub) == "[Gmail]/Alle berichten", kies_map(stub))
+
+    # Expliciete opgave gaat voor, en vraagt de mappenlijst niet eens op.
+    stub2 = StubImap()
+    ok &= check("expliciete map wint", kies_map(stub2, "INBOX") == "INBOX")
+    ok &= check("geen LIST bij expliciete map", "list" not in stub2.acties,
+                str(stub2.acties))
+
+    # Server zonder \All-vlag: terugvallen op INBOX, maar wel melden.
+    meldingen: list[str] = []
+    geen_vlag = StubImap(lijst=[b'(\\HasNoChildren) "/" "INBOX"'])
+    ok &= check("zonder \\All-vlag terug naar INBOX",
+                kies_map(geen_vlag, log=meldingen.append) == "INBOX")
+    ok &= check("en dat wordt gemeld", any("INBOX" in m for m in meldingen))
+
+    # LIST die faalt of knalt mag de run niet slopen.
+    ok &= check("LIST-status NO geeft INBOX",
+                kies_map(StubImap(lijst_status="NO")) == "INBOX")
+
+    class BoosOpList(StubImap):
+        def list(self, *_a, **_k):
+            raise RuntimeError("list stuk")
+
+    ok &= check("exception op LIST geeft INBOX", kies_map(BoosOpList()) == "INBOX")
+
+    # Naam met aanhalingstekens en spaties moet heel blijven.
+    raar = StubImap(lijst=[b'(\\All) "/" "Archief/Alle mail"'])
+    ok &= check("naam met slash en spatie", kies_map(raar) == "Archief/Alle mail",
+                kies_map(raar))
+
+    # En het geheel: haal_mail_teksten kiest die map ook echt.
+    heel = StubImap(ids=b"1")
+    haal_mail_teksten(host="h", gebruiker="g", wachtwoord="w",
+                      verbinden=lambda _h: heel)
+    ok &= check("haal_mail_teksten opent de \\All-map",
+                heel.gekozen_map == "[Gmail]/Alle berichten", heel.gekozen_map)
+
+    # Een map die niet te openen is, hoort te knallen in plaats van stil leeg.
+    stuk = StubImap(select_status="NO")
+    try:
+        haal_mail_teksten(host="h", gebruiker="g", wachtwoord="w",
+                          verbinden=lambda _h: stuk)
+        ok &= check("onopenbare map geeft RuntimeError", False)
+    except RuntimeError:
+        ok &= check("onopenbare map geeft RuntimeError", True)
+    return ok
+
+
 def test_config(monkey: dict[str, str]) -> bool:
     print("test: mail_config uit omgeving en personal")
     import os
@@ -214,7 +292,9 @@ def test_config(monkey: dict[str, str]) -> bool:
     if config:
         ok &= check("standaardhost gmail", config["host"] == "imap.gmail.com",
                     config["host"])
-        ok &= check("standaardmap INBOX", config["map_naam"] == "INBOX")
+        # Leeg betekent "zoek de \All-map zelf op", niet INBOX: zie test_mapkeuze.
+        ok &= check("standaardmap is leeg (automatisch)", config["map_naam"] == "",
+                    repr(config["map_naam"]))
 
     os.environ["FUNDA_MAIL_USER"] = "env@example.com"
     os.environ["FUNDA_MAIL_HOST"] = "imap.example.com"
@@ -245,7 +325,7 @@ def main() -> int:
                if s.startswith("FUNDA_MAIL_")}
     resultaten = [
         test_decoderen(), test_imap_datum(), test_payload_vissen(),
-        test_ophalen(), test_config(bewaard),
+        test_mapkeuze(), test_ophalen(), test_config(bewaard),
     ]
     print()
     if all(resultaten):

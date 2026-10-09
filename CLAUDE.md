@@ -108,6 +108,24 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
     `funda_personal.json` belandt; `mail_config()` negeert het daar expres.
     Optioneel: `FUNDA_MAIL_HOST` (standaard imap.gmail.com), `FUNDA_MAIL_MAP`.
     Gmail wil voor een app-wachtwoord tweestapsverificatie op het account.
+  - **INBOX is de verkeerde map, en dat is gemeten.** Op 9 okt 2026 gaf de check
+    tegen de echte mailbox nul funda-mails over 14 dagen, terwijl Gmail er
+    diezelfde dag één liet zien - die mail had `IMPORTANT, CATEGORY_UPDATES`
+    maar géén `INBOX`-label. Gearchiveerd dus, en daarmee onvindbaar in INBOX.
+    `kies_map()` zoekt daarom zelf de map met de **`\All`-vlag** op. Niet op
+    naam, want die is taalafhankelijk: `[Gmail]/All Mail` versus
+    `[Gmail]/Alle berichten`. `FUNDA_MAIL_MAP` leeg laten is dus het beste;
+    een expliciete waarde gaat voor en slaat het opzoeken over.
+  - `scripts/funda_mail_imap_check.py` controleert de hele keten (login ->
+    mapkeuze -> zoeken -> decoderen -> parsen) tegen de echte mailbox. Nul
+    woningen is daar een geslaagde uitkomst: dan is de alert-mail er nog niet.
+    **Het print alleen getallen.** De Actions-log van een publieke repo is voor
+    iedereen leesbaar en in een mailbox staan privédingen (een
+    wachtwoord-reset-link bijvoorbeeld), dus geen onderwerpen, afzenders,
+    mailtekst of tracking-links - alleen hoeveel er waren. Wel tiny_id's, want
+    dat zijn publieke funda-nummers. Houd dat zo. Draait als job `mail-live` in
+    de debug-workflow, die wél gewoon rood mag worden: die gaat over onze eigen
+    configuratie, niet over funda's kant.
   - **Decoderen is het echte werk.** Een funda-mail is multipart met
     quoted-printable of base64 delen; in de ruwe bytes staan URL's met `=` en
     regelafbrekingen erdoorheen, en dan vindt de parser niets. `tekst_uit_mail()`
