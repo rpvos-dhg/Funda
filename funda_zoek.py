@@ -134,6 +134,23 @@ UITSLUIT_BUURTEN = [
 # Funda gebruikt soms varianten als "Rijswijk (ZH)", dus geen exact match.
 UITSLUIT_STEDEN = ["Rijswijk", "Leidschendam"]
 
+# Plaatsen die je WEL wil, ook als ze in een uitgesloten gemeente liggen. Deze
+# gaan voor op UITSLUIT_STEDEN.
+#
+# Waarom dit nodig is: Voorburg valt onder de gemeente Leidschendam-Voorburg.
+# Zonder deze uitzondering matcht de substring "Leidschendam" op
+# "Leidschendam-Voorburg" en valt al het Voorburg-aanbod stil weg - geen
+# foutmelding, gewoon niets in het rapport. Precies de faalmodus die je niet ziet.
+WENS_STEDEN = ["Voorburg"]
+
+# Geeft funda alleen de gemeentenaam terug, dan is niet te zien of de woning in
+# Voorburg of in Leidschendam staat. Die tonen we met een waarschuwing in plaats
+# van ze weg te gooien: stil verliezen is erger dan een keer te veel laten zien.
+TWIJFEL_STEDEN_PATROON = [
+    ("leidschendam-voorburg", "gemeente Leidschendam-Voorburg: kan Leidschendam zijn"),
+    ("leidschendam voorburg", "gemeente Leidschendam-Voorburg: kan Leidschendam zijn"),
+]
+
 # Buurten waar je twijfels over hebt: tonen, maar markeren met waarschuwing.
 TWIJFEL_BUURTEN = [
     "Mariahoeve",
@@ -252,10 +269,26 @@ def is_uitgesloten_buurt(buurt: str) -> str | None:
 
 
 def is_uitgesloten_stad(stad: str) -> str | None:
+    """Moet deze stad weg? WENS_STEDEN gaat voor op UITSLUIT_STEDEN.
+
+    Die voorrang is er voor gemeentenamen die een gewenste plaats bevatten,
+    zoals Leidschendam-Voorburg; zie de toelichting bij WENS_STEDEN.
+    """
     s = stad.lower()
+    if any(w.lower() in s for w in WENS_STEDEN):
+        return None
     for u in UITSLUIT_STEDEN:
         if u.lower() in s:
             return u
+    return None
+
+
+def is_twijfelstad(stad: str) -> str | None:
+    """Dubbelzinnige gemeentenaam: tonen, maar met een waarschuwing erbij."""
+    s = stad.lower()
+    for patroon, reden in TWIJFEL_STEDEN_PATROON:
+        if patroon in s:
+            return reden
     return None
 
 
@@ -695,7 +728,7 @@ def main() -> None:
                 tag = "STAD-UIT"
             elif is_uitgesloten_buurt(buurt):
                 tag = "UIT     "
-            elif is_twijfelbuurt(buurt):
+            elif is_twijfelbuurt(buurt) or is_twijfelstad(stad):
                 tag = "TWIJFEL "
             else:
                 tag = "OK      "
@@ -794,7 +827,8 @@ def main() -> None:
     # twijfelbuurten naar onderen, daarna op prijs.
     def sort_key(d: dict):
         buurt = (d.get("neighbourhood") or "")
-        twijfel = is_twijfelbuurt(buurt) is not None
+        twijfel = (is_twijfelbuurt(buurt) is not None
+                   or is_twijfelstad(d.get("city", "") or "") is not None)
         tr = d.get("_track") or {}
         gedaald = bool(tr.get("gedaald"))
         lang = tr.get("dagen", 0) >= LANG_OP_FUNDA_DAGEN
@@ -862,6 +896,9 @@ def toon(d: dict, prefix: str = "") -> None:
     buurt = d.get("neighbourhood", "")
     twijfel = is_twijfelbuurt(buurt)
     flag = f" /!\\ TWIJFELBUURT ({twijfel})" if twijfel else ""
+    twijfel_stad = is_twijfelstad(d.get("city", "") or "")
+    if twijfel_stad:
+        flag += f" /!\\ STAD ONDUIDELIJK ({twijfel_stad})"
 
     tr = d.get("_track") or {}
     if tr.get("gedaald"):

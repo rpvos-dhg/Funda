@@ -43,14 +43,16 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
   datum, nog steeds open en zonder commits sinds 17 juli). Daarom zoekt het
   script nu via de publieke zoekpagina, zie hieronder.
   Diagnose herhalen: workflow "Funda API debug" (de probes draaien ook
-  automatisch zodra een dagelijkse run faalt). Die workflow heeft twee jobs:
+  automatisch zodra een dagelijkse run faalt). Die workflow heeft drie jobs:
   **tests** moet groen zijn en zegt iets over de code; **funda-live** staat op
-  `continue-on-error` en zegt iets over funda's kant. Zo blijft de workflow
-  groen bij een netwerkblokkade, terwijl de job-status leesbaar blijft:
-  funda-live rood = funda dicht, groen = funda laat weer door. Bewust op
-  job-niveau, want `continue-on-error` op een stap laat GitHub die stap als
-  "success" rapporteren ook als het commando faalde. Het échte faalsignaal
-  blijft de dagelijkse workflow, die wél rood wordt en niets publiceert.
+  `continue-on-error` en zegt iets over funda's kant; **mail-live** zegt iets
+  over onze eigen mailconfiguratie en mag daarom wél gewoon rood worden. Zo
+  blijft de workflow groen bij een netwerkblokkade, terwijl de job-status
+  leesbaar blijft: funda-live rood = funda dicht, groen = funda laat weer door.
+  Bewust op job-niveau, want `continue-on-error` op een stap laat GitHub die
+  stap als "success" rapporteren ook als het commando faalde. Het échte
+  faalsignaal blijft de dagelijkse workflow, die wél rood wordt en niets
+  publiceert.
 - **Zoekpagina geeft sinds 8 okt 2026 een 403 vanaf GitHub Actions.** Daarmee
   ligt ook de HTML-route eruit; de dagelijkse run faalt luid en publiceert niets.
   Gemeten op 9 oktober met `scripts/funda_403_probe.py`: zes TLS-profielen
@@ -113,6 +115,25 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
   - **Niet in de repo**: echte tracking-tokens en mailinhoud horen bij een
     persoonlijke mailbox. De fixtures in `test_funda_mail.py` hebben daarom
     dummy-tokens in de gemeten vórm, niet de echte.
+- **De bewaarde zoekopdracht is bij de mailroute het plafond.** Bij de oude
+  API-route zocht het script zelf (prijsbanden, eigen straal) en filterde daarna.
+  Bij de mailroute kan het script alleen nog wegstrepen uit wat funda mailt: wat
+  die zoekopdracht mist, bestaat voor ons niet, en prijsband-splitsing helpt daar
+  niet meer. Zet de zoekopdracht in het funda-account dus **ruimer** dan de
+  wensen (gebied, prijs, appartement, min. m2) en laat de filters in
+  `funda_zoek.py` het smalle werk doen - buurten, belegging, begane grond,
+  straat-segmenten zitten daar al in.
+- **Voorburg versus de gemeente Leidschendam-Voorburg.** `UITSLUIT_STEDEN` doet
+  een substring-match, en Voorburg valt onder de gemeente Leidschendam-Voorburg.
+  Zonder voorrangsregel matcht "Leidschendam" daarop en valt al het
+  Voorburg-aanbod stil weg: geen foutmelding, gewoon niets in het rapport.
+  Daarom `WENS_STEDEN = ["Voorburg"]`, dat voorgaat op de uitsluitlijst. Geeft
+  funda alleen de gemeentenaam terug, dan is niet te zien welke van de twee het
+  is; die woningen worden getoond met de waarschuwing "STAD ONDUIDELIJK"
+  (`is_twijfelstad()`) in plaats van weggegooid, en sorteren net als een
+  twijfelbuurt naar onderen. Stil verliezen is erger dan een keer te veel laten
+  zien. Vastgepind in `test_funda_zoek.py::test_stadfilter`, inclusief dat het
+  detail-call-voorfilter zo'n woning niet overslaat.
 - **Mailroute: transport via IMAP, en `auto` is nu api -> html -> mail.**
   `funda_mail_ophalen.py` haalt de mails op, `funda_mail_bron.py` haalt er de
   woningen uit. Bewust gescheiden: het transport is te testen zonder mailbox, de

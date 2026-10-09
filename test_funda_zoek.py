@@ -199,9 +199,45 @@ def test_auto_keten() -> bool:
     return ok
 
 
+def test_stadfilter() -> bool:
+    """Voorburg mag niet sneuvelen op de gemeentenaam Leidschendam-Voorburg."""
+    print("test: stadfilter, Voorburg versus Leidschendam")
+    fz = maak_stub_funda(lambda _n: [])
+    ok = True
+
+    # De kern: zonder de WENS_STEDEN-voorrang matcht "Leidschendam" als substring
+    # op "Leidschendam-Voorburg" en valt al het Voorburg-aanbod stil weg.
+    ok &= check("Voorburg komt door", fz.is_uitgesloten_stad("Voorburg") is None)
+    ok &= check("gemeente Leidschendam-Voorburg komt door",
+                fz.is_uitgesloten_stad("Leidschendam-Voorburg") is None,
+                str(fz.is_uitgesloten_stad("Leidschendam-Voorburg")))
+    ok &= check("Leidschendam zelf valt af",
+                fz.is_uitgesloten_stad("Leidschendam") == "Leidschendam")
+    ok &= check("Rijswijk valt af", fz.is_uitgesloten_stad("Rijswijk") == "Rijswijk")
+    ok &= check("Rijswijk (ZH) valt ook af",
+                fz.is_uitgesloten_stad("Rijswijk (ZH)") == "Rijswijk")
+    ok &= check("Den Haag komt door", fz.is_uitgesloten_stad("Den Haag") is None)
+
+    # De dubbelzinnige gemeentenaam hoort een waarschuwing te krijgen, zodat
+    # zichtbaar is dat het ook Leidschendam kan zijn.
+    ok &= check("gemeentenaam geeft waarschuwing",
+                fz.is_twijfelstad("Leidschendam-Voorburg") is not None)
+    ok &= check("alleen Voorburg geeft geen waarschuwing",
+                fz.is_twijfelstad("Voorburg") is None)
+    ok &= check("Den Haag geeft geen waarschuwing",
+                fz.is_twijfelstad("Den Haag") is None)
+
+    # En het mag de detail-call niet overslaan: dat voorfilter gebruikt dezelfde
+    # functie, dus een Voorburg-woning zou anders nooit verrijkt worden.
+    kaart = {"city": "Leidschendam-Voorburg", "title": "Teststraat 1"}
+    ok &= check("detail-call niet overgeslagen",
+                fz._mag_detail_call_overslaan(kaart) is False)
+    return ok
+
+
 def main() -> int:
     resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(),
-                  test_auto_keten()]
+                  test_auto_keten(), test_stadfilter()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")
