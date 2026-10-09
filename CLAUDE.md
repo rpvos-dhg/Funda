@@ -53,10 +53,20 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
   netwerk/IP van de runner, niet op hoe de client zich voordoet; headers of TLS-
   profielen aanpassen helpt niet. Upstream pyfunda v3.1.5 voegde juist dat toe
   (chrome124 + roteren bij 403 + backoff), dus upgraden lost dit óók niet op.
-  Wat nog wél werkt vanaf een runner: de homepage (200) en het detail-endpoint
-  (200). De zoek-API blijft 401. Zoeken vereist dus een ander uitgaand IP, bijv.
-  een self-hosted runner op een eigen netwerk - waar dit project oorspronkelijk
-  liep.
+  Gemeten per pad (`scripts/funda_bronnen_probe.py`): zoekpagina met én zonder
+  slash 403, Nuxt-payload 403, **detailpagina als HTML ook 403**, sitemap 404,
+  robots.txt 200, homepage 200. Vrijwel heel `www.funda.nl` is dus dicht voor de
+  runner; de homepage komt alleen door omdat die uit Akamai's statische cache
+  komt. De aparte API-host `listing-detail-page.funda.io` geeft nog wél 200.
+  Ook gemeten: pyfunda **v3.1.5** (`scripts/funda_v315_probe.py`), die in augustus
+  een webroute toevoegde. `search()` geeft `curl (92) HTTP/2 stream reset by
+  server`. Upgraden helpt dus niet, en kost ook de incompatibele v3-rewrite.
+  Zoeken vereist een ander uitgaand IP (self-hosted runner op een eigen netwerk,
+  waar dit project oorspronkelijk liep), óf een bron die funda zelf pusht:
+  een bewaarde zoekopdracht met mailnotificatie. Die mails staan er nu niet
+  (gecheckt in Gmail, 9 okt); funda mailt wel transactioneel via
+  `notificaties@service.funda.nl`, dus het kanaal werkt. Met zo'n mail als bron
+  kan het detail-endpoint de rest nog gewoon aanvullen.
 - **Zoeken gaat via HTML, verrijken via de API.** `funda_html_zoek.py` haalt de
   woning-URL's van `www.funda.nl/zoeken/koop` (server-rendered Vue/Nuxt, geen
   bot-muur vanaf een Actions-runner) en laat het detail-endpoint - dat nog wél
