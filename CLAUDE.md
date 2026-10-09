@@ -73,7 +73,31 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
   een bewaarde zoekopdracht met mailnotificatie. Die mails staan er nu niet
   (gecheckt in Gmail, 9 okt); funda mailt wel transactioneel via
   `notificaties@service.funda.nl`, dus het kanaal werkt. Met zo'n mail als bron
-  kan het detail-endpoint de rest nog gewoon aanvullen.
+  kan het detail-endpoint de rest nog gewoon aanvullen. Zie de mailbron hieronder.
+- **Mailbron: linkconventies gemeten, de alert-mail zelf nog niet.** Op 9 okt
+  2026 zijn de twee transactionele funda-mails bekeken die in de eigen mailbox
+  stonden (één uit 2022, één uit 2026). Daaruit:
+  - Inhoudelijke links staan **onverpakt** in de mail
+    (`https://www.funda.nl/makelaar/<id>`, `.../account/email-instellingen`,
+    `.../meer-weten/...`). Een woninglink is dus naar alle waarschijnlijkheid ook
+    direct, en die vindt `vind_woning_links()`.
+  - Alleen de "online versie"-link is verpakt, en die redirect is
+    **ondoorzichtig**: `links.funda.nl/s/vb/<token>/<token>/23` (2026) en
+    `links.funda.nl/e/evib?_t=..&_m=..&_e=..` (2022). Er zit dus géén `?url=`
+    met de echte URL in - die aanname klopte niet en is nu weerlegd.
+  - Daarom `woningen_uit_mail()` als hoofdingang: vindt die nul directe links,
+    dan meldt hij hoeveel tracking-links er wél stonden. Dat scheidt "mail zonder
+    nieuw aanbod" van "woninglink zit in een redirect". Alleen in dat tweede
+    geval volgt `los_tracking_link_op()` de redirect, want zo'n call is een
+    echte klik in funda's tracker.
+  - Valideren tegen de eerste echte alert-mail:
+    `python scripts/funda_mail_validatie.py <mail.eml> [--volg-redirects]`.
+    Instellen staat op `https://www.funda.nl/account/email-instellingen`
+    (notificaties bij je bewaarde zoekopdracht); de zoekopdrachten zelf op
+    `https://www.funda.nl/zoeken/zoekopdracht/`.
+  - **Niet in de repo**: echte tracking-tokens en mailinhoud horen bij een
+    persoonlijke mailbox. De fixtures in `test_funda_mail.py` hebben daarom
+    dummy-tokens in de gemeten vórm, niet de echte.
 - **Zoeken gaat via HTML, verrijken via de API.** `funda_html_zoek.py` haalt de
   woning-URL's van `www.funda.nl/zoeken/koop` (server-rendered Vue/Nuxt, geen
   bot-muur vanaf een Actions-runner) en laat het detail-endpoint - dat nog wél
@@ -128,10 +152,11 @@ python funda_zoek.py --no-open  # zonder browser
 - `python test_funda_zoek.py` - offline tests voor de veiligheidschecks in
   `main()`: een run stopt met exit 2 als álle zoek-calls falen én als ze allemaal
   slagen maar samen nul woningen opleveren.
-- `python test_funda_mail.py` - offline tests voor de mailbron (linkextractie uit
-  notificatiemails, drop-in-gedrag, cache). De mailopmaak zelf is niet gemeten;
-  valideer met `scripts/funda_mail_validatie.py <mail.eml>` zodra er een echte
-  notificatiemail is.
+- `python test_funda_mail.py` - offline tests voor de mailbron: linkextractie per
+  vorm, ondoorzichtige tracking-links, redirects volgen (inclusief hoplimiet en
+  kapotte call), routekeuze van `woningen_uit_mail()`, drop-in-gedrag en cache.
+  De opmaak van de alert-mail zelf is nog niet gemeten; valideer met
+  `scripts/funda_mail_validatie.py <mail.eml>` zodra die er is.
 - `python test_funda_html.py` - offline tests voor de HTML-zoekfallback
   (URL-opbouw, kaart-parser, drop-in-gedrag, dedup). Draait op een fixture die is
   nagebouwd op echte markup, dus geen netwerk nodig.
