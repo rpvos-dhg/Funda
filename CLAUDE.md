@@ -77,10 +77,15 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
 - **Mailbron: linkconventies gemeten, de alert-mail zelf nog niet.** Op 9 okt
   2026 zijn de twee transactionele funda-mails bekeken die in de eigen mailbox
   stonden (één uit 2022, één uit 2026). Daaruit:
-  - Inhoudelijke links staan **onverpakt** in de mail
+  - In de **plattetekstversie** staan inhoudelijke links onverpakt
     (`https://www.funda.nl/makelaar/<id>`, `.../account/email-instellingen`,
-    `.../meer-weten/...`). Een woninglink is dus naar alle waarschijnlijkheid ook
-    direct, en die vindt `vind_woning_links()`.
+    `.../meer-weten/...`). Die vindt `vind_woning_links()` zo.
+  - **Maar de hele mail is een ander verhaal, en dat corrigeert bovenstaande.**
+    De check van 9 okt las één echte mail volledig uit (plat + html, 30.206
+    tekens) en vond **9 tracking-links**. Funda gebruikt zijn tracker in het
+    html-deel dus ruim. Reken er daarom op dat de woninglink in de alert-mail
+    verpakt kan zijn. Dat `tekst_uit_mail()` plat én html achter elkaar plakt is
+    hier precies goed: de parser krijgt beide kansen.
   - Alleen de "online versie"-link is verpakt, en die redirect is
     **ondoorzichtig**: `links.funda.nl/s/vb/<token>/<token>/23` (2026) en
     `links.funda.nl/e/evib?_t=..&_m=..&_e=..` (2022). Er zit dus géén `?url=`

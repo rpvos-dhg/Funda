@@ -31,6 +31,34 @@ from funda_mail_bron import (  # noqa: E402
 from funda_mail_ophalen import haal_mail_teksten, mail_config  # noqa: E402
 
 
+def probeer_trackerhost() -> None:
+    """Laat de runner `links.funda.nl` door? Zonder een klik-token te verbranden.
+
+    Relevant omdat funda zijn tracker ruim gebruikt: in een echte mail zaten 9
+    verpakte links. Zit de woninglink in de alert-mail ook achter die tracker,
+    dan moet `los_tracking_link_op()` hem kunnen volgen - en `www.funda.nl` zelf
+    geeft vanaf Actions een 403, dus dat is geen gegeven.
+
+    Dit vraagt bewust de wortel van de host op, niet een link uit de mail: die
+    tokens zijn eenmalig en een call erop is een echte klik.
+    """
+    print("\ntrackerhost links.funda.nl (wortel, geen token uit een mail):")
+    try:
+        from curl_cffi import requests as crequests
+
+        resp = crequests.get("https://links.funda.nl/", impersonate="chrome124",
+                             allow_redirects=False, timeout=20)
+        print(f"  status {resp.status_code}")
+        if resp.status_code == 403:
+            print("  403: ook deze host is dicht voor de runner. Zit de woninglink"
+                  " verpakt, dan is die niet te volgen vanaf Actions.")
+        else:
+            print("  geen 403: de host antwoordt, dus een verpakte woninglink is"
+                  " waarschijnlijk wel te volgen.")
+    except Exception as exc:
+        print(f"  niet te bereiken: {type(exc).__name__}: {str(exc)[:120]}")
+
+
 def main() -> int:
     config = mail_config()
     if not config:
@@ -69,6 +97,7 @@ def main() -> int:
         print(f"  {', '.join(unieke[:20])}")
 
     print("\nOK: login, zoeken en decoderen werken tegen de echte mailbox.")
+    probeer_trackerhost()
     if not unieke:
         print("Nul woningen is hier geen fout: de alert-mail van de bewaarde "
               "zoekopdracht is er nog niet, of bevat geen nieuw aanbod.")
