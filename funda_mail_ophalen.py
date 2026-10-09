@@ -84,6 +84,20 @@ def _naam_uit_listregel(regel: str) -> str | None:
     return naam or None
 
 
+def _imap_mapnaam(naam: str) -> str:
+    """Een mapnaam zoals IMAP hem wil hebben: aangehaald.
+
+    Nodig omdat de "alle mail"-map een spatie in de naam heeft
+    (`[Gmail]/All Mail`) en imaplib de naam onbewerkt doorgeeft. Zonder
+    aanhalingstekens antwoordt Gmail met `BAD Could not parse command` - gemeten
+    op 9 okt 2026, nadat het opzoeken van de map zelf net gefixt was.
+    """
+    if len(naam) >= 2 and naam.startswith('"') and naam.endswith('"'):
+        return naam
+    ontsnapt = naam.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{ontsnapt}"'
+
+
 def kies_map(verbinding: Any, gewenst: str = MAP_AUTO,
              log: Callable[[str], None] | None = None) -> str:
     """Welke map doorzoeken: de opgegeven, of zelf de "alle mail"-map vinden.
@@ -194,7 +208,7 @@ def haal_mail_teksten(
     try:
         verbinding.login(gebruiker, wachtwoord)
         gekozen = kies_map(verbinding, map_naam, zeg)
-        status, antwoord = verbinding.select(gekozen)
+        status, antwoord = verbinding.select(_imap_mapnaam(gekozen))
         if status != "OK":
             raise RuntimeError(f"Map {gekozen!r} niet te openen: {status} {antwoord!r}")
 

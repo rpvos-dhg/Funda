@@ -17,6 +17,7 @@ from funda_mail_bron import vind_woning_links
 from funda_mail_ophalen import (
     _eerste_payload,
     _imap_datum,
+    _imap_mapnaam,
     haal_mail_teksten,
     kies_map,
     mail_config,
@@ -255,12 +256,25 @@ def test_mapkeuze() -> bool:
     ok &= check("naam met slash en spatie", kies_map(raar) == "Archief/Alle mail",
                 kies_map(raar))
 
-    # En het geheel: haal_mail_teksten kiest die map ook echt.
+    # Aanhalen is niet optioneel: de "alle mail"-map heeft een spatie in de naam
+    # en imaplib geeft hem onbewerkt door. Zonder quotes antwoordt Gmail met
+    # 'BAD Could not parse command' - echt gebeurd.
+    ok &= check("naam met spatie wordt aangehaald",
+                _imap_mapnaam("[Gmail]/All Mail") == '"[Gmail]/All Mail"',
+                _imap_mapnaam("[Gmail]/All Mail"))
+    ok &= check("al aangehaald blijft zoals het is",
+                _imap_mapnaam('"[Gmail]/All Mail"') == '"[Gmail]/All Mail"')
+    ok &= check("INBOX mag ook aangehaald", _imap_mapnaam("INBOX") == '"INBOX"')
+    ok &= check("aanhalingsteken in de naam ontsnapt",
+                _imap_mapnaam('raar"naam') == '"raar\\"naam"',
+                _imap_mapnaam('raar"naam'))
+
+    # En het geheel: haal_mail_teksten kiest die map ook echt, aangehaald.
     heel = StubImap(ids=b"1")
     haal_mail_teksten(host="h", gebruiker="g", wachtwoord="w",
                       verbinden=lambda _h: heel)
-    ok &= check("haal_mail_teksten opent de \\All-map",
-                heel.gekozen_map == "[Gmail]/Alle berichten", heel.gekozen_map)
+    ok &= check("haal_mail_teksten opent de \\All-map, aangehaald",
+                heel.gekozen_map == '"[Gmail]/Alle berichten"', heel.gekozen_map)
 
     # Een map die niet te openen is, hoort te knallen in plaats van stil leeg.
     stuk = StubImap(select_status="NO")
