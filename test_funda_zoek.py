@@ -126,8 +126,118 @@ def test_normale_run() -> bool:
     return ok
 
 
+def test_auto_keten() -> bool:
+    """'auto' moet api -> html -> mail aflopen, en terugschakelen zodra iets werkt."""
+    print("test: auto kiest de eerste werkende zoekmethode")
+    import funda_html_zoek as fhz
+
+    fz = maak_stub_funda(lambda _n: [])
+    ok = True
+
+    class ApiOk:
+        def search_listing(self, *a, **k):
+            return []
+
+    class ApiDicht:
+        def search_listing(self, *a, **k):
+            raise RuntimeError("Search failed (status 401)")
+
+    class StubHtml:
+        bereik = False
+
+        def __init__(self, *a, **k):
+            pass
+
+        def bereikbaar(self):
+            return StubHtml.bereik
+
+    origineel_html = fhz.HtmlZoeker
+    origineel_mail = fz._woningen_uit_mailbox
+    os.environ["FUNDA_ZOEK_METHODE"] = "auto"
+    try:
+        fhz.HtmlZoeker = StubHtml
+
+        # 1. API antwoordt: dan niets anders proberen.
+        fz._woningen_uit_mailbox = lambda: [("/detail/koop/x/y/44500000/", "44500000")]
+        _, methode = fz.kies_zoeker(ApiOk())
+        ok &= check("API werkt -> api", methode == "api", methode)
+
+        # 2. API dicht, zoekpagina laat door.
+        StubHtml.bereik = True
+        _, methode = fz.kies_zoeker(ApiDicht())
+        ok &= check("API dicht, HTML open -> html", methode == "html", methode)
+
+        # 3. Beide dicht, maar er zitten woningen in de mail.
+        StubHtml.bereik = False
+        _, methode = fz.kies_zoeker(ApiDicht())
+        ok &= check("API en HTML dicht -> mail", methode == "mail", methode)
+
+        # 4. Beide dicht en geen mailroute ingericht: dan NIET 'mail' kiezen. Een
+        # lege mailbron laat de run vallen op de nul-woningen-check met een
+        # melding over een stukke zoekmethode, terwijl de echte oorzaak is dat er
+        # geen mailroute is. 'html' faalt op de 403, en dat is de echte oorzaak.
+        fz._woningen_uit_mailbox = lambda: []
+        _, methode = fz.kies_zoeker(ApiDicht())
+        ok &= check("alles dicht, geen mail -> html (faalt luid)",
+                    methode == "html", methode)
+
+        # 5. Afdwingen blijft werken, ook zonder dat er iets bereikbaar is.
+        for gedwongen in ("api", "html", "mail"):
+            os.environ["FUNDA_ZOEK_METHODE"] = gedwongen
+            _, methode = fz.kies_zoeker(ApiDicht())
+            ok &= check(f"afgedwongen {gedwongen}", methode == gedwongen, methode)
+
+        # 6. Onzin in de config mag niet crashen; dat valt terug op auto.
+        os.environ["FUNDA_ZOEK_METHODE"] = "telepathie"
+        StubHtml.bereik = True
+        _, methode = fz.kies_zoeker(ApiDicht())
+        ok &= check("onbekende methode valt terug op auto", methode == "html", methode)
+    finally:
+        fhz.HtmlZoeker = origineel_html
+        fz._woningen_uit_mailbox = origineel_mail
+        os.environ["FUNDA_ZOEK_METHODE"] = "api"
+    return ok
+
+
+def test_stadfilter() -> bool:
+    """Voorburg mag niet sneuvelen op de gemeentenaam Leidschendam-Voorburg."""
+    print("test: stadfilter, Voorburg versus Leidschendam")
+    fz = maak_stub_funda(lambda _n: [])
+    ok = True
+
+    # De kern: zonder de WENS_STEDEN-voorrang matcht "Leidschendam" als substring
+    # op "Leidschendam-Voorburg" en valt al het Voorburg-aanbod stil weg.
+    ok &= check("Voorburg komt door", fz.is_uitgesloten_stad("Voorburg") is None)
+    ok &= check("gemeente Leidschendam-Voorburg komt door",
+                fz.is_uitgesloten_stad("Leidschendam-Voorburg") is None,
+                str(fz.is_uitgesloten_stad("Leidschendam-Voorburg")))
+    ok &= check("Leidschendam zelf valt af",
+                fz.is_uitgesloten_stad("Leidschendam") == "Leidschendam")
+    ok &= check("Rijswijk valt af", fz.is_uitgesloten_stad("Rijswijk") == "Rijswijk")
+    ok &= check("Rijswijk (ZH) valt ook af",
+                fz.is_uitgesloten_stad("Rijswijk (ZH)") == "Rijswijk")
+    ok &= check("Den Haag komt door", fz.is_uitgesloten_stad("Den Haag") is None)
+
+    # De dubbelzinnige gemeentenaam hoort een waarschuwing te krijgen, zodat
+    # zichtbaar is dat het ook Leidschendam kan zijn.
+    ok &= check("gemeentenaam geeft waarschuwing",
+                fz.is_twijfelstad("Leidschendam-Voorburg") is not None)
+    ok &= check("alleen Voorburg geeft geen waarschuwing",
+                fz.is_twijfelstad("Voorburg") is None)
+    ok &= check("Den Haag geeft geen waarschuwing",
+                fz.is_twijfelstad("Den Haag") is None)
+
+    # En het mag de detail-call niet overslaan: dat voorfilter gebruikt dezelfde
+    # functie, dus een Voorburg-woning zou anders nooit verrijkt worden.
+    kaart = {"city": "Leidschendam-Voorburg", "title": "Teststraat 1"}
+    ok &= check("detail-call niet overgeslagen",
+                fz._mag_detail_call_overslaan(kaart) is False)
+    return ok
+
+
 def main() -> int:
-    resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run()]
+    resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(),
+                  test_auto_keten(), test_stadfilter()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

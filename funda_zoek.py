@@ -134,6 +134,23 @@ UITSLUIT_BUURTEN = [
 # Funda gebruikt soms varianten als "Rijswijk (ZH)", dus geen exact match.
 UITSLUIT_STEDEN = ["Rijswijk", "Leidschendam"]
 
+# Plaatsen die je WEL wil, ook als ze in een uitgesloten gemeente liggen. Deze
+# gaan voor op UITSLUIT_STEDEN.
+#
+# Waarom dit nodig is: Voorburg valt onder de gemeente Leidschendam-Voorburg.
+# Zonder deze uitzondering matcht de substring "Leidschendam" op
+# "Leidschendam-Voorburg" en valt al het Voorburg-aanbod stil weg - geen
+# foutmelding, gewoon niets in het rapport. Precies de faalmodus die je niet ziet.
+WENS_STEDEN = ["Voorburg"]
+
+# Geeft funda alleen de gemeentenaam terug, dan is niet te zien of de woning in
+# Voorburg of in Leidschendam staat. Die tonen we met een waarschuwing in plaats
+# van ze weg te gooien: stil verliezen is erger dan een keer te veel laten zien.
+TWIJFEL_STEDEN_PATROON = [
+    ("leidschendam-voorburg", "gemeente Leidschendam-Voorburg: kan Leidschendam zijn"),
+    ("leidschendam voorburg", "gemeente Leidschendam-Voorburg: kan Leidschendam zijn"),
+]
+
 # Buurten waar je twijfels over hebt: tonen, maar markeren met waarschuwing.
 TWIJFEL_BUURTEN = [
     "Mariahoeve",
@@ -252,10 +269,26 @@ def is_uitgesloten_buurt(buurt: str) -> str | None:
 
 
 def is_uitgesloten_stad(stad: str) -> str | None:
+    """Moet deze stad weg? WENS_STEDEN gaat voor op UITSLUIT_STEDEN.
+
+    Die voorrang is er voor gemeentenamen die een gewenste plaats bevatten,
+    zoals Leidschendam-Voorburg; zie de toelichting bij WENS_STEDEN.
+    """
     s = stad.lower()
+    if any(w.lower() in s for w in WENS_STEDEN):
+        return None
     for u in UITSLUIT_STEDEN:
         if u.lower() in s:
             return u
+    return None
+
+
+def is_twijfelstad(stad: str) -> str | None:
+    """Dubbelzinnige gemeentenaam: tonen, maar met een waarschuwing erbij."""
+    s = stad.lower()
+    for patroon, reden in TWIJFEL_STEDEN_PATROON:
+        if patroon in s:
+            return reden
     return None
 
 
@@ -465,16 +498,49 @@ def _mag_detail_call_overslaan(kaart: dict) -> bool:
     return is_uitgesloten_straat_nr(kaart) is not None
 
 
-def kies_zoeker(f: "Funda") -> tuple[object, str]:
-    """Bepaal waarmee we zoeken: de API of de HTML-fallback.
+def _woningen_uit_mailbox() -> list[tuple[str, str]]:
+    """Woningen uit de funda-mails in de mailbox, zonder dubbelen.
 
-    'auto' (standaard) probeert eerst de API en valt terug op HTML zodra die
-    faalt. Zo schakelt het zichzelf terug zodra Funda de API weer openzet.
+    Geeft een lege lijst als er niets te halen is; main() laat de run dan falen
+    op de nul-woningen-check in plaats van een leeg rapport te publiceren.
+    """
+    from funda_mail_bron import woningen_uit_mail
+    from funda_mail_ophalen import haal_mail_teksten, mail_config
+
+    config = mail_config(_PERSONAL)
+    if not config:
+        log("Mailroute: geen mailinstellingen (FUNDA_MAIL_USER en "
+            "FUNDA_MAIL_PASSWORD); niets op te halen.")
+        return []
+
+    try:
+        teksten = haal_mail_teksten(**config, log=log)
+    except Exception as exc:
+        log(f"Mailbox niet te lezen ({type(exc).__name__}: {exc}).")
+        return []
+
+    woningen: list[tuple[str, str]] = []
+    gezien: set[str] = set()
+    for tekst in teksten:
+        for pad, tiny_id in woningen_uit_mail(tekst, log=log):
+            if tiny_id not in gezien:
+                gezien.add(tiny_id)
+                woningen.append((pad, tiny_id))
+    log(f"Mailroute: {len(woningen)} unieke woning(en) uit {len(teksten)} mail(s).")
+    return woningen
+
+
+def kies_zoeker(f: "Funda") -> tuple[object, str]:
+    """Bepaal waarmee we zoeken: de API, de HTML-pagina of de notificatiemails.
+
+    'auto' (standaard) loopt die drie in die volgorde af en gebruikt de eerste
+    die antwoordt. Zo schakelt het zichzelf terug zodra Funda de API of de
+    zoekpagina weer openzet, zonder dat er iets aan de configuratie hoeft.
     """
     methode = (os.environ.get("FUNDA_ZOEK_METHODE")
                or _PERSONAL.get("zoek_methode") or "auto").lower()
 
-    if methode not in {"auto", "api", "html"}:
+    if methode not in {"auto", "api", "html", "mail"}:
         log(f"Onbekende zoek_methode {methode!r}, val terug op 'auto'.")
         methode = "auto"
 
@@ -482,6 +548,15 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
         from funda_html_zoek import HtmlZoeker
 
         return HtmlZoeker(f, overslaan=_mag_detail_call_overslaan, log=log)
+
+    def mail_zoeker():
+        from funda_mail_bron import MailBron
+
+        return MailBron(f, _woningen_uit_mailbox(), log=log)
+
+    if methode == "mail":
+        log("Zoekmethode: mail (afgedwongen via configuratie).")
+        return mail_zoeker(), "mail"
 
     if methode == "html":
         log("Zoekmethode: HTML (afgedwongen via configuratie).")
@@ -504,11 +579,37 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
             page=0,
         )
     except Exception as exc:
-        log(f"Zoek-API doet het niet ({exc}); schakel over op de HTML-zoekpagina.")
-        return html_zoeker(), "html"
+        log(f"Zoek-API doet het niet ({exc}); probeer de HTML-zoekpagina.")
+    else:
+        log("Zoekmethode: API.")
+        return f, "api"
 
-    log("Zoekmethode: API.")
-    return f, "api"
+    # Dan de zoekpagina. Eén goedkope call, want sinds 8 okt 2026 geeft die een
+    # 403 vanaf Actions; dan is er geen reden om alle prijsbanden af te lopen.
+    zoeker = html_zoeker()
+    try:
+        bereikbaar = zoeker.bereikbaar()
+    except Exception as exc:
+        log(f"Zoekpagina niet te bereiken ({exc}).")
+        bereikbaar = False
+
+    if bereikbaar:
+        log("Zoekmethode: HTML.")
+        return zoeker, "html"
+
+    # Als laatste de mails. Alleen als er iets in zit: een lege mailbron zou de
+    # run op de nul-woningen-check laten falen met een misleidende melding,
+    # terwijl de echte oorzaak is dat er geen mailroute is ingericht.
+    woningen = _woningen_uit_mailbox()
+    if woningen:
+        from funda_mail_bron import MailBron
+
+        log("Zoekmethode: mail (API en zoekpagina liggen eruit).")
+        return MailBron(f, woningen, log=log), "mail"
+
+    log("Geen enkele zoekmethode beschikbaar; ga verder met HTML zodat de run "
+        "luid faalt op de echte oorzaak.")
+    return zoeker, "html"
 
 
 # === Hoofdroutine ===
@@ -627,7 +728,7 @@ def main() -> None:
                 tag = "STAD-UIT"
             elif is_uitgesloten_buurt(buurt):
                 tag = "UIT     "
-            elif is_twijfelbuurt(buurt):
+            elif is_twijfelbuurt(buurt) or is_twijfelstad(stad):
                 tag = "TWIJFEL "
             else:
                 tag = "OK      "
@@ -726,7 +827,8 @@ def main() -> None:
     # twijfelbuurten naar onderen, daarna op prijs.
     def sort_key(d: dict):
         buurt = (d.get("neighbourhood") or "")
-        twijfel = is_twijfelbuurt(buurt) is not None
+        twijfel = (is_twijfelbuurt(buurt) is not None
+                   or is_twijfelstad(d.get("city", "") or "") is not None)
         tr = d.get("_track") or {}
         gedaald = bool(tr.get("gedaald"))
         lang = tr.get("dagen", 0) >= LANG_OP_FUNDA_DAGEN
@@ -794,6 +896,9 @@ def toon(d: dict, prefix: str = "") -> None:
     buurt = d.get("neighbourhood", "")
     twijfel = is_twijfelbuurt(buurt)
     flag = f" /!\\ TWIJFELBUURT ({twijfel})" if twijfel else ""
+    twijfel_stad = is_twijfelstad(d.get("city", "") or "")
+    if twijfel_stad:
+        flag += f" /!\\ STAD ONDUIDELIJK ({twijfel_stad})"
 
     tr = d.get("_track") or {}
     if tr.get("gedaald"):
