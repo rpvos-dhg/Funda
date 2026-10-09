@@ -1,15 +1,23 @@
 name: Funda API debug
 
-# Handmatige diagnose: wat doen de Funda-endpoints, en werkt de HTML-fallback
-# nog op de echte site? Gebruikt geen secrets en publiceert niets.
+# Handmatige diagnose. Gebruikt geen secrets en publiceert niets.
+# Draai dit als het rapport leeg blijft of als een dagelijkse run faalt.
 #
-# Draai dit als het rapport leeg blijft of als een run faalt.
+# Twee jobs, bewust gescheiden:
+# - "tests" zegt iets over de code en moet groen zijn.
+# - "funda-live" zegt iets over funda's kant. Die job mag de workflow niet rood
+#   maken zolang de runner geblokkeerd is (zie CLAUDE.md), maar houdt wel zijn
+#   eigen status: faalt hij, dan is funda dicht; wordt hij groen, dan laat funda
+#   weer door en kan de dagelijkse run weer werken.
+#   Dit staat op job-niveau en niet per stap: met continue-on-error op een stap
+#   rapporteert GitHub die stap als "success" ook als het commando faalde, en dan
+#   is aan de status niets meer te zien.
 
 on:
   workflow_dispatch: {}
 
 jobs:
-  probe:
+  tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -31,17 +39,28 @@ jobs:
           python test_funda_zoek.py
           python test_funda_mail.py
 
-      # De twee stappen hieronder hebben funda.nl nodig en falen daarom zolang
-      # de runner geblokkeerd is (zie CLAUDE.md). Dat is een eigenschap van het
-      # netwerk, niet van de code, dus ze mogen deze workflow niet rood maken -
-      # anders verdwijnt het signaal van de offline tests hierboven. De logs
-      # laten nog steeds precies zien wat funda teruggeeft.
-      # Zodra de blokkade weg is: continue-on-error eraf, dan geven ze weer
-      # signaal over de parser.
+  funda-live:
+    runs-on: ubuntu-latest
+    # Faalt zolang funda de runner blokkeert; dat is een netwerkreden, geen
+    # codereden, dus de workflow als geheel blijft groen.
+    continue-on-error: true
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Python opzetten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Dependencies installeren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
       - name: API-probe draaien
-        continue-on-error: true
         run: python scripts/funda_api_debug.py
 
+      # Als laatste, zodat de uitkomst in de log-staart staat.
       - name: HTML-fallback valideren tegen funda.nl
-        continue-on-error: true
         run: python scripts/funda_html_validatie.py
