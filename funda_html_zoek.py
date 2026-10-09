@@ -246,6 +246,20 @@ class HtmlZoeker:
             raise RuntimeError("Zoekpagina gaf een bot-controle in plaats van resultaten")
         return tekst
 
+    def bereikbaar(self) -> bool:
+        """Laat funda de zoekpagina nog door? Eén call, zonder detail-calls.
+
+        Bedoeld om in 'auto' snel te beslissen of deze route zinvol is. Levert
+        bewust alleen een ja/nee: of er resultaten in staan, is een andere vraag
+        (zie de nul-woningen-check in funda_zoek.py).
+        """
+        try:
+            self._haal(ZOEK_URL)
+        except Exception as exc:
+            self._log(f"Zoekpagina niet bereikbaar: {exc}")
+            return False
+        return True
+
     # -- Drop-in API --------------------------------------------------------
 
     def search_listing(

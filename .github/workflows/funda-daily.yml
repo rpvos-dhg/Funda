@@ -85,6 +85,11 @@ jobs:
         env:
           FUNDA_REQUIRE_ENCRYPTION: "1"   # weiger onversleuteld te publiceren
           WEB_PUSH_PUBLIC_KEY: ${{ secrets.WEB_PUSH_PUBLIC_KEY }}
+          # Mailroute: nodig zolang funda de runner blokkeert. Zonder deze twee
+          # slaat 'auto' de mailroute over en faalt de run luid op de echte
+          # oorzaak, dus ze mogen ontbreken.
+          FUNDA_MAIL_USER: ${{ secrets.FUNDA_MAIL_USER }}
+          FUNDA_MAIL_PASSWORD: ${{ secrets.FUNDA_MAIL_PASSWORD }}
         run: python funda_zoek.py --no-push --no-open
 
       # Geheimen meteen wissen na generatie, voordat we iets committen of cachen.

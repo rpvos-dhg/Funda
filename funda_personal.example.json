@@ -25,5 +25,10 @@
   ],
   "web_push_public_key": "",
   "actions_url": "https://github.com/<gebruiker>/<repo>/actions/workflows/funda-daily.yml",
-  "zoek_methode": "auto"
+  "zoek_methode": "auto",
+  "_doc_zoek_methode": "auto (api -> html -> mail), of forceer met api, html of mail.",
+  "mail_gebruiker": "",
+  "mail_host": "imap.gmail.com",
+  "mail_map": "INBOX",
+  "_doc_mail": "Mailroute: funda mailt nieuw aanbod uit een bewaarde zoekopdracht. Het app-wachtwoord hoort NIET hier maar in de omgeving (FUNDA_MAIL_PASSWORD), in Actions als Secret."
 }

@@ -98,6 +98,31 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
   - **Niet in de repo**: echte tracking-tokens en mailinhoud horen bij een
     persoonlijke mailbox. De fixtures in `test_funda_mail.py` hebben daarom
     dummy-tokens in de gemeten vórm, niet de echte.
+- **Mailroute: transport via IMAP, en `auto` is nu api -> html -> mail.**
+  `funda_mail_ophalen.py` haalt de mails op, `funda_mail_bron.py` haalt er de
+  woningen uit. Bewust gescheiden: het transport is te testen zonder mailbox, de
+  parser zonder netwerk.
+  - Twee nieuwe instellingen: `FUNDA_MAIL_USER` (of `mail_gebruiker` in de
+    config) en `FUNDA_MAIL_PASSWORD`. Dat laatste komt **alleen** uit de
+    omgeving - in Actions een Secret - zodat een wachtwoord nooit in
+    `funda_personal.json` belandt; `mail_config()` negeert het daar expres.
+    Optioneel: `FUNDA_MAIL_HOST` (standaard imap.gmail.com), `FUNDA_MAIL_MAP`.
+    Gmail wil voor een app-wachtwoord tweestapsverificatie op het account.
+  - **Decoderen is het echte werk.** Een funda-mail is multipart met
+    quoted-printable of base64 delen; in de ruwe bytes staan URL's met `=` en
+    regelafbrekingen erdoorheen, en dan vindt de parser niets. `tekst_uit_mail()`
+    laat de stdlib (`email`) dat uitpakken. `test_funda_mail_ophalen.py` pint dat
+    vast met echt gecodeerde mails: op de ruwe bytes nul woningen, gedecodeerd
+    één. Dat is ook waarom het transport geen eigen regex-werk doet.
+  - Een mislukte IMAP-zoekopdracht gooit een `RuntimeError` in plaats van stil
+    niets terug te geven; anders lijkt een kapotte mailbox op een week zonder
+    nieuw aanbod. Een enkele onophaalbare mail wordt wél overgeslagen, en falen
+    bij het afsluiten gooit de al binnengehaalde mails niet weg.
+  - In `auto` staat de mailroute achteraan en wordt die alleen gekozen als er
+    echt woningen uit komen. Een lege mailbron zou de run op de nul-woningen-
+    check laten vallen met een misleidende melding, terwijl de echte oorzaak is
+    dat er geen mailroute is ingericht. `HtmlZoeker.bereikbaar()` doet de
+    tussenstap: één goedkope call, zodat niet alle prijsbanden op een 403 lopen.
 - **Zoeken gaat via HTML, verrijken via de API.** `funda_html_zoek.py` haalt de
   woning-URL's van `www.funda.nl/zoeken/koop` (server-rendered Vue/Nuxt, geen
   bot-muur vanaf een Actions-runner) en laat het detail-endpoint - dat nog wél
@@ -157,6 +182,11 @@ python funda_zoek.py --no-open  # zonder browser
   kapotte call), routekeuze van `woningen_uit_mail()`, drop-in-gedrag en cache.
   De opmaak van de alert-mail zelf is nog niet gemeten; valideer met
   `scripts/funda_mail_validatie.py <mail.eml>` zodra die er is.
+- `python test_funda_mail_ophalen.py` - offline tests voor het IMAP-transport:
+  decoderen van quoted-printable/base64 en andere charsets, IMAP-datumnotatie,
+  payload uit een imaplib-antwoord, en het gedrag bij een lege mailbox, een
+  mislukte zoekopdracht, een onophaalbare mail en een fout bij afsluiten. Draait
+  op een stub-mailbox, dus geen mailaccount nodig.
 - `python test_funda_html.py` - offline tests voor de HTML-zoekfallback
   (URL-opbouw, kaart-parser, drop-in-gedrag, dedup). Draait op een fixture die is
   nagebouwd op echte markup, dus geen netwerk nodig.

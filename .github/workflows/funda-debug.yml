@@ -38,6 +38,7 @@ jobs:
           python test_funda_html.py
           python test_funda_zoek.py
           python test_funda_mail.py
+          python test_funda_mail_ophalen.py
 
   funda-live:
     runs-on: ubuntu-latest
