@@ -31,10 +31,17 @@ jobs:
           python test_funda_zoek.py
           python test_funda_mail.py
 
+      # De twee stappen hieronder hebben funda.nl nodig en falen daarom zolang
+      # de runner geblokkeerd is (zie CLAUDE.md). Dat is een eigenschap van het
+      # netwerk, niet van de code, dus ze mogen deze workflow niet rood maken -
+      # anders verdwijnt het signaal van de offline tests hierboven. De logs
+      # laten nog steeds precies zien wat funda teruggeeft.
+      # Zodra de blokkade weg is: continue-on-error eraf, dan geven ze weer
+      # signaal over de parser.
       - name: API-probe draaien
+        continue-on-error: true
         run: python scripts/funda_api_debug.py
 
-      # Als laatste, zodat de uitkomst in de log-staart staat: werkt de
-      # HTML-zoekpagina nog zoals de parser verwacht?
       - name: HTML-fallback valideren tegen funda.nl
+        continue-on-error: true
         run: python scripts/funda_html_validatie.py

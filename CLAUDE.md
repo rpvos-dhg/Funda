@@ -43,7 +43,11 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
   datum, nog steeds open en zonder commits sinds 17 juli). Daarom zoekt het
   script nu via de publieke zoekpagina, zie hieronder.
   Diagnose herhalen: workflow "Funda API debug" (draait ook automatisch zodra een
-  dagelijkse run faalt).
+  dagelijkse run faalt). De funda.nl-stappen daarin staan op
+  `continue-on-error` zolang de blokkade duurt: ze falen dan om een
+  netwerkreden, niet om een codereden, en zouden het signaal van de offline
+  tests overschreeuwen. Haal dat weg zodra funda weer doorlaat. Het échte
+  faalsignaal blijft de dagelijkse workflow, die wél rood wordt.
 - **Zoekpagina geeft sinds 8 okt 2026 een 403 vanaf GitHub Actions.** Daarmee
   ligt ook de HTML-route eruit; de dagelijkse run faalt luid en publiceert niets.
   Gemeten op 9 oktober met `scripts/funda_403_probe.py`: zes TLS-profielen
