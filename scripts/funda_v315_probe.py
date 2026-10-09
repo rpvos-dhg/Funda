@@ -49,9 +49,10 @@ def main() -> int:
             continue
         print(f"\n--- {naam}{sig} ---")
 
-        # Alleen de methode proberen die op een gewone zoekopdracht lijkt.
-        if "listing" not in naam.lower():
-            print("  overgeslagen (lijkt geen woningzoekopdracht)")
+        # v3 heeft search_listing omgedoopt naar search(); de generator-variant
+        # iter_search slaan we over, die levert hetzelfde via dezelfde route.
+        if naam.startswith("iter_"):
+            print("  overgeslagen (generator-variant van search)")
             continue
 
         for poging, kwargs in enumerate((
