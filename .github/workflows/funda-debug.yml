@@ -1,17 +1,22 @@
 name: Funda API debug
 
-# Handmatige diagnose. Gebruikt geen secrets en publiceert niets.
+# Handmatige diagnose. Publiceert niets.
 # Draai dit als het rapport leeg blijft of als een dagelijkse run faalt.
 #
-# Twee jobs, bewust gescheiden:
-# - "tests" zegt iets over de code en moet groen zijn.
+# Drie jobs, bewust gescheiden:
+# - "tests" zegt iets over de code en moet groen zijn. Gebruikt geen secrets.
 # - "funda-live" zegt iets over funda's kant. Die job mag de workflow niet rood
 #   maken zolang de runner geblokkeerd is (zie CLAUDE.md), maar houdt wel zijn
 #   eigen status: faalt hij, dan is funda dicht; wordt hij groen, dan laat funda
-#   weer door en kan de dagelijkse run weer werken.
+#   weer door en kan de dagelijkse run weer werken. Gebruikt geen secrets.
 #   Dit staat op job-niveau en niet per stap: met continue-on-error op een stap
 #   rapporteert GitHub die stap als "success" ook als het commando faalde, en dan
 #   is aan de status niets meer te zien.
+# - "mail-live" zegt iets over ónze eigen mailconfiguratie, dus die mag wél
+#   gewoon rood worden. Gebruikt de mail-secrets.
+#   LET OP: de log van een publieke repo is leesbaar voor iedereen en in een
+#   mailbox staan privédingen. De check print daarom alleen getallen, nooit
+#   mailinhoud, afzenders, onderwerpen of tracking-links. Houd dat zo.
 
 on:
   workflow_dispatch: {}
@@ -65,3 +70,28 @@ jobs:
       # Als laatste, zodat de uitkomst in de log-staart staat.
       - name: HTML-fallback valideren tegen funda.nl
         run: python scripts/funda_html_validatie.py
+
+  mail-live:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Python opzetten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Dependencies installeren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Controleert login, zoeken, decoderen en parsen tegen de echte mailbox.
+      # Nul woningen is een geldige uitkomst: dan is de alert-mail er nog niet.
+      # Print alleen getallen, geen mailinhoud - zie de kop van dit bestand.
+      - name: IMAP-verbinding controleren
+        env:
+          FUNDA_MAIL_USER: ${{ secrets.FUNDA_MAIL_USER }}
+          FUNDA_MAIL_PASSWORD: ${{ secrets.FUNDA_MAIL_PASSWORD }}
+        run: python scripts/funda_mail_imap_check.py
