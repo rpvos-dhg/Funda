@@ -119,10 +119,17 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
   API-route zocht het script zelf (prijsbanden, eigen straal) en filterde daarna.
   Bij de mailroute kan het script alleen nog wegstrepen uit wat funda mailt: wat
   die zoekopdracht mist, bestaat voor ons niet, en prijsband-splitsing helpt daar
-  niet meer. Zet de zoekopdracht in het funda-account dus **ruimer** dan de
-  wensen (gebied, prijs, appartement, min. m2) en laat de filters in
-  `funda_zoek.py` het smalle werk doen - buurten, belegging, begane grond,
-  straat-segmenten zitten daar al in.
+  niet meer. Maar "ruimer zetten" geldt niet voor alles, want de twee soorten
+  criteria worden heel verschillend afgehandeld:
+  - **Gebied: ruim zetten.** Stad, buurt en straat-segment worden na het ophalen
+    nog gefilterd (`is_uitgesloten_stad`, `is_uitgesloten_buurt`,
+    `is_uitgesloten_straat_nr`), net als belegging en begane grond. Extra gebied
+    in de zoekopdracht kost dus alleen wat ruis, en mist niets.
+  - **Prijs en m2: exact zetten.** `PRIJS_MIN`, `PRIJS_MAX` en `M2_MIN` zijn
+    alléén zoekparameters; er is **geen** nafilter op prijs of oppervlak. Bij de
+    mailroute bepaalt de bewaarde zoekopdracht die grenzen dus volledig, en staat
+    hij te ruim, dan komen te dure of te kleine woningen ongefilterd in het
+    rapport. Wil je dat afdekken, dan moet er eerst een nafilter bij.
 - **Voorburg versus de gemeente Leidschendam-Voorburg.** `UITSLUIT_STEDEN` doet
   een substring-match, en Voorburg valt onder de gemeente Leidschendam-Voorburg.
   Zonder voorrangsregel matcht "Leidschendam" daarop en valt al het
