@@ -121,6 +121,10 @@ python funda_zoek.py --no-open  # zonder browser
 - `python test_funda_zoek.py` - offline tests voor de veiligheidschecks in
   `main()`: een run stopt met exit 2 als álle zoek-calls falen én als ze allemaal
   slagen maar samen nul woningen opleveren.
+- `python test_funda_mail.py` - offline tests voor de mailbron (linkextractie uit
+  notificatiemails, drop-in-gedrag, cache). De mailopmaak zelf is niet gemeten;
+  valideer met `scripts/funda_mail_validatie.py <mail.eml>` zodra er een echte
+  notificatiemail is.
 - `python test_funda_html.py` - offline tests voor de HTML-zoekfallback
   (URL-opbouw, kaart-parser, drop-in-gedrag, dedup). Draait op een fixture die is
   nagebouwd op echte markup, dus geen netwerk nodig.

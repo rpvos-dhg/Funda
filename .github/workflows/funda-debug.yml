@@ -29,6 +29,7 @@ jobs:
         run: |
           python test_funda_html.py
           python test_funda_zoek.py
+          python test_funda_mail.py
 
       - name: API-probe draaien
         run: python scripts/funda_api_debug.py
