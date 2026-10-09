@@ -167,11 +167,19 @@ def los_tracking_link_op(
 ) -> tuple[str, str] | None:
     """Volg een ondoorzichtige redirect tot er een woning-URL uit komt.
 
-    ONGEMETEN PAD. Funda's notificatiemail van een bewaarde zoekopdracht bestond
-    nog niet toen dit werd geschreven, dus of woninglinks daarin verpakt zijn is
-    onbekend. In de twee mails die er wél waren stonden inhoudelijke links
-    onverpakt, dus dit is het uitzonderingsgeval. Alleen aanroepen als er geen
-    directe links zijn: zo'n call is een klik in funda's tracker.
+    WERKT NIET VANAF GITHUB ACTIONS. Gemeten op 9 okt 2026: `links.funda.nl`
+    geeft daar een **403**, net als `www.funda.nl`. Vanaf een runner is een
+    verpakte woninglink dus niet te volgen. Lokaal of op een eigen netwerk wel,
+    en daarvoor staat dit er.
+
+    Gevolg voor de mailroute: die hangt ervan af dat de alert-mail de woninglink
+    érgens onverpakt heeft - in de plattetekstversie bijvoorbeeld, waar funda in
+    de gemeten mails gewone `www.funda.nl`-URL's zet. Staat de link in beide
+    delen alleen verpakt, dan komt de mailroute op Actions niet verder dan de
+    melding dat er tracking-links waren.
+
+    Alleen aanroepen als er geen directe links zijn: zo'n call is een klik in
+    funda's tracker, en die tokens zijn eenmalig.
     """
     haal = haal or _haal_locatie
     zeg = log or (lambda _b: None)

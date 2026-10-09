@@ -86,6 +86,16 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
     html-deel dus ruim. Reken er daarom op dat de woninglink in de alert-mail
     verpakt kan zijn. Dat `tekst_uit_mail()` plat én html achter elkaar plakt is
     hier precies goed: de parser krijgt beide kansen.
+  - **`links.funda.nl` geeft óók een 403 vanaf Actions** (gemeten 9 okt 2026,
+    `probeer_trackerhost()` in de IMAP-check, op de wortel van de host zodat er
+    geen eenmalig klik-token sneuvelt). Een verpakte woninglink is daar dus niet
+    te volgen; `los_tracking_link_op()` werkt alleen lokaal of op een eigen
+    netwerk. **Daarmee hangt de hele mailroute aan één ding**: dat de alert-mail
+    de woninglink érgens onverpakt heeft, bijvoorbeeld in het text/plain-deel,
+    waar funda in de gemeten mails gewone `www.funda.nl`-URL's zet. Staat hij in
+    beide delen alleen verpakt, dan komt de mailroute op Actions niet verder dan
+    de melding dat er tracking-links waren, en is een self-hosted runner de
+    enige route die overblijft.
   - Alleen de "online versie"-link is verpakt, en die redirect is
     **ondoorzichtig**: `links.funda.nl/s/vb/<token>/<token>/23` (2026) en
     `links.funda.nl/e/evib?_t=..&_m=..&_e=..` (2022). Er zit dus géén `?url=`
