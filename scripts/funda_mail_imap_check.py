@@ -84,10 +84,12 @@ def main() -> int:
 
     print(f"\nmails gevonden: {len(teksten)}")
     totaal_woningen: list[str] = []
+    totaal_paden: list[str] = []
     for i, tekst in enumerate(teksten, 1):
         woningen = vind_woning_links(tekst)
         tracking = vind_tracking_links(tekst)
         totaal_woningen.extend(t for _, t in woningen)
+        totaal_paden.extend(p for p, _ in woningen)
         print(f"  mail {i}: {len(tekst)} tekens, {len(woningen)} woninglink(s), "
               f"{len(tracking)} tracking-link(s)")
 
@@ -95,6 +97,23 @@ def main() -> int:
     print(f"\nunieke woningen (tiny_id, publieke nummers): {len(unieke)}")
     if unieke:
         print(f"  {', '.join(unieke[:20])}")
+
+    # Welke woningtypes zitten er in de mails? Af te lezen aan het eerste
+    # segment van de URL-slug (/detail/koop/<stad>/<type>-<straat>-<nr>/<id>/).
+    # Dit controleert of het nafilter in funda_zoek.py ergens op aangrijpt:
+    # staan er alleen "appartement"-slugs, dan laat de bewaarde zoekopdracht
+    # geen huizen door en is er niets te filteren. Staat er iets anders, dan
+    # moet GEEN_APPARTEMENT of HUIS_SLUGS dat woord kennen.
+    soorten: dict[str, int] = {}
+    for pad in totaal_paden:
+        delen = [deel for deel in pad.split("/") if deel]
+        if len(delen) >= 2:
+            soort = delen[-2].split("-")[0].lower()
+            soorten[soort] = soorten.get(soort, 0) + 1
+    if soorten:
+        print("\nwoningtypes volgens de URL-slug:")
+        for soort, n in sorted(soorten.items(), key=lambda s: -s[1]):
+            print(f"  {n:>3}x  {soort}")
 
     print("\nOK: login, zoeken en decoderen werken tegen de echte mailbox.")
     probeer_trackerhost()

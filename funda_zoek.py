@@ -151,6 +151,32 @@ TWIJFEL_STEDEN_PATROON = [
     ("leidschendam voorburg", "gemeente Leidschendam-Voorburg: kan Leidschendam zijn"),
 ]
 
+# Woningtypes die geen appartement zijn. Substring-match, case-insensitive, op
+# het veld `house_type` uit de detail-API (funda's `soortwoning`).
+#
+# Waarom een afwijslijst en geen toestaanlijst: funda gebruikt voor appartementen
+# allerlei subtypes (bovenwoning, portiekflat, maisonnette, galerijflat,
+# penthouse, studio, benedenwoning). Een lijst van toegestane woorden zou die
+# stuk voor stuk afwijzen zodra er eentje mist. Nu geldt: onbekend type =
+# doorlaten. Stil verliezen is erger dan een keer te veel laten zien.
+#
+# Dit nafilter bestaat omdat PRIJS_MIN, PRIJS_MAX, M2_MIN en object_type alléén
+# zoekparameters zijn. Bij de mailroute bepaalt de bewaarde zoekopdracht wat er
+# binnenkomt, en staat daar "Woonhuis" aangevinkt, dan belandt dat ongefilterd
+# in het rapport - de begane-grond-filter grijpt er niet op, want die kijkt naar
+# omschrijvingen als "appartement op de begane grond".
+GEEN_APPARTEMENT = [
+    "eengezinswoning", "woonhuis", "herenhuis", "tussenwoning", "hoekwoning",
+    "eindwoning", "rijtjeshuis", "vrijstaand", "geschakeld", "bungalow",
+    "villa", "landhuis", "grachtenpand", "woonboerderij", "dijkwoning",
+    "2-onder-1-kap", "twee-onder-een-kap",
+]
+
+# Slug-voorvoegsels in de woning-URL die op een huis wijzen. Bewust alleen het
+# eerste segment van de slug: een straatnaam als "Huisduinenstraat" mag niet
+# meetellen.
+HUIS_SLUGS = {"huis", "woonhuis"}
+
 # Buurten waar je twijfels over hebt: tonen, maar markeren met waarschuwing.
 TWIJFEL_BUURTEN = [
     "Mariahoeve",
@@ -289,6 +315,28 @@ def is_twijfelstad(stad: str) -> str | None:
     for patroon, reden in TWIJFEL_STEDEN_PATROON:
         if patroon in s:
             return reden
+    return None
+
+
+def is_geen_appartement(d: dict) -> str | None:
+    """Is dit geen appartement? Geeft de reden terug, of None bij doorlaten.
+
+    Kijkt eerst naar `house_type` (het betrouwbare veld uit de detail-API) en
+    anders naar het type-voorvoegsel in de woning-URL. Levert geen van beide
+    iets op, dan laten we de woning door: onbekend is geen reden om weg te
+    gooien.
+    """
+    soort = str(d.get("house_type") or "").lower()
+    for woord in GEEN_APPARTEMENT:
+        if woord in soort:
+            return d.get("house_type") or woord
+
+    url = str(d.get("detail_url") or "")
+    delen = [deel for deel in url.split("/") if deel]
+    if len(delen) >= 2:
+        slug_type = delen[-2].split("-")[0].lower()
+        if slug_type in HUIS_SLUGS:
+            return slug_type
     return None
 
 
@@ -737,11 +785,15 @@ def main() -> None:
 
     # Filter op stad, buurt en straat-segment.
     voor: list = []
-    weg_stad = weg_buurt = weg_straat = 0
+    weg_stad = weg_buurt = weg_straat = weg_type = 0
     for r in rauwe:
         d = r.data
         stad = (d.get("city") or "").strip()
         buurt = (d.get("neighbourhood") or "").strip()
+        geen_app = is_geen_appartement(d)
+        if geen_app:
+            weg_type += 1
+            continue
         if is_uitgesloten_stad(stad):
             weg_stad += 1
             continue
@@ -754,7 +806,8 @@ def main() -> None:
             continue
         voor.append(r)
 
-    log(f"Na filter: {len(voor)} (weg: {weg_stad} stad, {weg_buurt} buurt, {weg_straat} straat-segment).")
+    log(f"Na filter: {len(voor)} (weg: {weg_type} woningtype, {weg_stad} stad, "
+        f"{weg_buurt} buurt, {weg_straat} straat-segment).")
 
     # Detail-check op beleggingsobject, begane grond, buitenruimte en blacklist.
     blacklist = laad_blacklist()

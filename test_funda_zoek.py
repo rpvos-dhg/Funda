@@ -235,9 +235,57 @@ def test_stadfilter() -> bool:
     return ok
 
 
+def test_woningtypefilter() -> bool:
+    """Woonhuizen eruit, appartement-subtypes erin, onbekend doorlaten."""
+    print("test: nafilter op woningtype")
+    fz = maak_stub_funda(lambda _n: [])
+    ok = True
+
+    def af(soort=None, url=None):
+        return fz.is_geen_appartement({"house_type": soort, "detail_url": url})
+
+    # Huizen eruit, op het veld uit de detail-API.
+    for soort in ("Eengezinswoning", "Woonhuis", "Herenhuis", "Tussenwoning",
+                  "Hoekwoning", "Vrijstaande woning", "2-onder-1-kapwoning",
+                  "Villa", "Bungalow"):
+        ok &= check(f"{soort} valt af", af(soort) is not None, str(af(soort)))
+
+    # Appartement-subtypes moeten er WEL doorheen. Dit is precies waarom het een
+    # afwijslijst is en geen toestaanlijst: deze zouden anders stuk voor stuk
+    # sneuvelen zodra er eentje niet op de lijst stond.
+    for soort in ("Appartement", "Bovenwoning", "Portiekflat", "Maisonnette",
+                  "Galerijflat", "Penthouse", "Studio", "Benedenwoning",
+                  "Dubbel benedenhuis"):
+        ok &= check(f"{soort} komt door", af(soort) is None, str(af(soort)))
+
+    # Onbekend of leeg: doorlaten, niet weggooien.
+    ok &= check("leeg type komt door", af(None) is None)
+    ok &= check("onbekend type komt door", af("Iets nieuws van funda") is None)
+
+    # URL-slug als tweede signaal, als het veld ontbreekt.
+    ok &= check("slug huis- valt af",
+                af(None, "/detail/koop/den-haag/huis-teststraat-12/44500000/") is not None)
+    ok &= check("slug appartement- komt door",
+                af(None, "/detail/koop/den-haag/appartement-teststraat-12/44500000/") is None)
+    # Alleen het eerste slug-segment telt, anders sneuvelt een straatnaam.
+    ok &= check("Huisduinenstraat is geen huis",
+                af("Appartement",
+                   "/detail/koop/den-haag/appartement-huisduinenstraat-5/44500000/") is None)
+    ok &= check("volledige URL werkt ook",
+                af(None, "https://www.funda.nl/detail/koop/den-haag/huis-a-1/44500000/")
+                is not None)
+
+    # Het veld gaat voor op de slug.
+    ok &= check("veld wint van slug",
+                af("Woonhuis",
+                   "/detail/koop/den-haag/appartement-teststraat-1/44500000/") is not None)
+    return ok
+
+
 def main() -> int:
     resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(),
-                  test_auto_keten(), test_stadfilter()]
+                  test_auto_keten(), test_stadfilter(),
+                  test_woningtypefilter()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

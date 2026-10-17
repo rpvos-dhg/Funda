@@ -130,6 +130,25 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
     mailroute bepaalt de bewaarde zoekopdracht die grenzen dus volledig, en staat
     hij te ruim, dan komen te dure of te kleine woningen ongefilterd in het
     rapport. Wil je dat afdekken, dan moet er eerst een nafilter bij.
+- **Nafilter op woningtype.** `PRIJS_MIN`, `PRIJS_MAX`, `M2_MIN` en
+  `object_type` zijn alléén zoekparameters. Staat in de bewaarde zoekopdracht
+  "Woonhuis" aangevinkt, dan belandt dat bij de mailroute ongefilterd in het
+  rapport: de begane-grond-filter grijpt er niet op, want die kijkt naar
+  omschrijvingen als "appartement op de begane grond", en die staan er bij een
+  huis nooit. `is_geen_appartement()` vangt dat af.
+  - **Afwijslijst, geen toestaanlijst.** Funda kent voor appartementen allerlei
+    subtypes (bovenwoning, portiekflat, maisonnette, galerijflat, penthouse,
+    studio, benedenwoning). Een lijst van toegestane woorden zou die stuk voor
+    stuk afwijzen zodra er eentje mist. Nu geldt: onbekend type = doorlaten.
+  - Kijkt eerst naar `house_type` (funda's `soortwoning` uit de detail-API) en
+    anders naar het eerste segment van de URL-slug. Dat laatste bewust alleen
+    het eerste segment: een straatnaam als "Huisduinenstraat" mag niet
+    meetellen. Vastgepind in `test_funda_zoek.py::test_woningtypefilter`.
+  - De vocabulaire van `soortwoning` is **niet** gemeten. `mail-live` print
+    daarom de woningtypes volgens de URL-slug, zodat zichtbaar is of er
+    überhaupt huizen in de mails zitten en of het filter het juiste woord kent.
+  - Prijs en oppervlak hebben nog steeds **geen** nafilter; die blijven volledig
+    aan de bewaarde zoekopdracht.
 - **Voorburg versus de gemeente Leidschendam-Voorburg.** `UITSLUIT_STEDEN` doet
   een substring-match, en Voorburg valt onder de gemeente Leidschendam-Voorburg.
   Zonder voorrangsregel matcht "Leidschendam" daarop en valt al het
