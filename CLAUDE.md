@@ -125,10 +125,14 @@ Actions-cache, niet in de repo.
     gemeten. De run van 18:30 ziet dezelfde snapshot als die van 10:30.
   - Werking: de sitemap geeft alleen URL + lastmod; prijs, m2, buurt, status en
     coördinaten komen van het detail-endpoint. `funda_sitemap_cache.json` bewaart
-    per woning lastmod en die velden, plus de index-handtekening en de
+    per woning lastmod en die velden, plus het index-kenmerk en de
     kandidatenlijst. Per run gaan robots.txt en de index altijd (2 verzoeken); de
     koop-sitemaps alleen als de lastmod in de index (anders de
-    Last-Modified-header) veranderd is. Ongewijzigde lastmod en buiten de
+    Last-Modified-header) veranderd is. **Met 10 minuten speling per
+    koop-sitemap**: de index geeft per verzoek soms een seconde verschil (gemeten
+    6 nov: koop3 04:59:26 en 04:59:27, zelfde ETag), en een exacte vergelijking
+    haalde daardoor elke run alles opnieuw op (e2e-run
+    [42272395594](https://github.com/rpvos-dhg/Funda/actions/runs/42272395594)). Ongewijzigde lastmod en buiten de
     doelmarkt of afgewezen door type/stad/buurt/straat/prijs/m2/straal
     (`_sitemap_overslaan`, met `buiten_zoekcriteria`) = geen call. Woningen die
     door alle filters komen, worden elke run vers opgehaald. Onbekend (bijv. geen

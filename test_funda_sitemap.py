@@ -388,8 +388,9 @@ def test_index_cache() -> bool:
                     z1.statistiek["index_ongewijzigd"] is False
                     and z1.statistiek["koop_sitemaps_opgehaald"] == 2)
         index = json.loads(pad.read_text(encoding="utf-8"))["index"]
-        ok &= check("cache bewaart handtekening en kandidaten",
-                    bool(index.get("handtekening")) and len(index.get("kandidaten") or []) == 3)
+        ok &= check("cache bewaart index-kenmerk en kandidaten",
+                    bool((index.get("kenmerk") or {}).get("lastmod"))
+                    and len(index.get("kandidaten") or []) == 3)
 
         web2 = StubWeb()
         z2 = zoeker(web2, cache_pad=pad)
@@ -402,6 +403,19 @@ def test_index_cache() -> bool:
         ok &= check("run 2: statistiek", z2.statistiek["index_ongewijzigd"] is True
                     and z2.statistiek["sitemap_verzoeken"] == 2
                     and z2.statistiek["urls"] == z1.statistiek["urls"])
+
+        # Gemeten op 6 nov 2026: de index geeft per verzoek soms een seconde
+        # verschil in de lastmod van een kind (koop3 04:59:26 en 04:59:27, zelfde
+        # ETag). Dat is dezelfde snapshot en mag dus niet tot ophalen leiden.
+        jitter = StubWeb()
+        jitter.pagina[INDEX_URL] = INDEX.replace("04:59:23", "04:59:24")
+        zj = zoeker(jitter, cache_pad=pad)
+        zj.search_listing()
+        ok &= check("een seconde verschil in de index: zelfde snapshot",
+                    jitter.calls == [ROBOTS_URL, INDEX_URL] and zj.statistiek["index_ongewijzigd"])
+        bewaard = json.loads(pad.read_text(encoding="utf-8"))["index"]["kenmerk"]["lastmod"]
+        ok &= check("opgeslagen kenmerk blijft staan (speling stapelt niet op)",
+                    bewaard.get(KOOP2_URL) == "2026-11-06T04:59:23+01:00")
 
         web2b = StubWeb()
         z2b = zoeker(web2b, cache_pad=pad)

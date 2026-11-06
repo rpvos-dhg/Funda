@@ -92,7 +92,7 @@ GEEN_APPARTEMENT_SLUG = {
 }
 
 STANDAARD_STEDEN = ("den-haag", "voorburg")
-# Versie 2: plus de index-handtekening met de kandidatenlijst, en coördinaten en
+# Versie 2: plus het index-kenmerk met de kandidatenlijst, en coördinaten en
 # het statuskenmerk per woning. Een versie-1-cache (alleen woningen) is nog
 # bruikbaar: ontbrekende coördinaten betekenen alleen "onbekend = doorlaten".
 CACHE_VERSIE = 2
@@ -282,31 +282,62 @@ def velden_uit(data: dict[str, Any]) -> dict[str, Any]:
     return velden
 
 
-def index_handtekening(
+# Speling bij het vergelijken van de lastmod per koop-sitemap. Gemeten op 6 nov
+# 2026: twee verzoeken vlak na elkaar gaven voor koop3 04:59:26 en 04:59:27 (met
+# dezelfde ETag en Last-Modified); de index wordt kennelijk per verzoek opgebouwd.
+# Een exacte vergelijking zag daardoor elke run een "gewijzigde" index. Een
+# nieuwe snapshot ligt ~24 uur verder, dus 10 minuten speling mist er geen.
+INDEX_SPELING_SECONDEN = 600
+
+
+def index_kenmerk(
     koop: Iterable[tuple[str, str | None]],
     last_modified: str | None,
     steden: Iterable[str],
-) -> str | None:
-    """Vingerafdruk van de koop-sitemaps volgens de index, of None.
+) -> dict[str, Any] | None:
+    """Wat van de index bepaalt of de vorige kandidatenlijst nog geldt, of None.
 
     Liefst de <lastmod> per koop-sitemap uit de index. Ontbreekt er één, dan de
     Last-Modified-header van de index. Ontbreekt die ook, dan None: niet te
     bepalen of er iets veranderd is, dus elke run opnieuw ophalen.
-    De steden en de slug-afwijslijst tellen mee, want de kandidatenlijst hangt
-    daarvan af: verandert een van beide, dan opnieuw ophalen.
+    De steden en de slug-afwijslijst tellen mee (`regels`), want de
+    kandidatenlijst hangt daarvan af: verandert een van beide, dan opnieuw.
     """
+    regels = json.dumps({"steden": sorted(s.lower() for s in steden),
+                         "afwijzen": sorted(GEEN_APPARTEMENT_SLUG), "versie": CACHE_VERSIE},
+                        sort_keys=True).encode("utf-8")
+    kenmerk: dict[str, Any] = {"regels": hashlib.sha256(regels).hexdigest()[:16]}
     koop = sorted((u, lm) for u, lm in koop)
-    if koop and all(lm for _u, lm in koop):
-        basis: dict[str, Any] = {"lastmod": koop}
+    if koop and all(parse_datum(lm) for _u, lm in koop):
+        kenmerk["lastmod"] = {u: lm for u, lm in koop}
     elif last_modified:
-        basis = {"last_modified": last_modified, "kinderen": [u for u, _lm in koop]}
+        kenmerk["last_modified"] = last_modified
+        kenmerk["kinderen"] = [u for u, _lm in koop]
     else:
         return None
-    basis["steden"] = sorted(s.lower() for s in steden)
-    basis["regels"] = sorted(GEEN_APPARTEMENT_SLUG)
-    basis["versie"] = CACHE_VERSIE
-    ruw = json.dumps(basis, sort_keys=True).encode("utf-8")
-    return hashlib.sha256(ruw).hexdigest()[:24]
+    return kenmerk
+
+
+def index_ongewijzigd(oud: dict[str, Any] | None, nieuw: dict[str, Any] | None) -> bool:
+    """Wijst de index nog naar dezelfde snapshot als de vorige run?
+
+    Per koop-sitemap dezelfde URL en een lastmod binnen INDEX_SPELING_SECONDEN;
+    zonder lastmod exact dezelfde Last-Modified. Bij twijfel False: dan worden de
+    sitemaps opnieuw opgehaald, en dat kost alleen bandbreedte.
+    """
+    if not oud or not nieuw or oud.get("regels") != nieuw.get("regels"):
+        return False
+    if "lastmod" in nieuw:
+        vorig, nu = oud.get("lastmod") or {}, nieuw["lastmod"]
+        if set(vorig) != set(nu):
+            return False
+        for url, lm in nu.items():
+            a, b = parse_datum(vorig[url]), parse_datum(lm)
+            if a is None or b is None or abs((a - b).total_seconds()) > INDEX_SPELING_SECONDEN:
+                return False
+        return True
+    return (bool(nieuw.get("last_modified")) and oud.get("last_modified") == nieuw["last_modified"]
+            and oud.get("kinderen") == nieuw.get("kinderen"))
 
 
 # -- Drop-in --------------------------------------------------------------------
@@ -647,10 +678,14 @@ class SitemapZoeker:
         index_lastmod = max((lm for _u, lm in koop if lm), default=None) or last_modified
 
         cache, vorige_index = self._laad_cache()
-        handtekening = index_handtekening(koop, last_modified, self._steden)
-        hergebruikt = bool(handtekening and vorige_index.get("handtekening") == handtekening
+        kenmerk = index_kenmerk(koop, last_modified, self._steden)
+        hergebruikt = bool(index_ongewijzigd(vorige_index.get("kenmerk"), kenmerk)
                            and vorige_index.get("kandidaten"))
         if hergebruikt:
+            # Het opgeslagen kenmerk blijft staan, niet het nieuwe: zo kan de
+            # speling van een seconde per run zich niet opstapelen.
+            kenmerk = vorige_index["kenmerk"]
+            index_lastmod = vorige_index.get("index_lastmod") or index_lastmod
             kandidaten = []
             for pad, lastmod in vorige_index["kandidaten"]:
                 w = woning_uit_url(pad)
@@ -664,10 +699,10 @@ class SitemapZoeker:
                       f"de {len(koop)} koop-sitemaps niet opnieuw opgehaald, "
                       f"{len(kandidaten)} kandidaten uit de cache.")
         else:
-            if not handtekening:
+            if not kenmerk:
                 waarom = "index geeft geen lastmod en geen Last-Modified"
-            elif vorige_index.get("handtekening"):
-                waarom = (f"index gewijzigd (lastmod {index_lastmod}, "
+            elif vorige_index.get("kenmerk"):
+                waarom = (f"index gewijzigd (nieuwste lastmod {index_lastmod}, "
                           f"was {vorige_index.get('index_lastmod')})")
             else:
                 waarom = "geen eerdere index in de cache"
@@ -683,7 +718,7 @@ class SitemapZoeker:
                   f"nieuwste lastmod {nieuwste.isoformat() if nieuwste else '?'}.")
         self._kandidaat_per_id = {k["url_id"]: k for k in kandidaten}
         self._index_info = {
-            "handtekening": handtekening,
+            "kenmerk": kenmerk,
             "index_lastmod": index_lastmod,
             "urls": n_urls,
             "types_in_steden": dict(types.most_common()),

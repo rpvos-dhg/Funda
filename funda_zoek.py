@@ -841,10 +841,13 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
         # Alleen de statuswaarden, geen adressen: zo is te zien of het filter de
         # woorden kent die funda gebruikt.
         log("Pool: statuswaarden: " + ", ".join(f"{s} ({n}x)" for s, n in statussen.most_common()))
-    if sitemap is not None and oordelen:
-        # Alleen getallen. Laat zien dat de pool geen dubbel werk doet, en hoeveel
-        # getrackte woningen uit de sitemap verdwijnen (meting eerste week).
-        log(f"Pool en sitemap: {sum(oordelen.values())} getrackte woning(en); "
+    if sitemap is not None:
+        # Alleen getallen, ook als alles 0 is: laat zien dat de pool geen dubbel
+        # werk doet, en hoeveel getrackte woningen uit de sitemap verdwijnen
+        # (meting eerste week). Getrackte woningen die al in deze run zaten, komen
+        # uit de sitemap en tellen hier dus niet mee.
+        log(f"Pool en sitemap: {sum(oordelen.values())} getrackte woning(en) buiten deze run "
+            f"(binnen {dagen} dagen gezien); "
             f"{oordelen[SITEMAP_OPGEHAALD]} al opgehaald door de sitemapzoeker (geen call), "
             f"{oordelen[SITEMAP_MISLUKT]} daar mislukt (geen tweede call), "
             f"{oordelen[SITEMAP_OVERGESLAGEN]} op cache overgeslagen, "
