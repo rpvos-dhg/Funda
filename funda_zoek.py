@@ -1532,7 +1532,10 @@ def main() -> None:
         tr = d.get("_track") or {}
         gedaald = bool(tr.get("gedaald"))
         lang = tr.get("dagen", 0) >= LANG_OP_FUNDA_DAGEN
-        return (not gedaald, not lang, twijfel, d.get("price", 0))
+        # `or 0`: een woning zonder vraagprijs ("prijs op aanvraag") heeft
+        # price=None. De sitemap- en mailroute laten die bewust door (onbekend =
+        # doorlaten), en None naast een getal laat sort() crashen.
+        return (not gedaald, not lang, twijfel, d.get("price") or 0)
 
     nieuw.sort(key=sort_key)
     bekend.sort(key=sort_key)
@@ -1590,7 +1593,7 @@ def main() -> None:
 
 
 def toon(d: dict, prefix: str = "") -> None:
-    prijs = d.get("price", 0)
+    prijs = d.get("price") or 0   # None bij "prijs op aanvraag"
     m2 = d.get("living_area", 0) or 0
     ppm = prijs // m2 if m2 else 0
     label = d.get("energy_label", "?")

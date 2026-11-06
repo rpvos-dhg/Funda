@@ -158,6 +158,45 @@ def test_normale_run() -> bool:
     return ok
 
 
+def test_prijs_onbekend() -> bool:
+    """Een woning zonder vraagprijs mag de run niet laten crashen.
+
+    Gevonden in de e2e-run van de sitemaproute (run 42271742515): de sitemap- en
+    mailroute laten een onbekende prijs bewust door, en sort() kreeg toen None
+    naast een getal (TypeError). Het rapport bleef daardoor ongeschreven.
+    """
+    print("test: woning met prijs op aanvraag (price=None)")
+
+    def gedrag(n):
+        if n == 1:
+            return [
+                StubListing({"global_id": "g1", "city": "Den Haag", "neighbourhood": "Bomenbuurt",
+                             "price": 250000, "living_area": 60, "title": "Teststraat 1"}),
+                StubListing({"global_id": "g2", "city": "Den Haag", "neighbourhood": "Bomenbuurt",
+                             "price": None, "living_area": 70, "title": "Teststraat 2"}),
+            ]
+        return []
+
+    fz = maak_stub_funda(gedrag)
+    gezien = {}
+
+    def rapport(_client, goed, _nieuw):
+        gezien["titels"] = sorted(d.get("title") for d in goed)
+        return Path("rapport.html")
+
+    fz.genereer_rapport = rapport
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            fz.main()
+        code = None
+    except SystemExit as exc:
+        code = exc.code
+    ok = check("geen afbreking", code is None, str(code))
+    ok &= check("beide woningen in het rapport",
+                gezien.get("titels") == ["Teststraat 1", "Teststraat 2"], str(gezien.get("titels")))
+    return ok
+
+
 def test_auto_keten() -> bool:
     """'auto' loopt api -> html -> sitemap -> mail af en neemt de eerste die werkt."""
     print("test: auto kiest de eerste werkende zoekmethode")
@@ -856,7 +895,7 @@ def test_pool_in_run() -> bool:
 
 
 def main() -> int:
-    resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(),
+    resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(), test_prijs_onbekend(),
                   test_auto_keten(), test_stadfilter(),
                   test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),
