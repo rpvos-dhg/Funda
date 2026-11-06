@@ -156,6 +156,18 @@ Actions-cache, niet in de repo.
     hoeveel getrackte woningen niet meer in de sitemap staan. "Run-kosten" aan
     het eind: methode, duur, detail-calls (en hoeveel dubbel), sitemap-verzoeken
     en of de koop-sitemaps opnieuw zijn opgehaald.
+  - **End-to-end in `auto`** (6 nov 2026, run
+    [42273695515](https://github.com/rpvos-dhg/Funda/actions/runs/42273695515);
+    TEST-config 2513AA, straal 6 -> 5 km, 230-310k, 55 m2; twee runs in één job,
+    geen secrets): API 401 en zoekpagina 403, dus `sitemap`. Run 1 (lege cache):
+    6 sitemap-verzoeken, 200 detail-calls (1x 404), 8 in de doelmarkt, 6 na de
+    filters (2 niet beschikbaar), 167 s. Run 2: 2 sitemap-verzoeken (koop-sitemaps
+    uit de cache), 208 detail-calls (8 ververst, 200 verkend), 191 op de cache
+    overgeslagen, 16 in de doelmarkt, 8 na de filters (2 nieuw, 6 eerder gezien),
+    154 s. Beide runs 0 dubbele detail-calls. De eerste e2e-run
+    ([42271742515](https://github.com/rpvos-dhg/Funda/actions/runs/42271742515))
+    crashte in `main()` op een woning zonder vraagprijs (`price=None` in
+    `sort()`); opgelost, vastgepind in `test_funda_zoek.py::test_prijs_onbekend`.
   - Valideren tegen de echte site: `scripts/funda_sitemap_validatie.py`
     (end-to-end door `main()`, zonder rapport of push) en
     `scripts/funda_sitemap_probe.py` (robots en sitemaps meten).
