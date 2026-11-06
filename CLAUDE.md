@@ -534,6 +534,17 @@ Actions-cache, niet in de repo.
 - **Encryptie verplicht in CI.** `funda_rapport.py` weigert een onversleuteld
   rapport te schrijven als `FUNDA_REQUIRE_ENCRYPTION=1` (gezet in de workflow),
   zodat er nooit per ongeluk leesbare data publiek komt.
+- **Verander de padenlijst van de Actions-cache nooit zonder migratie.** De
+  versie van een cache hangt af van de exacte lijst `path`-regels. PR #13 voegde
+  `funda_thuis_coords.json` en `funda_sitemap_cache.json` toe, en daarna vond
+  `restore-keys: funda-state-` de oude caches niet meer ("Cache not found"). De
+  opstartrun van 6 nov 2026 (run 42287980238) begon daardoor met 0 gezien, lege
+  tracking en geen blacklist, en meldde 9 "nieuwe" woningen. Hersteld met een
+  tijdelijke migratie in `funda-daily.yml`: de oude cache apart ophalen met de
+  oude padenlijst en samenvoegen met `scripts/state_migratie.py` (idempotent,
+  print alleen aantallen). Die stappen mogen weg zodra de state weer compleet
+  in de nieuwe cache staat. Nieuwe state? Liever in een bestaand bestand, of
+  dezelfde migratie herhalen.
 - **Bot pusht zelf.** De workflow commit `docs/` terug naar `main`. Doe lokaal
   altijd `git pull --rebase` voor je commit, anders wordt je push afgewezen.
 - **Lokale run commit alleen `docs/`.** `auto_push()` (zonder `--no-push`)
