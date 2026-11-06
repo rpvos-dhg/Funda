@@ -39,7 +39,7 @@
     "den-haag",
     "voorburg"
   ],
-  "_doc_sitemap_steden": "Sitemaproute: plaatsen als funda-slug (lowercase, spatie wordt koppelteken). De straal en de stad-/buurtfilters doen de rest.",
+  "_doc_sitemap_steden": "Sitemaproute: plaatsen zoals funda ze in de URL zet. Hoofdletters en spaties worden vanzelf omgezet ('Den Haag' wordt 'den-haag'). Een stad zonder één URL in de sitemaps laat de run falen (typfout of andere slug). De straal en de stad-/buurtfilters doen de rest.",
   "sitemap_max_verkennen": 200,
   "_doc_sitemap_max_verkennen": "Detail-calls per run voor nieuwe of gewijzigde woningen uit de sitemap, nieuwste eerst. Omgevingsvariabele FUNDA_SITEMAP_MAX_VERKENNEN (workflow-input sitemap_max_verkennen) gaat voor.",
   "mail_gebruiker": "",

@@ -16,11 +16,13 @@ script daar de nieuwste woning-URL's uit halen en ze via het detail-endpoint
 
 Spelregels, hard:
 - Eén client, met de instellingen die de repo al gebruikt (curl_cffi met het
-  safari-profiel en de UA uit funda_html_zoek.py, en pyfunda v2.9.0 voor het
-  detail-endpoint). Geen wisselende profielen of UA's: geeft iets 401/403 of een
-  bot-controle, dan wordt dat genoteerd en stopt dat pad.
-- robots.txt wordt gerespecteerd: een URL die voor `*` is uitgesloten, wordt
-  niet opgehaald.
+  safari-profiel en de UA uit funda_html_zoek.py, en de gepatchte Funda-client
+  uit funda_zoek.py voor het detail-endpoint: één gewone client, geen
+  app-vingerafdruk). Geen wisselende profielen of UA's: geeft iets 401/403 of
+  een bot-controle, dan wordt dat genoteerd en stopt dat pad.
+- robots.txt van www.funda.nl wordt gerespecteerd: een URL die voor `*` is
+  uitgesloten, wordt niet opgehaald. Die dekt de detail-calls niet; die gaan
+  naar listing-detail-page.funda.io (Disallow: /), zie CLAUDE.md.
 - Hooguit MAX_VERZOEKEN verzoeken per run, met minstens PAUZE seconden ertussen.
 - Print geen privégegevens. Alleen publieke funda-gegevens (URL's, tiny_id,
   adres, prijs). funda_personal.json wordt niet gelezen.
@@ -40,6 +42,7 @@ import os
 import re
 import sys
 import time
+from pathlib import Path
 from collections import Counter
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -280,12 +283,12 @@ def verrijk(kandidaten: list[tuple[str, str | None]], budget: int) -> list[dict]
     if budget <= 1:
         print("Geen budget meer voor detail-calls.")
         return []
-    from funda import Funda  # pyfunda v2.9.0, gepind
+    # De gepatchte client van de dagelijkse run, niet pyfunda zelf: die doet zich
+    # voor als funda's app en loopt bij een weigering alle vingerafdrukken af.
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from funda_zoek import Funda
 
     f = Funda()
-    # pyfunda doet bij de eerste call zelf één testverzoek om een sessie op te
-    # zetten; dat telt mee in het budget.
-    budget -= 1
     uit: list[dict] = []
     for url, lm in kandidaten[:budget]:
         time.sleep(PAUZE)

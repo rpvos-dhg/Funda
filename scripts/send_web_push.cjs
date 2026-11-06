@@ -55,7 +55,9 @@ const homes = Array.isArray(summary.nieuw) ? summary.nieuw : [];
 const preview = homes.slice(0, 3).map((home) => {
   const area = home.living_area ? `${home.living_area} m2` : "? m2";
   const city = home.city ? `, ${home.city}` : "";
-  return `${home.title}${city} - ${money(home.price)} - ${area}`;
+  // price is null bij "prijs op aanvraag"; dan geen "€ 0" in de melding.
+  const prijs = home.price ? money(home.price) : "prijs op aanvraag";
+  return `${home.title}${city} - ${prijs} - ${area}`;
 });
 
 const payload = JSON.stringify({

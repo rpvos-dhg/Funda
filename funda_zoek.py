@@ -31,23 +31,31 @@ from datetime import datetime
 
 from funda import Funda as _Funda
 
-try:  # alleen voor de vaste vingerafdruk hieronder; de offline tests stubben pyfunda
-    from funda.funda import FINGERPRINT_POOL as _FINGERPRINT_POOL
-except Exception:  # noqa: BLE001
-    _FINGERPRINT_POOL = []
-
 from funda_sitemap_zoek import (
     ACHTERSTAND as SITEMAP_ACHTERSTAND,
+    DICHT_NA,
     MISLUKT as SITEMAP_MISLUKT,
     NIET_IN_SITEMAP,
     OPGEHAALD as SITEMAP_OPGEHAALD,
     OVERGESLAGEN as SITEMAP_OVERGESLAGEN,
+    DetailEndpointDicht,
+    WoningNietGevonden,
 )
 
 try:
     from funda_rapport import genereer_rapport
 except ImportError:
     genereer_rapport = None
+
+
+# Hoe deze client zich bij funda's API-hosts meldt: als zichzelf, met een link
+# naar de (publieke) repo. Geen browser, geen app.
+EERLIJKE_UA = "funda-dagelijkse-check/1.0 (+https://github.com/rpvos-dhg/Funda)"
+# Statussen waarmee een endpoint zegt "jij niet" of "nu even niet". pyfunda maakt
+# van élke status behalve 200 een LookupError; zonder dit onderscheid lijkt een
+# blokkade halverwege de run op een handvol verkochte woningen.
+GEWEIGERD = {401, 403, 429}
+NIET_GEVONDEN = {404, 410}
 
 
 class Funda(_Funda):
@@ -63,13 +71,19 @@ class Funda(_Funda):
     patchen in plaats van te upgraden.
 
     Daarnaast, los van de template:
-    - **Vaste vingerafdruk.** pyfunda's `_find_working_fingerprint()` loopt
-      FINGERPRINT_POOL af (twee JA3's van de app, twee Safari-profielen, okhttp,
-      chrome) tot er één een 200 krijgt. Bij een blokkade is dat stil wisselen
-      van vingerafdruk tot er één doorkomt, en dat is botbescherming omzeilen
-      (zie CLAUDE.md). Hier wordt alleen FINGERPRINT_POOL[0] geprobeerd; werkt
-      die niet, dan een RuntimeError met uitleg. Die fout wordt onthouden, zodat
-      een run niet bij elke detail-call opnieuw aanklopt.
+    - **Eerlijke client.** pyfunda doet zich voor als funda's Android-app: de
+      TLS-vingerafdruk (JA3) van de echte Dart/Flutter-app, `user-agent: Dart/3.9`,
+      `x-funda-app-platform: android` en datadog-traceheaders, en wisselt bij een
+      weigering stil naar een volgend profiel uit `FINGERPRINT_POOL` (pyfunda
+      noemt zelf "bot detection" als reden). Dat is botbescherming omzeilen (zie
+      CLAUDE.md). Hier gaat elk verzoek via één gewone client: curl zonder
+      browser- of app-profiel, met een user-agent die dit project noemt
+      (`EERLIJKE_UA`) en zonder app-headers. Er wordt nooit een vingerafdruk
+      gezocht of gewisseld.
+    - **Statuscodes.** pyfunda geeft bij elke status behalve 200 een
+      LookupError. Hier: 401/403/429 wordt `DetailEndpointDicht` (de run stopt
+      luid), 404/410 wordt `WoningNietGevonden` (de woning is weg, het endpoint
+      werkt). De rest blijft een gewone LookupError.
     - **Tellen.** Hoeveel detail-calls deze run deed, en hoeveel daarvan een
       woning ophaalden die deze run al was opgehaald. Staat aan het eind van de
       run in de log, zodat dubbel werk opvalt.
@@ -83,34 +97,69 @@ class Funda(_Funda):
         self.detail_calls = 0
         self.detail_dubbel = 0
         self._opgehaald: set[str] = set()
-        self._vingerafdruk_fout: str | None = None
+        self._statussen: list[int] = []
+        self._eerlijke_sessie = None
+
+    # -- Transport: één gewone client, geen vingerafdruk ----------------------
+
+    def _ensure_session(self) -> None:
+        if self._eerlijke_sessie is None:
+            from curl_cffi import requests as curl_requests  # lokaal: tests stubben pyfunda
+
+            # Zonder `impersonate`: gewone curl, geen browser- of app-profiel.
+            self._eerlijke_sessie = curl_requests.Session()
+
+    def _find_working_fingerprint(self) -> dict:
+        raise RuntimeError("Deze client zoekt geen vingerafdruk: elk verzoek gaat via "
+                           "één gewone client (zie de Funda-docstring in funda_zoek.py).")
+
+    def _verzoek(self, methode: str, url: str, *, data=None, json_data=None):
+        self._ensure_session()
+        headers = {"user-agent": EERLIJKE_UA, "accept": "application/json"}
+        kwargs = {"headers": headers, "timeout": self.timeout}
+        if json_data is not None:
+            kwargs["json"] = json_data
+        elif data is not None:
+            headers["content-type"] = "application/json"
+            kwargs["data"] = data
+        resp = self._eerlijke_sessie.request(methode, url, **kwargs)
+        self._statussen.append(int(getattr(resp, "status_code", 0) or 0))
+        return resp
+
+    def _get(self, url, headers_list):
+        # headers_list zijn pyfunda's app-headers; bewust genegeerd.
+        return self._verzoek("GET", url)
 
     def _post(self, url, headers_list, data=None, json_data=None, for_search=False):
         if for_search and data and self._STALE_SEARCH_TEMPLATE_ID in data:
             data = data.replace(self._STALE_SEARCH_TEMPLATE_ID, self._FIXED_SEARCH_TEMPLATE_ID)
-        return super()._post(url, headers_list, data=data, json_data=json_data, for_search=for_search)
+        return self._verzoek("POST", url, data=data, json_data=json_data)
 
-    def _find_working_fingerprint(self) -> dict:
-        if self._vingerafdruk_fout:
-            raise RuntimeError(self._vingerafdruk_fout)
-        if not _FINGERPRINT_POOL:
-            self._vingerafdruk_fout = ("pyfunda heeft geen FINGERPRINT_POOL; is de pin op "
-                                       "v2.9.0 nog intact (requirements.txt)?")
-            raise RuntimeError(self._vingerafdruk_fout)
-        vast = _FINGERPRINT_POOL[0]
-        if self._test_fingerprint(vast):
-            return vast
-        self._vingerafdruk_fout = (
-            f"Het funda-detail-endpoint weigert de vaste vingerafdruk ({vast.get('type')}, "
-            "de eerste uit pyfunda's FINGERPRINT_POOL). Bewust geen andere geprobeerd: "
-            "wisselen tot er één doorkomt is botbescherming omzeilen (zie CLAUDE.md). "
-            "Waarschijnlijk is het detail-endpoint dicht voor deze runner."
-        )
-        raise RuntimeError(self._vingerafdruk_fout)
+    # -- Detail-calls -----------------------------------------------------------
+
+    def _vertaal_fout(self, exc: LookupError, listing_id) -> Exception:
+        """pyfunda's LookupError, maar dan naar de status die het endpoint gaf."""
+        statussen = list(self._statussen)
+        geweigerd = [s for s in statussen if s in GEWEIGERD]
+        if geweigerd:
+            return DetailEndpointDicht(
+                f"status {geweigerd[-1]} voor {listing_id}: het endpoint weigert deze client. "
+                "Bewust geen andere client of vingerafdruk geprobeerd (zie CLAUDE.md).")
+        storing = [s for s in statussen if s >= 500 or s == 0]
+        if any(s in NIET_GEVONDEN for s in statussen) and not storing:
+            return WoningNietGevonden(f"Listing {listing_id} niet gevonden (status {statussen})")
+        return exc
 
     def get_listing(self, listing_id):
         self.detail_calls += 1
-        listing = super().get_listing(listing_id)
+        self._statussen = []
+        try:
+            listing = super().get_listing(listing_id)
+        except LookupError as exc:
+            vertaald = self._vertaal_fout(exc, listing_id)
+            if vertaald is exc:
+                raise
+            raise vertaald from exc
         data = getattr(listing, "data", None) or {}
         sleutel = str(data.get("global_id") or data.get("tiny_id") or listing_id)
         if sleutel in self._opgehaald:
@@ -331,8 +380,9 @@ def _int_instelling(omgeving: str, sleutel: str, standaard: int) -> int:
 
 
 # Sitemaproute (funda_sitemap_zoek.py). De sitemaps kennen geen straal, alleen
-# URL's per plaats; de stad-, buurt- en afstandsfilters doen de rest. Steden als
-# funda-slug: lowercase, spaties als koppelteken.
+# URL's per plaats; de stad-, buurt- en afstandsfilters doen de rest. Steden
+# zoals funda ze in de URL zet; "Den Haag" wordt vanzelf "den-haag"
+# (funda_sitemap_zoek.stad_slug). Een stad zonder één URL laat de run falen.
 SITEMAP_STEDEN = _PERSONAL.get("sitemap_steden") or ["den-haag", "voorburg"]
 # Verkennende detail-calls per run (nieuwste lastmod eerst) voor woningen die
 # nieuw zijn of een andere lastmod hebben. De eerste runs is er een achterstand
@@ -378,7 +428,8 @@ def _detail_url(d: dict) -> str:
 def schrijf_run_summary(nieuw: list[dict], bekend: list[dict], afgewezen: list[tuple[dict, list[str]]]) -> None:
     """Schrijf compacte run-uitkomst voor GitHub Actions notificaties."""
     def item(d: dict) -> dict:
-        prijs = int(d.get("price") or 0)
+        # None bij "prijs op aanvraag"; de pushmelding toont dan geen "€ 0".
+        prijs = None if prijs_onbekend(d) else int(d["price"])
         m2 = int(d.get("living_area") or 0)
         return {
             "id": str(d.get("global_id") or d.get("listing_id") or d.get("detail_url") or ""),
@@ -697,6 +748,20 @@ def _pool_ident(sleutel: str, rec: dict):
     return None
 
 
+def _pool_eindcheck(op_rij: int) -> None:
+    """Eindigde de run (zoeker plus pool) met mislukte calls? Dan stoppen.
+
+    Dan is niet te zeggen of het endpoint nog werkt: misschien ging het net
+    dicht, en dan missen de laatst opgehaalde woningen in het rapport. Liever
+    geen rapport dan een half rapport, en zeker niets als weg markeren. Een
+    nette 404 telt hier niet mee (zie DICHT_NA).
+    """
+    if op_rij:
+        raise DetailEndpointDicht(
+            f"de laatste {op_rij} detail-call(s) van de run mislukten; niet te zeggen of "
+            f"het detail-endpoint nog werkt")
+
+
 def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[str],
                     *, dagen: int, maximum: int, pauze: float = 0.4,
                     sitemap: object | None = None) -> list[PoolResultaat]:
@@ -729,8 +794,24 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
       sitemap is alleen een reden om te controleren, niet om weg te gooien;
     - onbekend (geen URL, of een stad buiten de sitemapsteden): zoals zonder
       sitemap.
+
+    Werkt het endpoint deze run? Bewijs is een geslaagde call, van de pool zelf
+    óf van de sitemapzoeker, of een nette 404 (`WoningNietGevonden`: ook dat is
+    een antwoord). Een 404 telt daarom niet als storing. Weigert het endpoint
+    (401/403/429) of mislukken DICHT_NA calls op rij - de teller loopt door vanaf
+    de laatste calls van de sitemapzoeker - dan `DetailEndpointDicht`: main()
+    stopt met exit 2 in plaats van een rapport zonder deze woningen te schrijven.
+    Eindigt de run met zo'n mislukte call (ook als dat er minder dan DICHT_NA
+    zijn), dan ook: misschien ging het endpoint net dicht.
     """
+    # Bewijs dat het endpoint deze run werkt: geslaagde calls van de sitemapzoeker
+    # tellen mee. Anders liep een run waarin de pool alleen een ingetrokken woning
+    # (404) controleerde vast: nooit als weg gemarkeerd, elke run een call.
+    st = (getattr(sitemap, "statistiek", None) or {}) if sitemap is not None else {}
+    geslaagd = int(st.get("detail_geslaagd") or 0)
+    op_rij = int(st.get("detail_op_rij_mislukt") or 0)   # loopt door vanaf de zoeker
     if dagen <= 0 or maximum <= 0:
+        _pool_eindcheck(op_rij)
         return []
     vandaag = datetime.now().strftime("%Y-%m-%d")
     grens = datetime.now().timestamp() - dagen * 86400
@@ -766,31 +847,37 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
     controle: Counter[str] = Counter()   # uitkomst voor woningen die niet meer in de sitemap staan
     mislukt: list[dict] = []
     mislukt_buiten_sitemap: list[dict] = []
-    geslaagd = 0   # alleen echte calls van de pool zelf: bewijs dat het endpoint nu werkt
+    antwoord_404 = False
     vastgelegd = 0
     for _laatst, sleutel, rec, ident, oordeel in kandidaten:
         # Al opgehaald door de sitemapzoeker: get_listing komt uit diens geheugen.
         uit_zoeker = oordeel == SITEMAP_OPGEHAALD
         try:
             listing = zoeker.get_listing(ident)
-        except Exception:
+        except DetailEndpointDicht:
+            raise
+        except Exception as exc:
             teller["fout"] += 1
             if oordeel == NIET_IN_SITEMAP:
                 controle["fout"] += 1
                 mislukt_buiten_sitemap.append(rec)
             else:
                 mislukt.append(rec)
-            if len(mislukt) + len(mislukt_buiten_sitemap) >= 5 and not geslaagd:
-                # Vijf mislukkingen zonder één succes: dan is het endpoint dicht,
-                # niet de woning weg. Stoppen.
-                log("Pool: detail-endpoint lijkt dicht; controle afgebroken.")
-                break
+            if isinstance(exc, WoningNietGevonden):
+                antwoord_404 = True   # een antwoord, geen storing
+                continue
+            op_rij += 1
+            if op_rij >= DICHT_NA:
+                raise DetailEndpointDicht(
+                    f"Pool: {op_rij} detail-calls op rij mislukt (laatste: "
+                    f"{type(exc).__name__}: {exc}); het detail-endpoint lijkt dicht.") from exc
             continue
         finally:
             if not uit_zoeker:
                 time.sleep(pauze)
         if not uit_zoeker:
             geslaagd += 1
+            op_rij = 0
         rec.pop("pool_fout", None)
         data = dict(getattr(listing, "data", None) or {})
         if not data:
@@ -817,10 +904,11 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
         resultaten.append(PoolResultaat(data))
         teller["beschikbaar"] += 1
 
+    _pool_eindcheck(op_rij)
     # Een mislukte call telt alleen mee als het endpoint deze run wél werkte.
     # Anders zou een storing van drie runs alle bekende woningen als weg
     # markeren, en die komen dan nooit meer terug in de pool.
-    if geslaagd:
+    if geslaagd or antwoord_404:
         for rec in mislukt:
             rec["pool_fout"] = int(rec.get("pool_fout") or 0) + 1
             if rec["pool_fout"] >= 3:
@@ -947,28 +1035,43 @@ def _parse_pub_datum(details_data: dict | None) -> str | None:
     return None
 
 
+def prijs_onbekend(d: dict) -> bool:
+    """Geen vraagprijs ("prijs op aanvraag")? Dan price None of 0.
+
+    De oude zoek-API liet die server-side weg; de sitemap- en mailroute laten ze
+    bewust door (onbekend = doorlaten). Tonen mag, maar nooit als prijs 0: dat gaf
+    in het rapport budget "PAST", de hoogste score en een bovenste plek.
+    """
+    prijs = d.get("price")
+    return not (isinstance(prijs, (int, float)) and prijs > 0)
+
+
 def update_tracking(tracking: dict, sleutel: str, prijs: int, pub_datum: str | None) -> dict:
-    """Werk tracking bij voor een woning. Geeft afgeleide flags terug."""
+    """Werk tracking bij voor een woning. Geeft afgeleide flags terug.
+
+    Een onbekende prijs (0) komt niet in de prijsreeks: anders lijkt een woning
+    die naar "prijs op aanvraag" gaat een prijsdaling van 100%.
+    """
     vandaag = datetime.now().strftime("%Y-%m-%d")
     rec = tracking.get(sleutel)
     if rec is None:
         rec = {"first_seen": vandaag, "last_seen": vandaag,
-               "prices": [[vandaag, prijs]], "pub_datum": pub_datum}
+               "prices": [[vandaag, prijs]] if prijs else [], "pub_datum": pub_datum}
         tracking[sleutel] = rec
     else:
         rec["last_seen"] = vandaag
         if pub_datum and not rec.get("pub_datum"):
             rec["pub_datum"] = pub_datum
         prijzen = rec.get("prices") or []
-        if not prijzen or prijzen[-1][1] != prijs:
+        if prijs and (not prijzen or prijzen[-1][1] != prijs):
             prijzen.append([vandaag, prijs])
         rec["prices"] = prijzen
 
     # Afgeleide flags.
-    prijzen = rec.get("prices") or [[vandaag, prijs]]
+    prijzen = [p for p in (rec.get("prices") or []) if p[1]] or [[vandaag, prijs]]
     eerste_prijs = prijzen[0][1]
     top_prijs = max(p for _, p in prijzen)
-    gedaald = prijs < top_prijs
+    gedaald = bool(prijs) and prijs < top_prijs
     drop_bedrag = top_prijs - prijs if gedaald else 0
     drop_pct = round(drop_bedrag / top_prijs * 100, 1) if (gedaald and top_prijs) else 0.0
     laatste_wijziging = prijzen[-1][0] if len(prijzen) > 1 else None
@@ -1120,7 +1223,10 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
     werkt. Zo schakelt het zichzelf terug zodra funda de API of de zoekpagina
     weer openzet, zonder dat er iets aan de configuratie hoeft. Per bron kost
     die vraag weinig: één zoek-call, één pagina, robots.txt plus de
-    sitemap-index (die de sitemapzoeker daarna hergebruikt).
+    sitemap-index. Bij de sitemaps gebeurt daarna meteen het zoekwerk zelf
+    (onthouden voor de zoekronde in main()), zodat een kapotte koop-sitemap nog
+    naar de mailroute kan doorvallen. Alleen niet als het detail-endpoint dicht
+    is: de mailroute heeft dat ook nodig.
 
     De mailroute staat achteraan, als terugval: alleen gekozen als er echt
     woningen uit komen. Werkt geen enkele bron, dan één ::error met alle
@@ -1211,7 +1317,10 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
     redenen.append(f"zoekpagina: {_kort(getattr(zoeker, 'reden', None) or 'niet bereikbaar')}")
 
     # 3. De sitemaps: robots.txt en de index. Die twee verzoeken hergebruikt de
-    # zoeker daarna, dus dit kost niets extra.
+    # zoeker daarna, dus dit kost niets extra. bereikbaar() zegt alleen dat de
+    # index er is; het echte werk (koop-sitemaps, detail-calls) gebeurt daarom
+    # hier al. Het resultaat wordt onthouden, dus dat kost ook niets extra, en
+    # gaat het mis, dan kan de mailroute het nog overnemen.
     sitemap = sitemap_zoeker()
     try:
         bereikbaar = sitemap.bereikbaar()
@@ -1220,8 +1329,21 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
         sitemap.reden = str(exc)
         bereikbaar = False
     if bereikbaar:
-        log("Zoekmethode: sitemap (zoek-API en zoekpagina liggen eruit).")
-        return sitemap, "sitemap"
+        try:
+            sitemap.ophalen()
+        except DetailEndpointDicht as exc:
+            # De mailroute verrijkt via hetzelfde detail-endpoint, dus die helpt
+            # niet. De sitemapzoeker gooit deze fout bij elke zoekaanroep, en
+            # main() stopt dan met exit 2.
+            log(f"Sitemaproute: het detail-endpoint werkt niet ({exc}); de mailroute "
+                f"heeft datzelfde endpoint nodig, dus geen terugval.")
+            return sitemap, "sitemap"
+        except Exception as exc:
+            log(f"Sitemaps bereikbaar, maar ophalen mislukte ({exc}); probeer de mails.")
+            sitemap.reden = str(exc)
+        else:
+            log("Zoekmethode: sitemap (zoek-API en zoekpagina liggen eruit).")
+            return sitemap, "sitemap"
     redenen.append(f"sitemaps: {_kort(getattr(sitemap, 'reden', None) or 'niet bereikbaar')}")
 
     # 4. Als laatste de mails. Alleen als er iets in zit: een lege mailbron zou de
@@ -1370,8 +1492,17 @@ def main() -> None:
                 al_binnen.add(str(r.data[veld]))
     # Bij de sitemaproute weet de pool wat de zoeker al ophaalde of bewust
     # oversloeg, zodat geen woning twee keer per run wordt opgehaald.
-    pool = controleer_pool(zoeker, tracking, al_binnen, dagen=POOL_DAGEN, maximum=POOL_MAX,
-                           sitemap=bron if zoek_methode == "sitemap" else None)
+    try:
+        pool = controleer_pool(zoeker, tracking, al_binnen, dagen=POOL_DAGEN, maximum=POOL_MAX,
+                               sitemap=bron if zoek_methode == "sitemap" else None)
+    except DetailEndpointDicht as exc:
+        # Het endpoint ging tijdens de run dicht. Doorgaan geeft een rapport
+        # zonder de bekende woningen, en dat blijft staan zolang de volgende
+        # runs al bij de eerste call falen. Dus net als hierboven: stoppen.
+        boodschap = f"Detail-endpoint ging tijdens de run dicht ({exc}). Rapport NIET bijgewerkt."
+        log(boodschap)
+        print(f"::error::{boodschap}")
+        raise SystemExit(2)
     rauwe.extend(pool)
 
     # Debug: alle binnenkomende wijken inventariseren.
@@ -1527,7 +1658,7 @@ def main() -> None:
         (nieuw if lid not in seen else bekend).append(d)
 
     # Sorteer: prijsdalers eerst, dan lang-op-funda (onderhandelkansen),
-    # twijfelbuurten naar onderen, daarna op prijs.
+    # twijfelbuurten en woningen zonder vraagprijs naar onderen, daarna op prijs.
     def sort_key(d: dict):
         buurt = (d.get("neighbourhood") or "")
         twijfel = (is_twijfelbuurt(buurt) is not None
@@ -1538,7 +1669,7 @@ def main() -> None:
         # `or 0`: een woning zonder vraagprijs ("prijs op aanvraag") heeft
         # price=None. De sitemap- en mailroute laten die bewust door (onbekend =
         # doorlaten), en None naast een getal laat sort() crashen.
-        return (not gedaald, not lang, twijfel, d.get("price") or 0)
+        return (not gedaald, not lang, twijfel or prijs_onbekend(d), d.get("price") or 0)
 
     nieuw.sort(key=sort_key)
     bekend.sort(key=sort_key)
@@ -1607,6 +1738,8 @@ def toon(d: dict, prefix: str = "") -> None:
     twijfel_stad = is_twijfelstad(d.get("city", "") or "")
     if twijfel_stad:
         flag += f" /!\\ STAD ONDUIDELIJK ({twijfel_stad})"
+    if prijs_onbekend(d):
+        flag += " /!\\ PRIJS ONBEKEND (prijs op aanvraag)"
 
     tr = d.get("_track") or {}
     if tr.get("gedaald"):
@@ -1618,7 +1751,10 @@ def toon(d: dict, prefix: str = "") -> None:
     url = d.get("detail_url", "")
     if url and not url.startswith("http"):
         url = f"https://www.funda.nl{url}"
-    print(f"\n[{prefix}] € {prijs:,} | {m2} m2 (€{ppm}/m2) | label {label}{nhg}{flag}")
+    prijs_tekst = "prijs op aanvraag" if prijs_onbekend(d) else f"€ {prijs:,} | {m2} m2 (€{ppm}/m2)"
+    if prijs_onbekend(d):
+        prijs_tekst += f" | {m2} m2"
+    print(f"\n[{prefix}] {prijs_tekst} | label {label}{nhg}{flag}")
     print(f"  {d.get('title')}, {d.get('postcode')} {d.get('city')}")
     print(f"  Wijk: {buurt}")
     print(f"  {d.get('bedrooms')} slpk | {d.get('rooms')} kamers")

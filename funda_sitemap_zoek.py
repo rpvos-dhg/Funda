@@ -3,8 +3,15 @@
 Waarom dit bestaat: de zoek-API geeft sinds 18 aug 2026 een 401 en de zoekpagina
 sinds 8 okt 2026 een 403 vanaf GitHub Actions (zie CLAUDE.md). Funda publiceert
 wel sitemaps, en die zijn juist bedoeld voor geautomatiseerde lezers:
-robots.txt noemt ze zelf (`Sitemap: https://www.funda.nl/sitemap_index.xml/`) en
-staat `/detail/` expliciet toe.
+robots.txt van www.funda.nl noemt ze zelf
+(`Sitemap: https://www.funda.nl/sitemap_index.xml/`).
+
+Let op wat robots.txt hier wél en níet dekt. Die van www.funda.nl gaat over de
+sitemaps en de webpagina's. De detail-calls gaan via pyfunda naar een andere
+host, `listing-detail-page.funda.io`, en die heeft `Disallow: /`. De check in
+`detail_verboden()` kan die calls dus niet tegenhouden. Of deze route dat
+waard is, is een besluit van de gebruiker; zie "robots.txt van de API-hosts" in
+CLAUDE.md, met het volume.
 
 Gemeten vanaf Actions op 6 nov 2026 (scripts/funda_sitemap_probe.py en
 scripts/funda_sitemap_validatie.py; runs 42260153909, 42261516145, 42262032618):
@@ -27,12 +34,22 @@ Actions wél werkt. Dat maakt detail-calls het dure deel, daarom:
   veranderd en viel de woning buiten de doelmarkt, dan kost hij geen call meer.
   Woningen bínnen de doelmarkt worden elke run vers opgehaald, zodat status en
   prijs in het rapport kloppen;
-- een maximum aantal verkennende calls per run, nieuwste lastmod eerst. Wat dan
-  nog openstaat (de eerste runs: het oude aanbod), komt de volgende run aan bod;
+- een maximum aantal verkennende calls per run, nieuwste lastmod eerst, en een
+  tijdsbudget. Wat dan nog openstaat (de eerste runs: het oude aanbod), komt de
+  volgende run aan bod;
 - de ~23 MB koop-sitemaps worden alleen opnieuw opgehaald als de index zegt dat
   ze veranderd zijn. robots.txt en de index zelf gaan elke run (2 verzoeken);
   is de index-lastmod gelijk aan die van de vorige run, dan komt de
-  kandidatenlijst uit de cache.
+  kandidatenlijst uit de cache (hooguit MAX_HERGEBRUIK_UUR oud).
+
+Luid falen in plaats van een half of verouderd rapport (RuntimeError, en dus
+exit 2 in main()):
+- het detail-endpoint weigert (401/403/429), of DICHT_NA detail-calls op rij
+  mislukken, ook als er eerder in de run calls slaagden (`DetailEndpointDicht`);
+- een geconfigureerde stad heeft nul URL's in de sitemaps (typfout of andere
+  slug bij funda);
+- de nieuwste lastmod onder de kandidaten is ouder dan MAX_LEEFTIJD_DAGEN, of
+  er staat geen lastmod in (bevroren of kapotte sitemap).
 
 `SitemapZoeker` is net als `HtmlZoeker` en `MailBron` een drop-in voor het
 `Funda`-object. Anders dan de mailroute filtert hij zelf op prijs, oppervlak en
@@ -53,7 +70,7 @@ import json
 import re
 import time
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -108,10 +125,50 @@ CACHE_VELDEN = (
     "detail_url", "latitude", "longitude",
 )
 
-# Mislukken de eerste zoveel detail-calls van een run zonder één geslaagde, dan
-# is het detail-endpoint dicht (of de vingerafdruk geweigerd) en niet een paar
-# woningen weg. Dan luid falen in plaats van een lege oogst door te geven.
+# Mislukken zoveel detail-calls op rij, dan is het detail-endpoint dicht en niet
+# een paar woningen weg. Dan luid falen in plaats van een lege of halve oogst
+# door te geven. Ook halverwege de run: een geslaagde call eerder bewijst niet dat
+# het endpoint nu nog werkt. Een nette 404 (`WoningNietGevonden`) telt niet: dat
+# is een antwoord van een werkend endpoint (de e2e zag er 1 per 200 calls). Wel:
+# time-outs, 5xx en fouten zonder bekende status. De pool in funda_zoek.py telt
+# door vanaf de laatste calls hier.
 DICHT_NA = 5
+
+# Is de nieuwste lastmod onder de kandidaten ouder dan dit, dan ververst funda de
+# sitemap niet meer (of is hij bevroren). Den Haag en Voorburg hebben elke dag
+# wijzigingen; gemeten lag de nieuwste lastmod binnen een dag van de snapshot.
+# Zonder deze check blijft de run groen terwijl er nooit meer iets nieuws komt.
+MAX_LEEFTIJD_DAGEN = 3
+
+# Hoe lang de kandidatenlijst uit de cache hergebruikt mag worden zolang de index
+# "ongewijzigd" zegt. Daarna toch opnieuw downloaden: een index-lastmod die blijft
+# hangen terwijl de koop-sitemaps wel veranderen, mag niet stil nieuw aanbod
+# kosten. Een snapshot is er dagelijks, dus 36 uur mist er hooguit één.
+MAX_HERGEBRUIK_UUR = 36
+
+# Tijdsbudget voor de verkennende detail-calls per run. Normaal kost een call
+# ~0,8 s (e2e: 200 calls in 167 s), dus dit raakt alleen een traag endpoint. Wat
+# niet verkend is, blijft achterstand voor de volgende run.
+MAX_SECONDEN = 900
+
+
+class DetailEndpointDicht(RuntimeError):
+    """Het detail-endpoint weigert de client of valt herhaaldelijk uit.
+
+    Een bronprobleem, geen woningprobleem: de run moet stoppen (exit 2) voordat
+    er een half rapport wordt geschreven. De Funda-subklasse in funda_zoek.py
+    gooit hem bij status 401, 403 of 429; deze zoeker en de pool bij DICHT_NA
+    mislukte calls op rij.
+    """
+
+
+class WoningNietGevonden(LookupError):
+    """Het detail-endpoint antwoordde netjes 404 of 410: deze woning is er niet (meer).
+
+    Dat is een antwoord van een werkend endpoint en dus geen teken van een
+    storing. pyfunda geeft voor elke status behalve 200 een LookupError; de
+    Funda-subklasse in funda_zoek.py maakt er op grond van de status deze van.
+    """
 
 # Wat deze zoeker deze run met een woning deed; zie pool_oordeel().
 OPGEHAALD = "opgehaald"
@@ -160,7 +217,12 @@ def sitemap_uit_robots(robots: str) -> str | None:
 
 
 def detail_verboden(robots: str) -> bool:
-    """Sluit robots.txt /detail/ uit voor alle bots? Dan doen we niet mee.
+    """Sluit de robots.txt van www.funda.nl /detail/ uit voor alle bots? Dan stoppen we.
+
+    Dit is een signaal over www.funda.nl, niet meer. Het dekt de detail-calls
+    zelf níet: die gaan via pyfunda naar listing-detail-page.funda.io, en daar
+    staat `Disallow: /` (zie CLAUDE.md). Deze check kan die calls dus nooit
+    tegenhouden.
 
     Eenvoudige lezing, bewust aan de voorzichtige kant: een Disallow voor `*`
     die /detail/koop/ raakt, telt, tenzij een langere Allow hem opheft.
@@ -217,6 +279,15 @@ def woning_uit_url(url: str) -> dict[str, str] | None:
             "type": slug.lower().split("-", 1)[0], "url_id": url_id}
 
 
+def stad_slug(stad: Any) -> str:
+    """Een stad zoals funda hem in de URL zet: kleine letters, spaties als koppelteken.
+
+    "Den Haag" en " den haag" worden zo allebei "den-haag". Zonder dit viel een
+    stad met een spatie in de config stil weg: nul URL's, en geen foutmelding.
+    """
+    return re.sub(r"\s+", "-", str(stad or "").strip().lower())
+
+
 def kandidaten_uit(
     items: Iterable[tuple[str, str | None]],
     steden: Iterable[str],
@@ -224,7 +295,7 @@ def kandidaten_uit(
     alleen_appartement: bool = True,
 ) -> list[dict[str, Any]]:
     """Woningen in de gekozen steden, nieuwste lastmod eerst."""
-    stadset = {s.lower() for s in steden}
+    stadset = {stad_slug(s) for s in steden}
     uit: dict[str, dict[str, Any]] = {}
     for loc, lastmod in items:
         w = woning_uit_url(loc)
@@ -303,7 +374,7 @@ def index_kenmerk(
     De steden en de slug-afwijslijst tellen mee (`regels`), want de
     kandidatenlijst hangt daarvan af: verandert een van beide, dan opnieuw.
     """
-    regels = json.dumps({"steden": sorted(s.lower() for s in steden),
+    regels = json.dumps({"steden": sorted(stad_slug(s) for s in steden),
                          "afwijzen": sorted(GEEN_APPARTEMENT_SLUG), "versie": CACHE_VERSIE},
                         sort_keys=True).encode("utf-8")
     kenmerk: dict[str, Any] = {"regels": hashlib.sha256(regels).hexdigest()[:16]}
@@ -359,14 +430,19 @@ class SitemapZoeker:
         prijs_max: int | None = None,
         m2_min: int | None = None,
         max_verkennen: int = 200,
+        max_seconden: float = MAX_SECONDEN,
         overslaan: Callable[[dict[str, Any]], bool] | None = None,
         cache_pad: Path | str | None = None,
         haal: Callable[[str], Any] | None = None,
         pauze: float = 0.4,
         log: Callable[[str], None] | None = None,
+        nu: Callable[[], datetime] | None = None,
     ) -> None:
         self._client = detail_client
-        self._steden = tuple(s.lower() for s in steden)
+        self._steden = tuple(dict.fromkeys(stad_slug(s) for s in steden if stad_slug(s)))
+        self._max_seconden = float(max_seconden)
+        # Klok, te vervangen in tests: de leeftijdscheck vergelijkt met nu.
+        self._nu = nu or (lambda: datetime.now(timezone.utc))
         self._prijs_min = prijs_min
         self._prijs_max = prijs_max
         self._m2_min = m2_min
@@ -448,7 +524,8 @@ class SitemapZoeker:
             self._log(f"robots.txt gaf HTML; gebruik {SITEMAP_INDEX_URL}.")
             return SITEMAP_INDEX_URL
         if detail_verboden(robots):
-            raise RuntimeError("robots.txt sluit /detail/ uit; sitemaproute staat uit.")
+            raise RuntimeError("robots.txt van www.funda.nl sluit /detail/ uit; "
+                               "sitemaproute staat uit.")
         return sitemap_uit_robots(robots) or SITEMAP_INDEX_URL
 
     def _lees_index(self) -> tuple[str, str, list[tuple[str, str | None]], str | None]:
@@ -479,6 +556,16 @@ class SitemapZoeker:
             self._log(f"Sitemaps niet bereikbaar: {exc}")
             return False
         return True
+
+    def ophalen(self) -> None:
+        """Het zoekwerk nu doen in plaats van bij de eerste search_listing().
+
+        bereikbaar() kijkt alleen naar robots.txt en de index; dit haalt ook de
+        koop-sitemaps op en doet de detail-calls. Zo kan 'auto' in kies_zoeker()
+        nog naar de mailroute als dat misgaat. Gooit dezelfde fout als zoeken
+        zou gooien; het resultaat wordt onthouden, dus het kost niets extra.
+        """
+        self._bouw()
 
     # -- Drop-in API --------------------------------------------------------
 
@@ -653,8 +740,11 @@ class SitemapZoeker:
 
     def _kandidaten_ophalen(
         self, koop: list[tuple[str, str | None]],
-    ) -> tuple[list[dict[str, Any]], int, Counter[str]]:
-        """Alle koop-sitemaps downloaden en de kandidaten eruit halen."""
+    ) -> tuple[list[dict[str, Any]], int, Counter[str], Counter[str]]:
+        """Alle koop-sitemaps downloaden en de kandidaten eruit halen.
+
+        Geeft (kandidaten, aantal URL's, types in de steden, URL's per stad).
+        """
         items: list[tuple[str, str | None]] = []
         for url, _lm in koop:
             _s, deel = ontleed_sitemap(self._haal_xml(url))
@@ -662,14 +752,17 @@ class SitemapZoeker:
                 raise RuntimeError(f"{url} bevat geen URL's.")
             items.extend(deel)
         types: Counter[str] = Counter()
+        per_stad: Counter[str] = Counter()
         for loc, _lm in items:
             w = woning_uit_url(loc)
             if w and w["stad"] in self._steden:
                 types[w["type"]] += 1
-        return kandidaten_uit(items, self._steden), len(items), types
+                per_stad[w["stad"]] += 1
+        return kandidaten_uit(items, self._steden), len(items), types, per_stad
 
     def _ontdek_en_verrijk(self) -> list[dict[str, Any]]:
         start = time.monotonic()
+        nu = self._nu()
         index_url, soort, kinderen, last_modified = self._lees_index()
         koop = [(u, lm) for u, lm in kinderen if KOOP_KIND.search(u)]
         if soort != "index" or not koop:
@@ -679,8 +772,14 @@ class SitemapZoeker:
 
         cache, vorige_index = self._laad_cache()
         kenmerk = index_kenmerk(koop, last_modified, self._steden)
-        hergebruikt = bool(index_ongewijzigd(vorige_index.get("kenmerk"), kenmerk)
+        ongewijzigd = bool(index_ongewijzigd(vorige_index.get("kenmerk"), kenmerk)
                            and vorige_index.get("kandidaten"))
+        # Hoe oud de bewaarde kandidatenlijst is. Zonder tijdstip (cache van vóór
+        # deze regel): onbekend, dus opnieuw ophalen.
+        opgehaald_op = parse_datum(vorige_index.get("opgehaald_op"))
+        vers_genoeg = bool(opgehaald_op
+                           and nu - opgehaald_op <= timedelta(hours=MAX_HERGEBRUIK_UUR))
+        hergebruikt = ongewijzigd and vers_genoeg
         if hergebruikt:
             # Het opgeslagen kenmerk blijft staan, niet het nieuwe: zo kan de
             # speling van een seconde per run zich niet opstapelen.
@@ -695,33 +794,64 @@ class SitemapZoeker:
             kandidaten = sorteer_nieuwste_eerst(kandidaten)
             n_urls = int(vorige_index.get("urls") or 0)
             types: Counter[str] = Counter(vorige_index.get("types_in_steden") or {})
+            # Een cache zonder telling per stad: dan tellen de kandidaten.
+            per_stad: Counter[str] = (Counter(vorige_index.get("per_stad") or {})
+                                      or Counter(k["stad"] for k in kandidaten))
             self._log(f"Sitemaps: index ongewijzigd sinds de vorige run (lastmod {index_lastmod}); "
                       f"de {len(koop)} koop-sitemaps niet opnieuw opgehaald, "
-                      f"{len(kandidaten)} kandidaten uit de cache.")
+                      f"{len(kandidaten)} kandidaten uit de cache "
+                      f"(lijst van {vorige_index.get('opgehaald_op')}).")
         else:
             if not kenmerk:
                 waarom = "index geeft geen lastmod en geen Last-Modified"
+            elif ongewijzigd:
+                waarom = (f"index ongewijzigd, maar de kandidatenlijst is ouder dan "
+                          f"{MAX_HERGEBRUIK_UUR} uur (van {vorige_index.get('opgehaald_op') or 'onbekend'})")
             elif vorige_index.get("kenmerk"):
                 waarom = (f"index gewijzigd (nieuwste lastmod {index_lastmod}, "
                           f"was {vorige_index.get('index_lastmod')})")
             else:
                 waarom = "geen eerdere index in de cache"
             self._log(f"Sitemaps: {waarom}; {len(koop)} koop-sitemaps ophalen.")
-            kandidaten, n_urls, types = self._kandidaten_ophalen(koop)
+            kandidaten, n_urls, types, per_stad = self._kandidaten_ophalen(koop)
+            opgehaald_op = nu
         self.kandidaten = kandidaten
+        # Per stad, niet alleen samen: een typfout of een andere slug bij funda
+        # liet anders één stad stil wegvallen terwijl de rest gewoon doorliep.
+        zonder = [s for s in self._steden if not per_stad.get(s)]
+        if zonder:
+            wel = [s for s in self._steden if per_stad.get(s)]
+            raise RuntimeError(
+                f"Geen enkele sitemap-URL voor {', '.join(zonder)} in {n_urls} URL's "
+                f"(wel voor: {', '.join(wel) or 'geen'}). Typfout in sitemap_steden, "
+                f"of gebruikt funda een andere slug voor die stad?")
         if not kandidaten:
             raise RuntimeError(f"Geen woningen in {', '.join(self._steden)} in "
                                f"{n_urls} sitemap-URL's; markup of URL-vorm gewijzigd?")
         nieuwste = parse_datum(kandidaten[0]["lastmod"])
+        # Bevroren sitemap: de run zou groen blijven terwijl er nooit meer iets
+        # nieuws binnenkomt. Zonder lastmod werkt ook de cache niet (alles zou
+        # "ongewijzigd" lijken), dus dat telt net zo.
+        if nieuwste is None:
+            raise RuntimeError(f"Geen leesbare <lastmod> bij de {len(kandidaten)} kandidaten; "
+                               f"sitemap-vorm gewijzigd?")
+        if nu - nieuwste > timedelta(days=MAX_LEEFTIJD_DAGEN):
+            raise RuntimeError(
+                f"Sitemaps lijken bevroren: de nieuwste lastmod onder {len(kandidaten)} "
+                f"kandidaten is {nieuwste.isoformat()}, {(nu - nieuwste).days} dagen oud "
+                f"(max {MAX_LEEFTIJD_DAGEN}). Zo zou er stil geen nieuw aanbod meer binnenkomen.")
         self._log(f"Sitemaps: {len(koop)} koop-sitemaps, {n_urls} URL's, "
-                  f"{len(kandidaten)} kandidaten in {', '.join(self._steden)}; "
-                  f"nieuwste lastmod {nieuwste.isoformat() if nieuwste else '?'}.")
+                  f"{len(kandidaten)} kandidaten in {', '.join(self._steden)} "
+                  f"({', '.join(f'{s} {per_stad.get(s, 0)}' for s in self._steden)} URL's); "
+                  f"nieuwste lastmod {nieuwste.isoformat()}.")
         self._kandidaat_per_id = {k["url_id"]: k for k in kandidaten}
         self._index_info = {
             "kenmerk": kenmerk,
             "index_lastmod": index_lastmod,
             "urls": n_urls,
             "types_in_steden": dict(types.most_common()),
+            "per_stad": dict(per_stad),
+            "opgehaald_op": opgehaald_op.isoformat() if opgehaald_op else None,
             "kandidaten": [[k["pad"], k["lastmod"]] for k in kandidaten],
         }
 
@@ -746,24 +876,49 @@ class SitemapZoeker:
                 gewijzigd += 1 if c else 0
 
         te_doen = verversen + verkennen[: self._max_verkennen]
-        n_verkend = min(len(verkennen), self._max_verkennen)
-        achterstand = len(verkennen) - n_verkend
         ververs_ids = {k["url_id"] for k in verversen}
         meting = self.meting
         meting["lastmod_gewijzigd"] = gewijzigd
         resultaten: list[dict[str, Any]] = []
-        calls = fouten = geslaagd = 0
+        calls = fouten = geslaagd = op_rij = n_verkend = 0
+        budget_op = False
+        t0 = time.monotonic()
         for k in te_doen:
+            verkennend = k["url_id"] not in ververs_ids
+            if verkennend:
+                # Tijdsbudget alleen voor het verkennen: de rest is achterstand.
+                if time.monotonic() - t0 > self._max_seconden:
+                    budget_op = True
+                    break
+                n_verkend += 1
             calls += 1
             oud = cache.get(k["url_id"])
-            data, fout = self._detail(k)
+            data, exc = self._detail(k)
             if data is None:
                 fouten += 1
                 self._afgehandeld[k["url_id"]] = MISLUKT
-                if fouten >= DICHT_NA and not geslaagd:
-                    raise RuntimeError(f"Detail-endpoint werkt niet: de eerste {fouten} "
-                                       f"detail-calls mislukten (laatste: {fout}).")
+                if isinstance(exc, WoningNietGevonden):
+                    # Een nette 404: het endpoint werkt, deze woning is weg. Geen
+                    # storing. Geeft het endpoint voor álles een 404, dan komt er
+                    # niets in de doelmarkt en stopt main() op "nul woningen".
+                    continue
+                op_rij += 1
+                fout = f"{type(exc).__name__}: {exc}" if exc else "leeg antwoord"
+                if isinstance(exc, DetailEndpointDicht) or op_rij >= DICHT_NA:
+                    # Eerst bewaren wat wél lukte, zodat de verkenning van deze
+                    # run niet verloren gaat. Daarna stoppen: verder ophalen geeft
+                    # een half rapport (verversen-woningen weg) dat de volgende
+                    # run, die al bij het opzetten faalt, laat staan.
+                    self._woningen = cache
+                    self._vuil = True
+                    self.bewaar_cache()
+                    if isinstance(exc, DetailEndpointDicht):
+                        raise DetailEndpointDicht(f"Detail-endpoint werkt niet: {exc}") from exc
+                    raise DetailEndpointDicht(
+                        f"Detail-endpoint werkt niet: {op_rij} detail-calls op rij mislukt, "
+                        f"na {geslaagd} geslaagde deze run (laatste: {fout}).")
                 continue
+            op_rij = 0
             geslaagd += 1
             self._afgehandeld[k["url_id"]] = OPGEHAALD
             velden = velden_uit(data)
@@ -774,6 +929,7 @@ class SitemapZoeker:
             if self._is_doel(velden):
                 resultaten.append(data)
 
+        achterstand = len(verkennen) - n_verkend
         self._woningen = cache
         self._vuil = True
         self.bewaar_cache()
@@ -785,6 +941,10 @@ class SitemapZoeker:
             "uit_cache_buiten_doel": buiten, "ververst": len(verversen),
             "verkend": n_verkend, "achterstand": achterstand,
             "detail_calls": calls, "detail_fouten": fouten, "in_doelmarkt": len(resultaten),
+            # Voor de pool: bewijs dat het endpoint deze run werkte, en hoeveel
+            # calls aan het eind op rij mislukten (de pool telt daar verder mee).
+            "detail_geslaagd": geslaagd, "detail_op_rij_mislukt": op_rij,
+            "tijdsbudget_op": budget_op,
             "uit_sitemap_gesnoeid": gesnoeid, "sitemap_verzoeken": self.verzoeken,
             "seconden": round(time.monotonic() - start, 1),
             "types_in_steden": dict(types.most_common()),
@@ -794,6 +954,7 @@ class SitemapZoeker:
             f"{n_verkend} verkend, {fouten} mislukt), "
             f"{buiten} uit cache overgeslagen, {len(resultaten)} in doelmarkt; "
             f"{self.verzoeken} sitemap-verzoeken."
+            + (f" Tijdsbudget van {self._max_seconden:.0f} s op." if budget_op else "")
             + (f" Achterstand: {achterstand} nog niet verkend, volgt volgende run."
                if achterstand else "")
         )
@@ -830,17 +991,18 @@ class SitemapZoeker:
                 self._listings[str(waarde)] = listing
         self._listings[url_id] = listing
 
-    def _detail(self, k: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    def _detail(self, k: dict[str, Any]) -> tuple[dict[str, Any] | None, Exception | None]:
+        """(data, None) bij succes; (None, fout) of (None, None) bij een leeg antwoord."""
         try:
             listing = self._client.get_listing(f"https://www.funda.nl{k['pad']}")
         except Exception as exc:  # noqa: BLE001
-            self._log(f"Detail mislukt voor {k['pad']}: {exc}")
-            return None, f"{type(exc).__name__}: {exc}"
+            self._log(f"Detail mislukt voor {k['pad']}: {type(exc).__name__}: {exc}")
+            return None, exc
         finally:
             time.sleep(self._pauze)
         data = dict(getattr(listing, "data", None) or {})
         if not data:
-            return None, "leeg antwoord"
+            return None, None
         data.setdefault("detail_url", k["pad"])
         data["_bron"] = "sitemap"
         data["_sitemap_lastmod"] = k["lastmod"]

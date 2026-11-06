@@ -15,10 +15,13 @@ import json
 import re
 import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from funda_sitemap_zoek import (
+    DetailEndpointDicht,
     SitemapZoeker,
+    WoningNietGevonden,
     detail_verboden,
     in_doelmarkt,
     kandidaten_uit,
@@ -74,6 +77,11 @@ KOOP2 = urlset(
     (f"{B}/rijswijk/appartement-y-2/44660000/", "2026-11-05T10:00:00+01:00"),
 )
 
+# Een andere Voorburgse woning (een huis, dus geen kandidaat), voor fixtures waarin
+# Rodelaan verdwijnt: elke ingestelde stad moet URL's hebben, anders is dat een
+# fout (zie test_steden).
+VOORBURG_ANDER = (f"{B}/voorburg/huis-oosteinde-1/44546401/", "2026-10-01T10:00:00+02:00")
+
 # Wat het detail-endpoint per woning teruggeeft (alleen de velden die tellen).
 DETAILS = {
     "80024814": {"global_id": 1001, "title": "Draaistraat 4", "city": "Den Haag",
@@ -126,12 +134,18 @@ class StubWeb:
         return waarde
 
 
-def check(naam: str, ok: bool) -> bool:
-    print(f"  {'OK  ' if ok else 'FOUT'} {naam}")
+def check(naam: str, ok: bool, extra: str = "") -> bool:
+    print(f"  {'OK  ' if ok else 'FOUT'} {naam}{(' -> ' + extra) if extra and not ok else ''}")
     return ok
 
 
+# Vaste klok: de fixtures hebben lastmods van begin november 2026, en de
+# leeftijdscheck vergelijkt met nu. Zonder dit falen de tests vanzelf na 3 dagen.
+NU = datetime(2026, 11, 6, 12, 0, tzinfo=timezone.utc)
+
+
 def zoeker(web=None, client=None, **kw):
+    kw.setdefault("nu", lambda: NU)
     kw.setdefault("prijs_min", 230_000)
     kw.setdefault("prijs_max", 310_000)
     kw.setdefault("m2_min", 55)
@@ -286,7 +300,8 @@ def test_cache() -> bool:
         web4 = StubWeb()
         web4.pagina["https://www.funda.nl/sitemap_index.xml/"] = index_met("2026-11-08T04:59")
         web4.pagina["https://www.funda.nl/sitemap-detail-koop1.xml"] = urlset(
-            (f"{B}/den-haag/appartement-draaistraat-4/80024814/", "2026-11-06T01:00:09+01:00"))
+            (f"{B}/den-haag/appartement-draaistraat-4/80024814/", "2026-11-06T01:00:09+01:00"),
+            VOORBURG_ANDER)
         web4.pagina["https://www.funda.nl/sitemap-detail-koop2.xml"] = nieuw_koop2
         zoeker(web4, StubClient(details), cache_pad=pad).search_listing()
         opgeslagen = json.loads(pad.read_text(encoding="utf-8"))["woningen"]
@@ -576,7 +591,8 @@ def test_meting() -> bool:
         web = StubWeb()
         web.pagina[INDEX_URL] = index_met("2026-11-07T04:59")
         web.pagina[KOOP1_URL] = urlset(
-            (f"{B}/den-haag/appartement-draaistraat-4/80024814/", "2026-11-06T01:00:09+01:00"))
+            (f"{B}/den-haag/appartement-draaistraat-4/80024814/", "2026-11-06T01:00:09+01:00"),
+            VOORBURG_ANDER)
         web.pagina[KOOP2_URL] = KOOP2.replace("2026-11-06T00:00:15+01:00", "2026-11-07T09:00:00+01:00")
         details = {k: dict(v) for k, v in DETAILS.items()}
         details["44664520"]["price"] = 899000
@@ -616,7 +632,7 @@ def test_detail_dicht() -> bool:
             raise RuntimeError("geen werkende vingerafdruk")
 
     client = Dicht()
-    z = zoeker(web, client)
+    z = zoeker(web, client, steden=["den-haag"])
     try:
         z.search_listing()
         ok = check("vijf mislukkingen zonder succes is een fout", False)
@@ -644,6 +660,144 @@ def test_detail_dicht() -> bool:
     return ok
 
 
+def test_detail_halverwege() -> bool:
+    """Het endpoint gaat halverwege dicht: stoppen, ook na eerdere successen.
+
+    pyfunda maakt van een 403 halverwege een LookupError, niet te onderscheiden
+    van een verkochte woning. Zonder deze regel liep de run door, vielen de
+    verversen-woningen weg en kwam er een half rapport.
+    """
+    print("detail-endpoint gaat halverwege dicht")
+    rijen = [(f"{B}/den-haag/appartement-straat-{i}/440001{i:02d}/", f"2026-11-06T0{i % 10}:00:00+01:00")
+             for i in range(10)]
+    web = StubWeb()
+    web.pagina[KOOP1_URL] = urlset(*rijen)
+    web.pagina[KOOP2_URL] = urlset(rijen[0])
+    details = {f"440001{i:02d}": {"global_id": 2000 + i, "title": f"Straat {i}", "city": "Den Haag",
+                                  "price": 280000, "living_area": 60, "status": "available"}
+               for i in range(10)}
+
+    class Valt(StubClient):
+        def __init__(self, na, fout):
+            super().__init__(details)
+            self.na, self.fout = na, fout
+
+        def get_listing(self, ident):
+            if len(self.calls) >= self.na:
+                self.calls.append(str(ident))
+                raise self.fout
+            return super().get_listing(ident)
+
+    tmp = tijdelijk("halverwege")
+    pad = tmp / "cache.json"
+    try:
+        client = Valt(3, LookupError("Listing x not found"))
+        z = zoeker(web, client, steden=["den-haag"], cache_pad=pad)
+        try:
+            z.search_listing()
+            ok = check("na 3 successen 5 op rij mislukt: fout", False)
+        except DetailEndpointDicht as exc:
+            ok = check("na 3 successen 5 op rij mislukt: fout",
+                       "5 detail-calls op rij" in str(exc) and "na 3 geslaagde" in str(exc), str(exc))
+        ok &= check("gestopt na 3 + 5 calls", len(client.calls) == 8, str(len(client.calls)))
+        opgeslagen = json.loads(pad.read_text(encoding="utf-8"))["woningen"]
+        ok &= check("de geslaagde verkenning is bewaard", len(opgeslagen) == 3, str(sorted(opgeslagen)))
+
+        # Een geweigerde client (403/429, of geen sessie): meteen stoppen.
+        client = Valt(2, DetailEndpointDicht("status 403"))
+        try:
+            zoeker(web, client, steden=["den-haag"]).search_listing()
+            ok &= check("weigering: meteen fout", False)
+        except DetailEndpointDicht as exc:
+            ok &= check("weigering: meteen fout, na één mislukte call",
+                        len(client.calls) == 3 and "403" in str(exc), f"{len(client.calls)} {exc}")
+
+        # Losse 404's tussen successen door: geen reden om te stoppen.
+        client = StubClient(details)
+        for i in (1, 3, 5, 7):
+            del client.details[f"440001{i:02d}"]
+        r = zoeker(web, client, steden=["den-haag"]).search_listing()
+        ok &= check("losse mislukkingen: rest komt door", len(r) == 6, str(len(r)))
+
+        # Nette 404's (WoningNietGevonden) op rij: het endpoint antwoordt, dus
+        # geen storing; ook zes op rij stoppen de zoeker niet.
+        client = Valt(2, WoningNietGevonden("Listing x niet gevonden (status [404])"))
+        z = zoeker(web, client, steden=["den-haag"])
+        r = z.search_listing()
+        ok &= check("acht 404's op rij na twee successen: geen fout, alle calls gedaan",
+                    len(r) == 2 and len(client.calls) == 10
+                    and z.statistiek["detail_op_rij_mislukt"] == 0, f"{len(r)} {len(client.calls)}")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    # Tijdsbudget op: niets meer verkennen, de rest wordt achterstand.
+    c = StubClient()
+    z = zoeker(client=c, max_seconden=-1)
+    z.search_listing()
+    ok &= check("tijdsbudget op: geen verkennende calls, alles achterstand",
+                c.calls == [] and z.statistiek["achterstand"] == 3 and z.statistiek["tijdsbudget_op"],
+                str(z.statistiek.get("achterstand")))
+    return ok
+
+
+def test_steden() -> bool:
+    """Een ingestelde stad zonder één URL valt niet meer stil weg."""
+    print("steden: spelling en per stad tellen")
+    k = zoeker(steden=["Den Haag", " voorburg "])
+    r = k.search_listing()
+    ok = check("spatie wordt koppelteken, hoofdletters tellen niet",
+               sorted(x.data["title"] for x in r) == ["Draaistraat 4", "Rodelaan 379"])
+    for steden in (["den-haag", "voorbrug"], ["den-hag", "voorburg"]):
+        try:
+            zoeker(steden=steden).search_listing()
+            ok &= check(f"{steden}: fout", False)
+        except RuntimeError as exc:
+            fout = [s for s in steden if s not in ("den-haag", "voorburg")][0]
+            ok &= check(f"{steden}: fout die de stad noemt", fout in str(exc) and "sitemap_steden" in str(exc),
+                        str(exc))
+    return ok
+
+
+def test_leeftijd() -> bool:
+    """Een bevroren sitemap of index valt op, in plaats van stil niets nieuws."""
+    print("leeftijd van de sitemap en van de kandidatenlijst")
+    from datetime import timedelta
+
+    ok = True
+    try:
+        zoeker(nu=lambda: NU + timedelta(days=4)).search_listing()
+        ok &= check("nieuwste lastmod 4 dagen oud: fout", False)
+    except RuntimeError as exc:
+        ok &= check("nieuwste lastmod 4 dagen oud: fout", "bevroren" in str(exc), str(exc))
+
+    web = StubWeb()
+    web.pagina[KOOP1_URL] = re.sub(r"<lastmod>[^<]*</lastmod>", "", KOOP1)
+    web.pagina[KOOP2_URL] = re.sub(r"<lastmod>[^<]*</lastmod>", "", KOOP2)
+    try:
+        zoeker(web).search_listing()
+        ok &= check("geen lastmod in de urlsets: fout", False)
+    except RuntimeError as exc:
+        ok &= check("geen lastmod in de urlsets: fout", "lastmod" in str(exc), str(exc))
+
+    tmp = tijdelijk("leeftijd")
+    pad = tmp / "cache.json"
+    try:
+        zoeker(cache_pad=pad).search_listing()
+        w20, w40 = StubWeb(), StubWeb()
+        zoeker(w20, cache_pad=pad, nu=lambda: NU + timedelta(hours=20)).search_listing()
+        ok &= check("index gelijk, lijst 20 uur oud: hergebruikt", w20.calls == [ROBOTS_URL, INDEX_URL])
+        z40 = zoeker(w40, cache_pad=pad, nu=lambda: NU + timedelta(hours=40))
+        z40.search_listing()
+        ok &= check("index gelijk, lijst 40 uur oud: toch opnieuw opgehaald",
+                    len(w40.calls) == 4 and not z40.statistiek["index_ongewijzigd"], str(w40.calls))
+        index = json.loads(pad.read_text(encoding="utf-8"))["index"]
+        ok &= check("tijdstip van de nieuwe lijst bewaard",
+                    index.get("opgehaald_op", "").startswith("2026-11-08T04:00"), str(index.get("opgehaald_op")))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return ok
+
+
 def test_gzip() -> bool:
     print("gzip")
     # .xml.gz zonder content-encoding: de body zelf is gzip.
@@ -667,7 +821,7 @@ def main() -> int:
         test_ontleden(), test_kandidaten(), test_doelmarkt(), test_dropin(),
         test_cache(), test_budget(), test_fouten(), test_gzip(),
         test_index_cache(), test_straal_in_cache(), test_pool_oordeel(), test_meting(),
-        test_detail_dicht(),
+        test_detail_dicht(), test_detail_halverwege(), test_steden(), test_leeftijd(),
     ]
     print()
     if all(resultaten):

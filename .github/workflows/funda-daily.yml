@@ -33,6 +33,10 @@ permissions:
 jobs:
   rapport:
     runs-on: ubuntu-latest
+    # Normaal ~5 minuten (inclusief 90 s wachten op Pages). Een hangend
+    # detail-endpoint stopt de run zelf al (time-outs tellen als storing, en het
+    # verkennen heeft een tijdsbudget); dit is het vangnet daarachter.
+    timeout-minutes: 45
     steps:
       - name: Checkout repo
         uses: actions/checkout@v6
@@ -108,14 +112,11 @@ jobs:
         if: always()
         run: rm -f funda_personal.json funda_pwa_password.txt
 
-      # Ging de run stuk (bijv. alle zoekopdrachten 401)? Dan meteen de rauwe
-      # API-antwoorden loggen, zodat de oorzaak in dezelfde run zichtbaar is en
-      # niet pas na handmatig naspeuren. Gebruikt geen secrets.
-      - name: API-probe bij mislukte run
-        if: failure()
-        run: |
-          python scripts/funda_api_debug.py
-          python scripts/funda_html_validatie.py
+      # Geen automatische probe meer bij een mislukte run. Die deed extra
+      # verzoeken met andere profielen tegen een endpoint dat net weigerde, twee
+      # keer per dag zolang het stuk was; dat is "nog eens proberen" en hoort
+      # niet bij een lage belasting. De ::error van de run zelf noemt de oorzaak;
+      # verder diagnosticeren gaat met de handmatige workflow "Funda API debug".
 
       - name: Versleuteld rapport publiceren
         run: |

@@ -80,7 +80,9 @@ def main(argv: list[str]) -> int:
     # Verrijking is optioneel: zonder netwerk naar funda is de linkextractie al
     # het antwoord op de vraag of de parser werkt.
     try:
-        from funda import Funda
+        # De gepatchte client van de dagelijkse run, niet pyfunda zelf: die doet
+        # zich voor als funda's app en wisselt bij een weigering van vingerafdruk.
+        from funda_zoek import Funda
     except Exception as exc:
         print(f"\npyfunda niet beschikbaar ({exc}); verrijking overgeslagen.")
         return 0

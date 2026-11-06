@@ -4,9 +4,16 @@ Draait los van de dagelijkse run en print rauwe HTTP-status, response-headers en
 een stukje body van de zoek- en detail-endpoints. Bedoeld om te zien *waarom*
 een zoekopdracht faalt (bijv. 401) in plaats van alleen "0 resultaten".
 
-Gebruik (lokaal of via de workflow "Funda API debug"):
+Gebruik (lokaal of via de handmatige workflow "Funda API debug"; niet meer
+automatisch na een mislukte dagelijkse run):
 
     python scripts/funda_api_debug.py
+
+Eén vaste client per host, dezelfde als de dagelijkse run: voor funda's
+API-hosts de eerlijke client uit funda_zoek.py (eigen user-agent, geen
+browser- of app-profiel), voor www.funda.nl het ene safari-profiel van de
+HTML-zoeker. Geen varianten om te kijken welke er wél doorkomt: dat is
+botbescherming omzeilen (zie CLAUDE.md).
 
 Print nooit persoonlijke gegevens: de probe gebruikt een vaste dummy-postcode
 en leest funda_personal.json niet.
@@ -17,11 +24,16 @@ from __future__ import annotations
 import json
 import sys
 import traceback
+from pathlib import Path
 
-from curl_cffi import requests as curl_requests
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from curl_cffi import requests as curl_requests  # noqa: E402
+
+from funda_zoek import EERLIJKE_UA, Funda  # noqa: E402  (de gepatchte, eerlijke client)
 
 API_SEARCH = "https://listing-search-wonen.funda.io/_msearch/template"
-API_DETAIL_TINY = "https://listing-detail-page.funda.io/api/v4/listing/object/nl/tinyId/43117443"
+DETAIL_TINY_ID = 43117443   # dezelfde woning die pyfunda zelf als test gebruikt
 SEARCH_INDEX = "listings-wonen-searcher-alias-prod"
 
 # Neutrale zoekopdracht: Den Haag centrum, ruime prijsband. Geen privégegevens.
@@ -29,6 +41,13 @@ PROBE_POSTCODE = "2511cv"
 
 TEMPLATE_OUD = "search_result_20250805"
 TEMPLATE_NIEUW = "search_result_20260227"
+
+# Zelfde profiel als funda_html_zoek.HtmlZoeker, voor www.funda.nl.
+WWW_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+)
+WWW_IMPERSONATE = "safari15_5"
 
 INTERESSANTE_HEADERS = (
     "server", "www-authenticate", "content-type", "cf-ray", "cf-mitigated",
@@ -59,25 +78,9 @@ def zoek_body(template_id: str) -> str:
     return f"{index_line}\n{query_line}\n"
 
 
-def basis_headers(voor_zoek: bool, app_versie: bool = False) -> dict[str, str]:
-    headers = {
-        "user-agent": "Dart/3.9 (dart:io)",
-        "accept-encoding": "gzip",
-    }
-    if voor_zoek:
-        headers.update({
-            "content-type": "application/json",
-            "referer": "https://www.funda.nl/",
-            "accept": "application/json",
-        })
-    else:
-        headers.update({
-            "x-funda-app-platform": "android",
-            "content-type": "application/json",
-        })
-    if app_versie:
-        headers["x-funda-app-version"] = "7.14.11"
-    return headers
+def eerlijke_headers() -> dict[str, str]:
+    return {"user-agent": EERLIJKE_UA, "accept": "application/json",
+            "content-type": "application/json"}
 
 
 def toon(naam: str, response) -> int:
@@ -112,58 +115,36 @@ def main() -> int:
 
     resultaten: dict[str, int] = {}
 
-    def zoek_call(template_id: str, impersonate: str | None, app_versie: bool = False):
-        kwargs = {"impersonate": impersonate} if impersonate else {}
-        return curl_requests.post(
-            API_SEARCH,
-            headers=basis_headers(voor_zoek=True, app_versie=app_versie),
-            data=zoek_body(template_id),
-            timeout=30,
-            **kwargs,
-        )
+    # Zoek-API: dezelfde eerlijke client (gewone curl, geen impersonate), alleen
+    # de template verschilt. Zegt of de 401 er nog is.
+    def zoek_call(template_id: str):
+        return curl_requests.post(API_SEARCH, headers=eerlijke_headers(),
+                                  data=zoek_body(template_id), timeout=30)
 
-    resultaten["zoek nieuw template, safari15_5"] = probeer(
-        "ZOEK template=nieuw impersonate=safari15_5",
-        lambda: zoek_call(TEMPLATE_NIEUW, "safari15_5"),
-    )
-    resultaten["zoek oud template, safari15_5"] = probeer(
-        "ZOEK template=oud impersonate=safari15_5",
-        lambda: zoek_call(TEMPLATE_OUD, "safari15_5"),
-    )
-    resultaten["zoek nieuw template, chrome124"] = probeer(
-        "ZOEK template=nieuw impersonate=chrome124",
-        lambda: zoek_call(TEMPLATE_NIEUW, "chrome124"),
-    )
-    resultaten["zoek nieuw template, geen impersonate"] = probeer(
-        "ZOEK template=nieuw impersonate=geen",
-        lambda: zoek_call(TEMPLATE_NIEUW, None),
-    )
-    resultaten["zoek nieuw template, met app-versie header"] = probeer(
-        "ZOEK template=nieuw impersonate=safari15_5 + x-funda-app-version",
-        lambda: zoek_call(TEMPLATE_NIEUW, "safari15_5", app_versie=True),
-    )
+    resultaten["zoek nieuw template"] = probeer("ZOEK template=nieuw", lambda: zoek_call(TEMPLATE_NIEUW))
+    resultaten["zoek oud template"] = probeer("ZOEK template=oud", lambda: zoek_call(TEMPLATE_OUD))
 
-    resultaten["detail tinyId, safari15_5"] = probeer(
-        "DETAIL tinyId impersonate=safari15_5",
-        lambda: curl_requests.get(
-            API_DETAIL_TINY,
-            headers=basis_headers(voor_zoek=False),
-            impersonate="safari15_5",
-            timeout=30,
-        ),
-    )
+    # Detail-endpoint: precies de client van de dagelijkse run.
+    print("\n--- DETAIL via de client van de dagelijkse run ---")
+    f = Funda()
+    try:
+        listing = f.get_listing(DETAIL_TINY_ID)
+        print(f"  statussen: {f._statussen}")
+        print(f"  titel: {(listing.data or {}).get('title')!r}")
+        resultaten["detail tinyId"] = 200
+    except Exception as exc:
+        print(f"  statussen: {f._statussen}")
+        print(f"  EXCEPTIE: {type(exc).__name__}: {exc}")
+        resultaten["detail tinyId"] = (f._statussen or [-1])[-1]
+
     resultaten["www.funda.nl homepage"] = probeer(
         "HOMEPAGE www.funda.nl",
-        lambda: curl_requests.get(
-            "https://www.funda.nl/",
-            headers={"user-agent": "Mozilla/5.0"},
-            impersonate="safari15_5",
-            timeout=30,
-        ),
+        lambda: curl_requests.get("https://www.funda.nl/", headers={"user-agent": WWW_UA},
+                                  impersonate=WWW_IMPERSONATE, timeout=30),
     )
 
-    # Terugvaloptie verkennen: is de publieke zoekpagina server-rendered en
-    # bruikbaar vanaf een Actions-runner, of staat er een bot-muur voor?
+    # Is de publieke zoekpagina bruikbaar vanaf een Actions-runner, of staat er
+    # een bot-muur voor? Zelfde profiel als de HTML-zoeker.
     zoek_url = (
         "https://www.funda.nl/zoeken/koop"
         "?selected_area=%5B%22den-haag%22%5D&price=%22230000-310000%22"
@@ -172,14 +153,8 @@ def main() -> int:
     try:
         resp = curl_requests.get(
             zoek_url,
-            headers={
-                "user-agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
-                    "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
-                ),
-                "accept-language": "nl-NL,nl;q=0.9",
-            },
-            impersonate="safari15_5",
+            headers={"user-agent": WWW_UA, "accept-language": "nl-NL,nl;q=0.9"},
+            impersonate=WWW_IMPERSONATE,
             timeout=30,
         )
         html = resp.text or ""
@@ -194,31 +169,25 @@ def main() -> int:
         print(f"  EXCEPTIE: {type(exc).__name__}: {exc}")
         resultaten["zoekpagina HTML"] = -1
 
-    # Wat doet pyfunda zelf? (gebruikt de geïnstalleerde versie, incl. onze patch)
+    # Wat doet pyfunda zelf? (de gepatchte client: template-fix en eerlijke client)
     print("\n--- pyfunda via de eigen client ---")
     try:
-        sys.path.insert(0, ".")
-        from funda_zoek import Funda  # noqa: PLC0415  (bewust laat: patch meenemen)
-
-        f = Funda()
-        print(f"  gekozen fingerprint: {getattr(f, '_fingerprint', None)}")
-        try:
-            treffers = f.search_listing(
-                location=PROBE_POSTCODE,
-                radius_km=5,
-                offering_type="buy",
-                price_min=200000,
-                price_max=400000,
-                object_type=["apartment"],
-                availability=["available"],
-                page=0,
-            )
-            print(f"  search_listing: {len(treffers)} resultaten")
-            resultaten["pyfunda search_listing"] = len(treffers)
-        except Exception as exc:
-            print(f"  search_listing EXCEPTIE: {type(exc).__name__}: {exc}")
-            resultaten["pyfunda search_listing"] = -1
-    except Exception:
+        treffers = Funda().search_listing(
+            location=PROBE_POSTCODE,
+            radius_km=5,
+            offering_type="buy",
+            price_min=200000,
+            price_max=400000,
+            object_type=["apartment"],
+            availability=["available"],
+            page=0,
+        )
+        print(f"  search_listing: {len(treffers)} resultaten")
+        resultaten["pyfunda search_listing"] = len(treffers)
+    except Exception as exc:
+        print(f"  search_listing EXCEPTIE: {type(exc).__name__}: {exc}")
+        resultaten["pyfunda search_listing"] = -1
+    except BaseException:
         traceback.print_exc()
         resultaten["pyfunda search_listing"] = -1
 

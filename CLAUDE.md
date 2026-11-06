@@ -52,8 +52,9 @@ Actions-cache, niet in de repo.
   na device attestation (Play Integrity / App Attest), dus vanaf een echte
   telefoon met de app uit de store. Dit komt niet meer terug via code; reken de
   zoek-API als dicht. Het detail-endpoint heeft (nog) geen App Check.
-  Diagnose herhalen: workflow "Funda API debug" (de probes draaien ook
-  automatisch zodra een dagelijkse run faalt). Die workflow heeft drie jobs:
+  Diagnose herhalen: workflow "Funda API debug", handmatig (sinds nov 2026 niet
+  meer automatisch na een mislukte dagelijkse run, zie "Eerlijke client"
+  hieronder). Die workflow heeft drie jobs:
   **tests** moet groen zijn en zegt iets over de code; **funda-live** staat op
   `continue-on-error` en zegt iets over funda's kant; **mail-live** zegt iets
   over onze eigen mailconfiguratie en mag daarom wél gewoon rood worden. Zo
@@ -96,15 +97,43 @@ Actions-cache, niet in de repo.
   blokkade te passeren is een botcheck omzeilen. Wat wél kan: funda's eigen
   mails, de sitemaps, het detail-endpoint, en het script draaien vanaf een eigen
   (thuis)netwerk zoals het oorspronkelijk draaide.
-  - **Vaste vingerafdruk.** pyfunda v2.9.0 loopt in `_find_working_fingerprint()`
-    zijn `FINGERPRINT_POOL` af (twee app-JA3's, twee Safari-profielen, okhttp,
-    chrome) tot er één een 200 krijgt: stil wisselen bij een blokkade. De
-    `Funda`-subklasse in `funda_zoek.py` overschrijft dat: alleen
-    `FINGERPRINT_POOL[0]`, en werkt die niet, dan een `RuntimeError` die dat
-    uitlegt (één keer per run, daarna onthouden). De sitemap- en HTML-zoeker
-    gebruiken elk ook één vast curl_cffi-profiel (`safari15_5`). Een 401, 403 of
-    bot-controle = luid falen. Vastgepind in
-    `test_funda_zoek.py::test_vaste_vingerafdruk` (tegen het echte pyfunda).
+  - **Eerlijke client voor funda's API-hosts.** pyfunda v2.9.0 doet zich voor
+    als funda's Android-app: de TLS-vingerafdruk (JA3) "captured from real
+    Dart/Flutter app traffic", `user-agent: Dart/3.9 (dart:io)`,
+    `x-funda-app-platform: android` en datadog-traceheaders. En bij een
+    weigering loopt `_find_working_fingerprint()` zijn `FINGERPRINT_POOL` af
+    (twee app-JA3's, twee Safari-profielen, okhttp, chrome) tot er één doorkomt;
+    pyfunda noemt zelf "bot detection" als reden. Tot nov 2026 zette de
+    `Funda`-subklasse dat vast op `FINGERPRINT_POOL[0]`: niet meer wisselen,
+    maar wel de sterkste vermomming, de app zelf. **Nu** gaat elk verzoek van de
+    subklasse (detail, zoek-API, prijshistorie, makelaar) via één gewone client:
+    curl zonder browser- of app-profiel, `user-agent:
+    funda-dagelijkse-check/1.0 (+https://github.com/rpvos-dhg/Funda)`
+    (`EERLIJKE_UA`), geen app- of traceheaders. Er wordt nooit een vingerafdruk
+    gezocht. **Gemeten op 6 nov 2026**: zo'n client (Python-TLS, eigen UA, geen
+    app-headers) krijgt van het detail-endpoint gewoon 200 met JSON (vanaf een
+    sandbox; vanaf Actions zie de e2e). Weigert het endpoint de eerlijke client
+    ooit, dan is dat een 401/403 en faalt de run luid; niet terugzetten naar de
+    app-vermomming zonder dat de gebruiker daar bewust voor kiest. Vastgepind in
+    `test_funda_zoek.py::test_eerlijke_client` (tegen het echte pyfunda, met een
+    nep-sessie).
+  - **Statuscodes.** pyfunda maakt van élke status behalve 200 een
+    `LookupError("Listing ... not found")`, dus een 403 of 429 halverwege de run
+    leek op een verkochte woning. De subklasse vertaalt: 401/403/429 =
+    `DetailEndpointDicht` (run stopt, exit 2), 404/410 = `WoningNietGevonden`
+    (woning weg, endpoint werkt), de rest blijft een gewone `LookupError` (telt
+    als storing). Beide klassen staan in `funda_sitemap_zoek.py`.
+  - De sitemap- en HTML-zoeker gebruiken voor `www.funda.nl` elk één vast
+    curl_cffi-profiel (`safari15_5`, Safari-UA). Een 401, 403 of bot-controle =
+    luid falen.
+  - **Probes.** De dagelijkse workflow draaide na een mislukte run automatisch
+    `funda_api_debug.py`, en die probeerde de zoek-API met safari15_5, chrome124,
+    zonder impersonate en met een nep-`x-funda-app-version`: precies het
+    wisselen dat hierboven verboden is, twee keer per dag zolang het stuk was.
+    Die stap is weg; `funda_api_debug.py` gebruikt nu per host één vaste client
+    (de eerlijke voor de API-hosts, het safari-profiel voor `www.funda.nl`) en
+    draait alleen handmatig. Alle scripts gebruiken `from funda_zoek import
+    Funda`, nooit pyfunda's eigen `Funda` (die wisselt nog steeds).
 - **Sitemaproute: funda's eigen sitemaps als bron** (`funda_sitemap_zoek.py`). In
   `auto` de derde stap: api -> html -> **sitemap** -> mail. Werkt vanaf Actions
   zonder mailbox. Gemeten op 6 nov 2026 (runs
@@ -115,6 +144,10 @@ Actions-cache, niet in de repo.
     en noemt `Sitemap: https://www.funda.nl/sitemap_index.xml/`. Let op de slash:
     `/sitemap.xml` is 404, daarom vond `funda_bronnen_probe.py` eerder niets. De
     zoeker leest robots.txt elke run en stopt als `/detail/` wordt uitgesloten.
+    **Maar dat is de robots.txt van `www.funda.nl`**, en de zoeker haalt daar
+    nooit een `/detail/`-pagina op: de detail-calls gaan naar
+    `listing-detail-page.funda.io`, en die heeft `Disallow: /` (zie "robots.txt
+    van de API-hosts" hieronder). De check kan die calls dus niet tegenhouden.
   - De index wijst naar `sitemap-detail-koop1..4.xml` (plus huur, nieuwbouw,
     recreatie, europe): 102.365 koop-URL's, ~23 MB XML, **elk met `<lastmod>`**.
     Den Haag 3.695, Voorburg 262; na de slug-afwijslijst (huis, parkeren,
@@ -136,17 +169,43 @@ Actions-cache, niet in de repo.
     doelmarkt of afgewezen door type/stad/buurt/straat/prijs/m2/straal
     (`_sitemap_overslaan`, met `buiten_zoekcriteria`) = geen call. Woningen die
     door alle filters komen, worden elke run vers opgehaald. Onbekend (bijv. geen
-    coördinaten) = doorlaten. Steden via `sitemap_steden` (funda-slugs).
+    coördinaten) = doorlaten. Steden via `sitemap_steden` ("Den Haag" wordt
+    vanzelf "den-haag", `stad_slug()`). De kandidatenlijst uit de cache wordt
+    hooguit **36 uur** hergebruikt (`MAX_HERGEBRUIK_UUR`), ook als de index
+    "ongewijzigd" blijft zeggen: een index-lastmod die blijft hangen terwijl de
+    koop-sitemaps veranderen, mag niet stil nieuw aanbod kosten.
   - **Opstart: achterstand.** Een lege cache betekent ~3.100 woningen zonder
     gegevens. Per run `sitemap_max_verkennen` (standaard 200) detail-calls,
     nieuwste lastmod eerst; bij 2 runs per dag is dat na hooguit ~8 dagen weg
     (verre en te dure woningen kosten maar één call). Nieuw aanbod zit vanaf de
     eerste run in de top. **Sneller:** workflow "Funda dagelijks rapport"
     handmatig starten met input `sitemap_max_verkennen` = 600 (wordt
-    `FUNDA_SITEMAP_MAX_VERKENNEN`); leeg laten = standaard.
-  - Luid falen blijft: 403, HTML in plaats van XML of nul kandidaten =
-    `RuntimeError` en exit 2 via de bestaande checks in `main()`; de eerste vijf
-    detail-calls allemaal mislukt = "detail-endpoint werkt niet", ook exit 2.
+    `FUNDA_SITEMAP_MAX_VERKENNEN`); leeg laten = standaard. Het verkennen heeft
+    ook een **tijdsbudget** van 15 minuten (`MAX_SECONDEN`; normaal ~0,8 s per
+    call); wat dan openstaat, blijft achterstand. De job heeft
+    `timeout-minutes: 45` als vangnet.
+  - Luid falen (`RuntimeError`, exit 2 via de bestaande checks in `main()`):
+    403, HTML in plaats van XML of nul kandidaten; **een ingestelde stad met nul
+    URL's** (typfout of andere slug bij funda; viel eerst stil weg, terwijl
+    getrackte woningen via de pool het rapport normaal lieten lijken); **de
+    nieuwste lastmod onder de kandidaten ouder dan 3 dagen, of geen lastmod**
+    (`MAX_LEEFTIJD_DAGEN`: een bevroren sitemap gaf anders een groene run zonder
+    ooit nog nieuw aanbod).
+  - **Detail-endpoint dicht, ook halverwege** (`DetailEndpointDicht`, exit 2):
+    meteen bij 401/403/429, en bij `DICHT_NA` (5) mislukte calls op rij, ook na
+    eerdere successen. Een nette 404 telt daar niet in mee (een antwoord van een
+    werkend endpoint; de e2e zag er 1 per 200). De pool telt door vanaf de
+    laatste calls van de zoeker, en **eindigt de run met mislukte calls, dan
+    ook exit 2**: misschien ging het endpoint net dicht. Zonder dit liep de run
+    door, vielen de ververste woningen weg en bleef dat halve rapport staan
+    zolang de volgende runs al bij de eerste call faalden. De geslaagde
+    verkenning wordt vóór het stoppen in de cache bewaard.
+  - **In `auto` gebeurt het zoekwerk al in `kies_zoeker()`** (`ophalen()`):
+    `bereikbaar()` kijkt alleen naar robots.txt en de index, en een koop-sitemap
+    die daarna een 403 gaf, liet elke run rood worden zonder dat de mailroute
+    geprobeerd werd. Nu valt zo'n fout door naar de mailroute, met de oorzaak in
+    de `::error` als die ook niets heeft. Uitzondering: het detail-endpoint dicht.
+    De mailroute heeft dat ook nodig, dus dan meteen exit 2.
   - **Meting eerste week** (log, alleen getallen): regel "Meting lastmod" telt
     gecachte woningen met een gewijzigde lastmod en hoeveel daarvan een andere
     prijs of status kregen, én hoeveel vers opgehaalde woningen met
@@ -168,15 +227,38 @@ Actions-cache, niet in de repo.
     ([42271742515](https://github.com/rpvos-dhg/Funda/actions/runs/42271742515))
     crashte in `main()` op een woning zonder vraagprijs (`price=None` in
     `sort()`); opgelost, vastgepind in `test_funda_zoek.py::test_prijs_onbekend`.
+  - **Prijs op aanvraag.** De oude zoek-API liet woningen zonder vraagprijs
+    server-side weg; de sitemap- en mailroute laten ze door (onbekend =
+    doorlaten). Het rapport rekende dan met prijs 0: budget "PAST", minimale
+    maandlast, hoogste score, dus bovenaan (e2e-run 42273695515: "€ 0 | 145 m2").
+    Nu: budget "PRIJS ONBEKEND", geen maandlast of financierbaarheid, score
+    alleen uit voor- en nadelen, altijd achteraan (ook bij client-side
+    sorteren: lege `data-*`-waarden), "prijs op aanvraag" in kaart, markdown en
+    pushmelding, en in de tracking geen prijs 0 (anders een "prijsdaling" van
+    100%). Vastgepind in `test_funda_zoek.py::test_prijs_onbekend_rapport`, door
+    het echte `bouw_rij`.
   - Valideren tegen de echte site: `scripts/funda_sitemap_validatie.py`
     (end-to-end door `main()`, zonder rapport of push) en
     `scripts/funda_sitemap_probe.py` (robots en sitemaps meten).
-- **robots.txt van de API-hosts.** `www.funda.nl` staat `/detail/` en de sitemap
-  toe. `listing-detail-page.funda.io` (het detail-endpoint), `local-listings` en
+- **robots.txt van de API-hosts. OPEN BESLUIT voor de gebruiker.**
+  `www.funda.nl` staat `/detail/` en de sitemap toe.
+  `listing-detail-page.funda.io` (het detail-endpoint), `local-listings` en
   `listing-detail-summary` (beide `.funda.io`) hebben `Disallow: /`. Elke
   funda-route hier (api, html, sitemap, mail en de pool) verrijkt via die
-  detail-host; dat is een keuze van de gebruiker. `local-listings` en
-  `listing-detail-summary` worden door dit script niet aangeroepen.
+  detail-host. De robots-check van de sitemapzoeker (`detail_verboden()`) leest
+  alleen de robots.txt van `www.funda.nl` en kan de detail-calls dus **niet**
+  tegenhouden. Eerder stond hier "dat is een keuze van de gebruiker"; daar is
+  geen bron voor, dus: **nog niet besloten.** De sitemaproute schaalt het
+  verkeer naar die host op ten opzichte van de HTML-route (die deed alleen
+  detail-calls voor wat funda's zoekopdracht al op prijs, m2 en straal had
+  gefilterd): **opstart ~3.100 calls** (200 per run, ~8 dagen), **daarna tot
+  ~450 per dag** (2 runs x hooguit 200 verkennend plus de ververste woningen
+  in de doelmarkt en de pool); de e2e mat 200 en 208 per run. Twee opties:
+  (a) de robots.txt van `listing-detail-page.funda.io` meenemen in de check;
+  dan staat de sitemaproute (en elke verrijking) volgens de eigen meting uit;
+  (b) bewust doorgaan zoals nu, met dit volume. Schrijf het besluit hier op.
+  `local-listings` en `listing-detail-summary` worden door dit script niet
+  aangeroepen.
 - **Mailbron: linkconventies gemeten, de alert-mail zelf nog niet.** Op 9 okt
   2026 zijn de twee transactionele funda-mails bekeken die in de eigen mailbox
   stonden (één uit 2022, één uit 2026). Daaruit:
@@ -328,6 +410,15 @@ Actions-cache, niet in de repo.
     run niet tonen, wel blijven volgen. Duikt een woning weer op, dan valt `weg`.
   - Mislukte calls tellen alleen mee als het endpoint in dezelfde run wél werkte;
     anders zou een storing van drie runs alle bekende woningen wegmarkeren.
+    Bewijs: een geslaagde call van de pool óf van de sitemapzoeker, of een nette
+    404. Eerder telde alleen de pool zelf, en een 404 als storing: een run met
+    alleen een ingetrokken woning bleef die elke run opvragen zonder hem weg te
+    markeren, en vijf 404's bovenaan lieten de pool afbreken ("lijkt dicht"),
+    zodat een woning uit de achterstand uit het rapport viel.
+  - Weigert het endpoint (401/403/429), mislukken 5 calls op rij (zonder de
+    404's), of eindigt de run op een mislukte call: `DetailEndpointDicht` en
+    exit 2 in `main()`, niets als weg gemarkeerd. Eerder brak de pool alleen af
+    en schreef de run een rapport zonder die woningen.
   - Beschikbaarheid leunt op pyfunda's `status` (IsSoldOrRented) en het kenmerk
     "Status". Die vocabulaire is **niet gemeten**; de log print daarom per run
     welke statuswaarden voorkwamen (bij pool en mail), zonder adressen.
@@ -347,7 +438,9 @@ Actions-cache, niet in de repo.
     op te halen (terwijl het endpoint deze run wél werkte) = meteen `weg`, nog te
     koop = gewoon tonen (de sitemap loopt een dag achter en of "onder bod" erin
     blijft is niet gemeten). Vastgepind in
-    `test_funda_zoek.py::test_geen_dubbele_detail_calls` (twee runs door `main()`).
+    `test_funda_zoek.py::test_geen_dubbele_detail_calls` (twee runs door `main()`,
+    met een verkochte én een ingetrokken woning buiten de sitemap) en
+    `test_pool_404_bovenaan`.
   - Het rapport viel bij een mislukte prijshistorie terug op de URL, en pyfunda
     haalde de woning dan nog eens op via het detail-endpoint. Die terugval geldt
     nu alleen als er geen listing is.
@@ -389,8 +482,11 @@ Actions-cache, niet in de repo.
   netjes 200 en nul kaarten, zonder exception. Zonder deze checks schrijft een
   kapotte zoekmethode een leeg rapport over het gevulde rapport heen terwijl de
   Action groen blijft. Geldt ook voor de sitemapbron: een fout in de bron (403,
-  HTML i.p.v. XML, nul kandidaten, detail-endpoint dicht) wordt bij elke
-  zoekaanroep opnieuw gegooid, zonder nieuw verzoek, en eindigt in exit 2.
+  HTML i.p.v. XML, nul kandidaten, een stad zonder URL's, een bevroren sitemap,
+  detail-endpoint dicht) wordt bij elke zoekaanroep opnieuw gegooid, zonder
+  nieuw verzoek, en eindigt in exit 2. Een derde geval: het detail-endpoint gaat
+  tijdens de run dicht (in de zoeker of de pool); ook dan exit 2 en geen half
+  rapport (`test_funda_zoek.py::test_endpoint_halverwege_dicht`).
 - **pyfunda pin.** Het script gebruikt de v2.x API (`f.search_listing(...)` en
   `r.data` dicts). v3+ is een dataclass-rewrite zonder die methodes. Daarom is
   pyfunda vastgepind op `v2.9.0` in zowel `requirements.txt` als de workflow.
@@ -417,11 +513,15 @@ python funda_zoek.py --no-open  # zonder browser
 - `python test_funda_zoek.py` - offline tests voor de veiligheidschecks in
   `main()`: een run stopt met exit 2 als álle zoek-calls falen én als ze allemaal
   slagen maar samen nul woningen opleveren. Ook de nafilters (stad, woningtype,
-  prijs/m2/straal), beschikbaarheid en de pool (inclusief het storingsgeval),
-  de auto-volgorde api -> html -> sitemap -> mail, exit 2 bij een kapotte
-  sitemapbron, geen dubbele detail-calls tussen sitemapzoeker en pool (twee
-  runs door `main()`), `_sitemap_overslaan` met straal, de workflow-input en de
-  vaste vingerafdruk (in een subproces tegen het echte pyfunda, zonder netwerk).
+  prijs/m2/straal), beschikbaarheid en de pool (storing, weigering, 404's, een
+  run die op een fout eindigt), de auto-volgorde api -> html -> sitemap -> mail
+  (ook: koop-sitemap 403 na een bereikbare index = mail; detail-endpoint dicht
+  = geen terugval), exit 2 bij een kapotte sitemapbron en bij een endpoint dat
+  halverwege dichtgaat, geen dubbele detail-calls tussen sitemapzoeker en pool
+  (twee runs door `main()`), vijf 404's bovenaan de pool, prijs op aanvraag
+  door het echte `bouw_rij`, `_sitemap_overslaan` met straal, de workflow-input
+  en de eerlijke client met statuscodes (in een subproces tegen het echte
+  pyfunda, met een nep-sessie, zonder netwerk).
   `auto_push()` staat in deze tests uit: `main()` eindigt ermee, en de
   `git diff --cached`-check daarin ziet álle gestagede wijzigingen, dus zonder
   die stub commit een testrun je gestagede werk als "auto: rapport".
@@ -430,7 +530,12 @@ python funda_zoek.py --no-open  # zonder browser
   prijsband, cache over runs, koop-sitemaps overslaan bij een ongewijzigde index
   (lastmod en Last-Modified), coördinaten in de cache, `pool_oordeel`/`neem_op`,
   de lastmod-meting, budget/achterstand en foutgevallen (403, HTML i.p.v. XML,
-  robots-verbod, nul kandidaten, detail-endpoint dicht, gzip).
+  robots-verbod, nul kandidaten, detail-endpoint dicht, gzip), het endpoint dat
+  halverwege dichtgaat (5 op rij na successen, meteen bij een weigering, losse
+  fouten niet), het tijdsbudget, steden (spelling, een stad zonder URL's) en de
+  leeftijd (bevroren sitemap, geen lastmod, kandidatenlijst na 36 uur opnieuw).
+  Draait met een vaste klok (`NU`), zodat de leeftijdscheck niet afhangt van de
+  dag waarop de tests draaien.
 - `python test_funda_mail.py` - offline tests voor de mailbron: linkextractie per
   vorm, ondoorzichtige tracking-links, redirects volgen (inclusief hoplimiet en
   kapotte call), routekeuze van `woningen_uit_mail()`, drop-in-gedrag en cache.

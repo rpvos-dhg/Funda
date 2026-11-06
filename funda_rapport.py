@@ -1083,8 +1083,7 @@ def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None)
 
     save_enrichment_cache(enrichment_cache)
 
-    # Sorteer op score (hoog naar laag)
-    rijen.sort(key=lambda r: r["score"], reverse=True)
+    sorteer_rijen(rijen)
 
     # Schrijf markdown (backwards compat)
     pad_md = Path(__file__).parent / "funda_rapport.md"
@@ -1103,6 +1102,14 @@ def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None)
     return pad_html
 
 
+PRIJS_ONBEKEND = "PRIJS ONBEKEND"
+
+
+def sorteer_rijen(rijen: list[dict]) -> None:
+    """Op score, hoog naar laag; woningen zonder vraagprijs altijd achteraan."""
+    rijen.sort(key=lambda r: (not r.get("prijs_onbekend"), r["score"]), reverse=True)
+
+
 def bouw_rij(d: dict, details: dict | None, beschrijving: str) -> dict:
     label = d.get("energy_label") or "?"
     # Fallback: zoek label in beschrijving als Funda het veld leeg laat.
@@ -1111,7 +1118,11 @@ def bouw_rij(d: dict, details: dict | None, beschrijving: str) -> dict:
         if gevonden:
             label = gevonden
             d["energy_label"] = label  # zodat pros_cons ook de fallback ziet
-    prijs = d.get("price") or 0
+    # "Prijs op aanvraag": price None. Rekenen met 0 gaf budget "PAST", een
+    # minimale maandlast en de hoogste score, dus bovenaan het rapport. Nu: geen
+    # budgetoordeel, geen maandlast en geen scorebonus op grond van de prijs.
+    onbekend = not (isinstance(d.get("price"), (int, float)) and d.get("price") > 0)
+    prijs = 0 if onbekend else int(d.get("price"))
     m2 = d.get("living_area") or 0
     pros, cons = pros_cons(d, details, beschrijving)
     signals = structured_signals(d, details, d.get("_enrichment") or {})
@@ -1123,7 +1134,10 @@ def bouw_rij(d: dict, details: dict | None, beschrijving: str) -> dict:
 
     # Bepaal budget-status
     norm = (BRUTO_JAAR / 12) * NORM_MAANDLAST_PCT
-    if not in_max:
+    if onbekend:
+        in_max, headroom, kk, inleg_tekort = False, 0, 0, 0
+        budget = PRIJS_ONBEKEND
+    elif not in_max:
         budget = "BOVEN MAX HYPOTHEEK"
     elif lasten["totaal"] > norm:
         budget = f"MAANDLAST BOVEN NORM (€{int(lasten['totaal']-norm)} te hoog)"
@@ -1136,7 +1150,11 @@ def bouw_rij(d: dict, details: dict | None, beschrijving: str) -> dict:
 
     # Prijs-/looptijd-tracking (aangehangen door funda_zoek.py).
     track = d.get("_track") or {}
-    basis_score = score(d, lasten, pros, cons, in_max)
+    if onbekend:
+        # Alleen voor- en nadelen; niets dat van de prijs afhangt.
+        basis_score = (len(pros) - len(cons)) * 2.0
+    else:
+        basis_score = score(d, lasten, pros, cons, in_max)
     if track.get("gedaald"):
         basis_score += 4  # prijsdaling = kans, hoger in lijst
     if track.get("dagen", 0) >= 90:
@@ -1160,7 +1178,12 @@ def bouw_rij(d: dict, details: dict | None, beschrijving: str) -> dict:
         "track": track,
         "score": basis_score,
         "erfpacht": erf_info,
+        "prijs_onbekend": onbekend,
     }
+
+
+def _prijs_tekst(r: dict) -> str:
+    return "prijs op aanvraag" if r.get("prijs_onbekend") else f"€ {r['prijs']:,}"
 
 
 def render_markdown(rijen: list[dict]) -> str:
@@ -1192,9 +1215,10 @@ def render_markdown(rijen: list[dict]) -> str:
     lines.append("|---|-------|------:|---:|:-----:|----------:|:-------|")
     for i, r in enumerate(rijen[:5], 1):
         d = r["d"]
+        maandlast = "?" if r.get("prijs_onbekend") else f"€ {r['lasten']['totaal']:,}"
         lines.append(
-            f"| {i} | {d.get('title')} | € {r['prijs']:,} | {r['m2']} | {r['label']} "
-            f"| € {r['lasten']['totaal']:,} | {r['budget']} |"
+            f"| {i} | {d.get('title')} | {_prijs_tekst(r)} | {r['m2']} | {r['label']} "
+            f"| {maandlast} | {r['budget']} |"
         )
     lines.append("")
 
@@ -1205,7 +1229,7 @@ def render_markdown(rijen: list[dict]) -> str:
         d = r["d"]
         url = funda_url(d)
 
-        lines.append(f"### {i}. {d.get('title')} — € {r['prijs']:,}")
+        lines.append(f"### {i}. {d.get('title')} — {_prijs_tekst(r)}")
         lines.append("")
         lines.append(f"- **Locatie**: {d.get('postcode')} {d.get('city')}, {d.get('neighbourhood')}")
         lines.append(f"- **Oppervlakte**: {r['m2']} m2 ({d.get('rooms') or '?'} kamers, {d.get('bedrooms') or '?'} slaapkamers)")
@@ -1232,6 +1256,15 @@ def render_markdown(rijen: list[dict]) -> str:
             for c in r["cons"]:
                 lines.append(f"- {c}")
             lines.append("")
+
+        if r.get("prijs_onbekend"):
+            lines.append("**Maandlasten en financierbaarheid**: niet te schatten zonder "
+                         "vraagprijs (prijs op aanvraag).")
+            lines.append(f"- Status: **{r['budget']}**")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+            continue
 
         # Maandlasten
         l = r["lasten"]
@@ -1698,6 +1731,7 @@ h2 { margin: 0; font-size: 23px; line-height: 1.18; font-weight: 700; }
 .card.budget-PAST { border-left-color: var(--good); }
 .card.budget-KRAP, .card.budget-NORM { border-left-color: var(--warn); }
 .card.budget-MAX { border-left-color: var(--alert); }
+.card.budget-ONBEKEND { border-left-color: var(--warn); }
 .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-overlay); }
 .card.is-new { box-shadow: inset 0 2px 0 var(--warn); }
 .card.flash { border-color: var(--warn); box-shadow: 0 0 0 3px var(--warn-tint), var(--shadow-overlay); }
@@ -1741,6 +1775,7 @@ h2 { margin: 0; font-size: 23px; line-height: 1.18; font-weight: 700; }
 .badge-budget-KRAP { background: var(--warn-tint); color: var(--warn-ink); }
 .badge-budget-NORM { background: var(--warn-tint); color: var(--warn-ink); }
 .badge-budget-MAX { background: var(--alert-tint); color: var(--alert-ink); }
+.badge-budget-ONBEKEND { background: var(--warn-tint); color: var(--warn-ink); }
 .routes {
   background: var(--surface-2);
   padding: 8px 11px;
@@ -2488,6 +2523,8 @@ def pwa_push_js() -> str:
 
 
 def _budget_class(status: str) -> str:
+    if status == PRIJS_ONBEKEND:
+        return "ONBEKEND"
     if "BOVEN MAX" in status:
         return "MAX"
     if "BOVEN NORM" in status:
@@ -2646,9 +2683,9 @@ def _map_data(rijen: list[dict], werk_coords: dict[str, tuple[float, float]] | N
             "id": _card_id(r),
             "title": d.get("title") or "Woning",
             "meta": meta,
-            "prijs": _money(r.get("prijs")),
+            "prijs": "Prijs op aanvraag" if r.get("prijs_onbekend") else _money(r.get("prijs")),
             "m2": r.get("m2") or "?",
-            "maandlast": _money((r.get("lasten") or {}).get("totaal")),
+            "maandlast": "?" if r.get("prijs_onbekend") else _money((r.get("lasten") or {}).get("totaal")),
             "label": r.get("label") or "?",
             "budget": r.get("budget") or "",
             "bcls": _budget_class(r.get("budget") or ""),
@@ -2781,12 +2818,15 @@ def _card_data_attrs(r: dict) -> str:
     city = (d.get("city") or "").strip().lower()
     bcls = _budget_class(r.get("budget") or "")
 
+    # Zonder vraagprijs: leeg laten. De sorteer-JS zet lege waarden altijd
+    # achteraan; met 0 kwam zo'n woning bovenaan bij "goedkoopste eerst".
+    onbekend = bool(r.get("prijs_onbekend"))
     attrs = (
-        f' data-score="{float(r.get("score") or 0):.3f}"'
-        f' data-prijs="{prijs}"'
-        f' data-maandlast="{l.get("totaal") or 0}"'
+        f' data-score="{"" if onbekend else format(float(r.get("score") or 0), ".3f")}"'
+        f' data-prijs="{"" if onbekend else prijs}"'
+        f' data-maandlast="{"" if onbekend else (l.get("totaal") or 0)}"'
         f' data-m2="{m2}"'
-        f' data-ppm="{ppm}"'
+        f' data-ppm="{"" if onbekend else ppm}"'
         f' data-labelrank="{labelrank}"'
         f' data-recency="{recency}"'
         f' data-nieuw="{1 if r.get("is_nieuw") else 0}"'
@@ -2866,6 +2906,16 @@ def _card_html(r: dict) -> str:
             )
         routes_html = '<div class="routes">Naar werk: ' + ' &middot; '.join(chunks) + '</div>'
 
+    if r.get("prijs_onbekend"):
+        prijs_html = "Prijs op aanvraag"
+        lasten_html = '<div class="lasten">Maandlast: onbekend, geen vraagprijs.</div>'
+    else:
+        prijs_html = _money(r["prijs"])
+        lasten_html = f"""<div class="lasten">
+          Maandlast: <span class="lasten-totaal">{_money(l['totaal'])}</span>
+          (hyp {_money(l['hypotheek'])} + VvE {_money(l['servicekosten'])} + energie {_money(l['energie'])}{' + erfpacht ' + _money(l['canon']) if l.get('canon') else ''} + overig {_money(l['woz_verzekering']+l['onderhoud'])})
+        </div>"""
+
     pricedrop_html = ""
     if tr.get("gedaald") and tr.get("eerdere_prijs"):
         wijziging = f" (wijziging {_h(tr['laatste_wijziging'])})" if tr.get("laatste_wijziging") else ""
@@ -2878,7 +2928,7 @@ def _card_html(r: dict) -> str:
     <article id="card-{card_id}" class="card budget-{bcls}{nieuw_class}"{_card_data_attrs(r)}>
       <div class="card-photo-wrap">
         {foto_html}
-        <div class="card-prijs">{_money(r['prijs'])}</div>
+        <div class="card-prijs">{prijs_html}</div>
       </div>
       <div class="card-body">
         <div class="card-header">
@@ -2889,10 +2939,7 @@ def _card_html(r: dict) -> str:
         <div class="badges">{''.join(badges)}</div>
         {pricedrop_html}
         {routes_html}
-        <div class="lasten">
-          Maandlast: <span class="lasten-totaal">{_money(l['totaal'])}</span>
-          (hyp {_money(l['hypotheek'])} + VvE {_money(l['servicekosten'])} + energie {_money(l['energie'])}{' + erfpacht ' + _money(l['canon']) if l.get('canon') else ''} + overig {_money(l['woz_verzekering']+l['onderhoud'])})
-        </div>
+        {lasten_html}
         {signals_html}
         {verdict_html}
         {footer_html}

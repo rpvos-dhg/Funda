@@ -14,7 +14,9 @@ import sys
 
 sys.path.insert(0, ".")
 
-from funda import Funda  # noqa: E402
+# De gepatchte client van de dagelijkse run, niet pyfunda zelf: die doet zich
+# voor als funda's app en wisselt bij een weigering van vingerafdruk.
+from funda_zoek import Funda  # noqa: E402
 
 from funda_html_zoek import HtmlZoeker, bouw_zoek_url, parse_kaarten  # noqa: E402
 

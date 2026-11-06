@@ -33,11 +33,16 @@ class StubListing:
         self.data = data
 
 
-def maak_stub_funda(zoek_gedrag, details=None, calls=None):
+def maak_stub_funda(zoek_gedrag, details=None, calls=None, faal_na=None):
     """Installeer een nep-funda-module vóór funda_zoek geïmporteerd wordt.
 
     Met `details` (per tiny_id) zoekt get_listing de woning op aan het nummer in
     de URL of aan het global_id, en schrijft elke aanroep in `calls`.
+
+    Statuscodes zoals pyfunda ze ziet: een woning met `_status` in zijn details
+    geeft die status, en `faal_na=(n, status)` laat elke call na de n-de falen
+    (status None: een fout zonder bekende status, zoals een time-out). pyfunda
+    geeft dan een LookupError; de Funda-subklasse vertaalt die op de status.
     """
     mod = types.ModuleType("funda")
     per_id = {}
@@ -58,8 +63,15 @@ def maak_stub_funda(zoek_gedrag, details=None, calls=None):
             if details is not None:
                 if calls is not None:
                     calls.append(str(ident))
+                if faal_na is not None and len(calls) > faal_na[0]:
+                    if faal_na[1]:
+                        self._statussen.append(faal_na[1])
+                    raise LookupError(f"Listing {ident} not found")
                 sleutel = str(ident).rstrip("/").split("/")[-1]
                 if sleutel not in per_id:
+                    raise LookupError(f"Listing {ident} not found")
+                if per_id[sleutel].get("_status"):
+                    self._statussen.append(per_id[sleutel]["_status"])
                     raise LookupError(f"Listing {ident} not found")
                 return StubListing(dict(per_id[sleutel]))
             return StubListing({
@@ -197,6 +209,59 @@ def test_prijs_onbekend() -> bool:
     return ok
 
 
+def test_prijs_onbekend_rapport() -> bool:
+    """Geen vraagprijs: niet als € 0 bovenaan met budget PAST.
+
+    Gezien in e2e-run 42273695515: "€ 0 | 145 m2" stond bovenaan, met budget
+    PAST en de hoogste score. Dit gaat door het echte bouw_rij en de rendering,
+    niet door een gestubde genereer_rapport.
+    """
+    print("test: prijs op aanvraag in rapport, tracking en pushmelding")
+    fz = maak_stub_funda(lambda _n: [])
+    import funda_rapport as fr
+
+    basis = {"city": "Den Haag", "neighbourhood": "Bomenbuurt", "living_area": 145,
+             "energy_label": "C", "detail_url": "/detail/koop/den-haag/appartement-a-1/44500001/"}
+
+    def rij(d):
+        r = fr.bouw_rij(dict(d), None, "Ruim appartement met balkon.")
+        r.update(is_nieuw=True, foto_url=None, routes=[])
+        return r
+
+    onbekend = rij({**basis, "price": None, "title": "Zonder prijs", "global_id": 1})
+    bekend = rij({**basis, "price": 299500, "title": "Met prijs", "global_id": 2})
+    ok = check("budget PRIJS ONBEKEND in plaats van PAST",
+               onbekend["budget"] == "PRIJS ONBEKEND" and not onbekend["in_max"], onbekend["budget"])
+    ok &= check("score alleen uit voor- en nadelen, niets op prijs 0",
+                onbekend["score"] == 2.0 * (len(onbekend["pros"]) - len(onbekend["cons"])),
+                str(onbekend["score"]))
+    rijen = [onbekend, bekend]
+    fr.sorteer_rijen(rijen)
+    ok &= check("in het rapport achteraan", [r["d"]["title"] for r in rijen] == ["Met prijs", "Zonder prijs"])
+    kaart = fr._card_html(onbekend)
+    ok &= check("kaart: prijs op aanvraag, geen € 0, geen maandlast",
+                "Prijs op aanvraag" in kaart and "€ 0" not in kaart and "lasten-totaal" not in kaart)
+    ok &= check("kaart: lege sorteerwaarden (de JS zet die achteraan)",
+                'data-prijs=""' in kaart and 'data-score=""' in kaart and 'data-maandlast=""' in kaart)
+    ok &= check("kaart: eigen budgetklasse", "budget-ONBEKEND" in kaart)
+    md = fr.render_markdown(rijen)
+    ok &= check("markdown: prijs op aanvraag, geen € 0",
+                "Zonder prijs — prijs op aanvraag" in md and "| € 0 |" not in md)
+
+    tracking = {}
+    fz.update_tracking(tracking, "x", 280000, None)
+    flags = fz.update_tracking(tracking, "x", 0, None)
+    ok &= check("tracking: naar prijs op aanvraag is geen prijsdaling",
+                not flags["gedaald"] and tracking["x"]["prices"][-1][1] == 280000, str(flags))
+    flags = fz.update_tracking(tracking, "y", 0, None)
+    ok &= check("tracking: nieuwe woning zonder prijs", not flags["gedaald"] and tracking["y"]["prices"] == [])
+
+    fz.schrijf_run_summary([{**basis, "price": None, "title": "Zonder prijs"}], [], [])
+    ok &= check("pushmelding: price null in plaats van 0",
+                json.loads(fz.SUMMARY_FILE.read_text(encoding="utf-8"))["nieuw"][0]["price"] is None)
+    return ok
+
+
 def test_auto_keten() -> bool:
     """'auto' loopt api -> html -> sitemap -> mail af en neemt de eerste die werkt."""
     print("test: auto kiest de eerste werkende zoekmethode")
@@ -231,6 +296,7 @@ def test_auto_keten() -> bool:
 
     class StubSitemap:
         bereik = False
+        ophaal_fout = None
         laatste = None
 
         def __init__(self, client, **kw):
@@ -243,6 +309,11 @@ def test_auto_keten() -> bool:
             if not StubSitemap.bereik:
                 self.reden = "https://www.funda.nl/sitemap_index.xml/ gaf status 403"
             return StubSitemap.bereik
+
+        def ophalen(self):
+            volgorde.append("ophalen")
+            if StubSitemap.ophaal_fout is not None:
+                raise StubSitemap.ophaal_fout
 
     mail = {"woningen": []}
 
@@ -281,14 +352,36 @@ def test_auto_keten() -> bool:
         # ongemoeid (terugval, geen extra IMAP-login).
         StubHtml.bereik, StubSitemap.bereik = False, True
         zoeker, methode, _ = kies(ApiDicht())
-        ok &= check("API en HTML dicht, sitemaps open -> sitemap, mail niet gevraagd",
-                    methode == "sitemap" and volgorde == ["api", "html", "sitemap"],
+        ok &= check("API en HTML dicht, sitemaps open -> sitemap (al opgehaald), mail niet gevraagd",
+                    methode == "sitemap" and volgorde == ["api", "html", "sitemap", "ophalen"],
                     f"{methode} {volgorde}")
         ok &= check("sitemapzoeker kent de doelmarkt",
                     zoeker is StubSitemap.laatste and zoeker.kw["prijs_max"] == fz.PRIJS_MAX
                     and zoeker.kw["m2_min"] == fz.M2_MIN
                     and zoeker.kw["overslaan"] is fz._sitemap_overslaan
                     and zoeker.kw["max_verkennen"] == fz.SITEMAP_MAX_VERKENNEN)
+
+        # 3b. Index bereikbaar, maar een koop-sitemap geeft 403 (bereikbaar()
+        # kijkt daar niet naar): dan alsnog de mails, met de oorzaak erbij.
+        StubSitemap.ophaal_fout = RuntimeError("https://www.funda.nl/sitemap-detail-koop1.xml gaf status 403")
+        _, methode, _ = kies(ApiDicht())
+        ok &= check("index OK, koop-sitemap 403, mail heeft woningen -> mail",
+                    methode == "mail" and volgorde == ["api", "html", "sitemap", "ophalen", "mail"],
+                    f"{methode} {volgorde}")
+        mail_leeg = mail["woningen"]
+        mail["woningen"] = []
+        _, methode, uitvoer = kies(ApiDicht())
+        ok &= check("index OK, koop-sitemap 403, mail leeg -> geen, oorzaak in de ::error",
+                    methode == "geen" and "sitemap-detail-koop1.xml gaf status 403" in uitvoer, methode)
+        mail["woningen"] = mail_leeg
+
+        # 3c. Het detail-endpoint is dicht: de mailroute heeft dat ook nodig, dus
+        # geen terugval (en geen IMAP-login); de sitemapzoeker laat main() falen.
+        StubSitemap.ophaal_fout = fz.DetailEndpointDicht("status 403 voor 44500000")
+        _, methode, _ = kies(ApiDicht())
+        ok &= check("detail-endpoint dicht -> sitemap, mail niet gevraagd",
+                    methode == "sitemap" and "mail" not in volgorde, f"{methode} {volgorde}")
+        StubSitemap.ophaal_fout = None
 
         # 4. Ook de sitemaps dicht, maar er zitten woningen in de mail.
         StubSitemap.bereik = False
@@ -332,9 +425,15 @@ def test_auto_keten() -> bool:
 
 
 def _sitemap_met(web, **extra):
-    """Echte SitemapZoeker, maar met een nep-web en zonder pauzes."""
-    import funda_sitemap_zoek as fsz
+    """Echte SitemapZoeker, maar met een nep-web, zonder pauzes en met een vaste klok.
 
+    De klok: de fixtures hebben lastmods van begin november 2026, en de
+    leeftijdscheck vergelijkt met nu.
+    """
+    import funda_sitemap_zoek as fsz
+    import test_funda_sitemap as ts
+
+    extra.setdefault("nu", lambda: ts.NU)
     echt = fsz.SitemapZoeker
 
     class Z(echt):
@@ -425,6 +524,8 @@ def test_geen_dubbele_detail_calls() -> bool:
     details = {k: {**v, "tiny_id": k} for k, v in ts.DETAILS.items()}
     details["44000099"] = {"global_id": 1099, "tiny_id": "44000099", "title": "Wegstraat 9",
                            "city": "Den Haag", "price": 260000, "living_area": 60, "status": "sold"}
+    # Ingetrokken: het endpoint geeft een 404 (pyfunda: LookupError).
+    details["44000098"] = {"global_id": 1098, "tiny_id": "44000098", "_status": 404}
     vandaag = datetime.now().strftime("%Y-%m-%d")
     url = "https://www.funda.nl/detail/koop"
     tracking = {
@@ -434,6 +535,9 @@ def test_geen_dubbele_detail_calls() -> bool:
         "1003": {"last_seen": vandaag, "url": f"{url}/voorburg/appartement-rodelaan-379/44546400/"},
         # Niet meer in de sitemap, en verkocht.
         "1099": {"last_seen": vandaag, "url": f"{url}/den-haag/appartement-weg-9/44000099/"},
+        # Niet meer in de sitemap, en ingetrokken (404). De pool zelf heeft geen
+        # geslaagde call vóór deze; de zoeker wel, en dat telt als bewijs.
+        "1098": {"last_seen": vandaag, "url": f"{url}/den-haag/appartement-ingetrokken-8/44000098/"},
     }
     per_woning = {k: k for k in details} | {str(v["global_id"]): k for k, v in details.items()}
 
@@ -488,17 +592,19 @@ def test_geen_dubbele_detail_calls() -> bool:
     per1 = Counter(woning(c) for c in r1["calls"])
     ok &= check("run 1 normaal afgerond", r1["code"] is None, str(r1["code"]))
     ok &= check("run 1: elke woning hooguit één call", max(per1.values()) == 1, str(per1))
-    ok &= check("run 1: zoeker 2 verkend, pool 1 achterstand + 1 controle",
-                sorted(per1) == ["44000099", "44546400", "44664520", "80024814"], str(per1))
+    ok &= check("run 1: zoeker 2 verkend, pool 1 achterstand + 2 controle",
+                sorted(per1) == ["44000098", "44000099", "44546400", "44664520", "80024814"], str(per1))
     ok &= check("run 1: rapport met de twee woningen in de doelmarkt",
                 r1["titels"] == ["Draaistraat 4", "Rodelaan 379"], str(r1["titels"]))
     ok &= check("run 1: verkochte woning buiten de sitemap als weg gemarkeerd",
                 bool(r1["tracking"]["1099"].get("weg")), str(r1["tracking"]["1099"]))
+    ok &= check("run 1: ingetrokken woning (404) buiten de sitemap meteen weg",
+                bool(r1["tracking"]["1098"].get("weg")), str(r1["tracking"]["1098"]))
     ok &= check("run 1: woning uit de achterstand vastgelegd in de sitemapcache",
                 "44546400" in json.loads(r1["cache"])["woningen"])
     ok &= check("run 1: telling in de log",
                 "(waarvan dezelfde woning nog eens: 0)" in r1["log"]
-                and "1 niet meer in de sitemap" in r1["log"])
+                and "2 niet meer in de sitemap" in r1["log"])
 
     per2 = Counter(woning(c) for c in r2["calls"])
     ok &= check("run 2 normaal afgerond", r2["code"] is None, str(r2["code"]))
@@ -508,6 +614,102 @@ def test_geen_dubbele_detail_calls() -> bool:
                 "1 op cache overgeslagen" in r2["log"])
     ok &= check("run 2: koop-sitemaps niet opnieuw opgehaald",
                 "koop-sitemaps niet opnieuw opgehaald" in r2["log"])
+    return ok
+
+
+def _sitemaprun(details, tracking=None, *, faal_na=None, budget=2):
+    """Eén volledige main()-run met de echte SitemapZoeker op de fixture."""
+    import funda_sitemap_zoek as fsz
+    import test_funda_sitemap as ts
+
+    calls: list[str] = []
+    fz = maak_stub_funda(lambda _n: [], details=details, calls=calls, faal_na=faal_na)
+    if tracking is not None:
+        fz.TRACKING_FILE.write_text(json.dumps(tracking))
+    oud_budget, fz.SITEMAP_MAX_VERKENNEN = fz.SITEMAP_MAX_VERKENNEN, budget
+    echt, Z = _sitemap_met(ts.StubWeb())
+    oude_sleep = time.sleep
+    gezien = {}
+
+    def rapport(_client, goed, _nieuw):
+        gezien["titels"] = sorted(d.get("title") for d in goed)
+        return Path("rapport.html")
+
+    fz.genereer_rapport = rapport
+    os.environ["FUNDA_ZOEK_METHODE"] = "sitemap"
+    fsz.SitemapZoeker = Z
+    try:
+        time.sleep = lambda _s: None
+        with contextlib.redirect_stdout(io.StringIO()) as uit:
+            try:
+                fz.main()
+                code = None
+            except SystemExit as exc:
+                code = exc.code
+    finally:
+        time.sleep = oude_sleep
+        fsz.SitemapZoeker = echt
+        fz.SITEMAP_MAX_VERKENNEN = oud_budget
+        os.environ["FUNDA_ZOEK_METHODE"] = "api"
+    trk = json.loads(fz.TRACKING_FILE.read_text()) if fz.TRACKING_FILE.exists() else {}
+    return {"code": code, "calls": calls, "titels": gezien.get("titels"), "log": uit.getvalue(),
+            "tracking": trk, "rapport": "titels" in gezien,
+            "cache": fz.SITEMAP_CACHE_FILE.read_text() if fz.SITEMAP_CACHE_FILE.exists() else ""}
+
+
+def test_pool_404_bovenaan() -> bool:
+    """Vijf ingetrokken woningen (404) bovenaan de pool laten de pool niet afbreken.
+
+    Eerder telde een 404 als storing: na vijf brak de pool af ("detail-endpoint
+    lijkt dicht"), en Rodelaan (achterstand, gisteren gezien) kwam niet in het
+    rapport terwijl het endpoint gewoon werkte.
+    """
+    print("test: vijf 404's bovenaan de pool, daarna een woning uit de achterstand")
+    import test_funda_sitemap as ts
+    from datetime import timedelta
+
+    details = {k: {**v, "tiny_id": k} for k, v in ts.DETAILS.items()}
+    vandaag = datetime.now().strftime("%Y-%m-%d")
+    gisteren = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    url = "https://www.funda.nl/detail/koop"
+    tracking = {"1003": {"last_seen": gisteren, "url": f"{url}/voorburg/appartement-rodelaan-379/44546400/"}}
+    for i in range(5):
+        details[f"4400009{i}"] = {"_status": 404}
+        tracking[f"109{i}"] = {"last_seen": vandaag, "url": f"{url}/den-haag/appartement-weg-{i}/4400009{i}/"}
+    r = _sitemaprun(details, tracking)
+    ok = check("geen afbreking", r["code"] is None and "lijkt dicht" not in r["log"], str(r["code"]))
+    ok &= check("Rodelaan uit de achterstand staat in het rapport",
+                r["titels"] == ["Draaistraat 4", "Rodelaan 379"], str(r["titels"]))
+    ok &= check("de vijf ingetrokken woningen zijn weg",
+                all(r["tracking"][f"109{i}"].get("weg") for i in range(5)))
+
+    # Volgende run: de vijf kosten geen call meer.
+    r2 = _sitemaprun(details, r["tracking"])
+    ok &= check("volgende run: geen call meer voor de ingetrokken woningen",
+                not any("4400009" in c for c in r2["calls"]), str(r2["calls"]))
+    return ok
+
+
+def test_endpoint_halverwege_dicht() -> bool:
+    """Het detail-endpoint gaat tijdens de run dicht: exit 2, geen (half) rapport.
+
+    pyfunda maakt van een 403 halverwege een LookupError; de Funda-subklasse
+    herkent de status. Bij fouten zonder status (time-outs) telt de pool door
+    vanaf de zoeker, en een run die op fouten eindigt, publiceert niets.
+    """
+    print("test: detail-endpoint gaat halverwege de run dicht")
+    import test_funda_sitemap as ts
+
+    details = {k: {**v, "tiny_id": k} for k, v in ts.DETAILS.items()}
+    ok = True
+    for naam, faal_na in (("403 na één call", (1, 403)), ("429 na één call", (1, 429)),
+                          ("time-outs na één call", (1, None))):
+        r = _sitemaprun(details, {}, faal_na=faal_na, budget=200)
+        ok &= check(f"{naam}: exit 2", r["code"] == 2, str(r["code"]))
+        ok &= check(f"{naam}: geen rapport", not r["rapport"])
+        ok &= check(f"{naam}: ::error in de log", "::error::" in r["log"], r["log"][-300:])
+        ok &= check(f"{naam}: geslaagde verkenning bewaard",
+                    "80024814" in (json.loads(r["cache"] or "{}").get("woningen") or {}))
     return ok
 
 
@@ -567,7 +769,7 @@ def test_instellingen() -> bool:
     return ok
 
 
-VINGERAFDRUK_PROEF = r"""
+EERLIJK_PROEF = r"""
 import json, sys
 sys.path.insert(0, sys.argv[1])
 import funda.funda as pf
@@ -575,65 +777,115 @@ import funda_zoek as fz
 
 uit = {"pool_lengte": len(pf.FINGERPRINT_POOL)}
 getest = []
+pf.Funda._test_fingerprint = lambda self, fp: getest.append(fp) or True
 
-def nep_test(self, fp):
-    getest.append(pf.FINGERPRINT_POOL.index(fp))
-    return MODUS["eerste_werkt"] or getest[-1] > 0
 
-MODUS = {"eerste_werkt": False}
-pf.Funda._test_fingerprint = nep_test
+class Antwoord:
+    def __init__(self, status):
+        self.status_code = status
+        self._data = ({"Identifiers": {"GlobalId": 7654321, "TinyId": "43117443"},
+                       "AddressDetails": {"Title": "Teststraat 1", "City": "Den Haag"}}
+                      if status == 200 else {})
+        self.text = json.dumps(self._data)
+        self.headers = {}
 
-# Ongepatcht pyfunda: wisselt stil door naar de volgende vingerafdruk.
-gewoon = pf.Funda()
-uit["ongepatcht"] = pf.FINGERPRINT_POOL.index(gewoon._find_working_fingerprint())
-getest.clear()
+    def json(self):
+        return self._data
 
-# Gepatcht: alleen de eerste, en bij weigering een duidelijke fout.
+
+class Sessie:
+    def __init__(self, statussen):
+        self.statussen = list(statussen)
+        self.verzoeken = []
+
+    def request(self, methode, url, **kw):
+        self.verzoeken.append({"methode": methode, "url": url,
+                               **{k: v for k, v in kw.items() if k != "json"}})
+        return Antwoord(self.statussen.pop(0))
+
+
+def probeer(statussen):
+    f = fz.Funda()
+    f._eerlijke_sessie = Sessie(statussen)
+    try:
+        listing = f.get_listing("https://www.funda.nl/detail/koop/den-haag/appartement-teststraat-1/43117443/")
+        uitkomst = ["ok", listing.data.get("title")]
+    except Exception as exc:
+        uitkomst = [type(exc).__name__, [c.__name__ for c in type(exc).__mro__]]
+    return uitkomst, f._eerlijke_sessie.verzoeken
+
+
+uit["ok"], verzoeken = probeer([200])
+uit["headers"] = verzoeken[0]["headers"]
+uit["argumenten"] = sorted(verzoeken[0])
+uit["host"] = verzoeken[0]["url"].split("/")[2]
+for status in (403, 429, 401, 500):
+    uit[str(status)], _ = probeer([status])
+uit["404"], v404 = probeer([404, 404])
+uit["n404"] = len(v404)
+uit["getest"] = len(getest)
+
 f = fz.Funda()
+f._eerlijke_sessie = Sessie([401])
 try:
-    f.get_listing(43117443)
-    uit["fout"] = None
+    f.search_listing(location="2511cv", page=0)
 except Exception as exc:
-    uit["fout"] = [type(exc).__name__, str(exc)]
-uit["getest_na_eerste"] = list(getest)
+    uit["zoek_fout"] = type(exc).__name__
+zoek = f._eerlijke_sessie.verzoeken[0]
+uit["zoek_headers"] = zoek["headers"]
+uit["zoek_template_nieuw"] = "search_result_20260227" in str(zoek.get("data", ""))
 try:
-    f.get_listing(43117443)
-except Exception as exc:
-    uit["tweede_fout"] = type(exc).__name__
-uit["getest_na_tweede"] = list(getest)
-
-MODUS["eerste_werkt"] = True
-getest.clear()
-g = fz.Funda()
-g._ensure_session()
-uit["werkend"] = pf.FINGERPRINT_POOL.index(g._fingerprint)
-uit["getest_werkend"] = list(getest)
-print(json.dumps(uit))
+    fz.Funda()._find_working_fingerprint()
+    uit["zoekt_vingerafdruk"] = True
+except RuntimeError:
+    uit["zoekt_vingerafdruk"] = False
+print(json.dumps(uit, default=str))
 """
 
 
-def test_vaste_vingerafdruk() -> bool:
-    """Stap d: alleen FINGERPRINT_POOL[0], tegen het echte pyfunda (zonder netwerk)."""
-    print("test: vaste pyfunda-vingerafdruk")
+def test_eerlijke_client() -> bool:
+    """Eén gewone client: geen app-vingerafdruk, geen app-headers, eigen user-agent.
+
+    Tegen het echte pyfunda (zonder netwerk: de sessie is nep). pyfunda doet zich
+    zelf voor als funda's Android-app en wisselt bij een weigering van
+    vingerafdruk; de subklasse in funda_zoek.py doet geen van beide, en vertaalt
+    pyfunda's LookupError naar de status die het endpoint gaf.
+    """
+    print("test: eerlijke client en statuscodes (tegen het echte pyfunda)")
     hier = str(Path(__file__).parent.resolve())
-    proces = subprocess.run([sys.executable, "-c", VINGERAFDRUK_PROEF, hier],
+    proces = subprocess.run([sys.executable, "-c", EERLIJK_PROEF, hier],
                             capture_output=True, text=True, cwd=hier, timeout=120)
     regels = [r for r in proces.stdout.splitlines() if r.startswith("{")]
     if proces.returncode != 0 or not regels:
         return check("proef draait", False, (proces.stderr or proces.stdout)[-400:])
     uit = json.loads(regels[-1])
-    ok = check("pyfunda heeft meerdere vingerafdrukken", uit["pool_lengte"] > 1)
-    ok &= check("ongepatcht pyfunda wisselt stil door", uit["ongepatcht"] == 1, str(uit["ongepatcht"]))
-    fout = uit.get("fout") or ["", ""]
-    ok &= check("gepatcht: RuntimeError met uitleg",
-                fout[0] == "RuntimeError" and "vaste vingerafdruk" in fout[1]
-                and "omzeilen" in fout[1], str(fout))
-    ok &= check("gepatcht: alleen de eerste geprobeerd", uit["getest_na_eerste"] == [0],
-                str(uit["getest_na_eerste"]))
-    ok &= check("tweede call probeert niet opnieuw",
-                uit.get("tweede_fout") == "RuntimeError" and uit["getest_na_tweede"] == [0],
-                str(uit["getest_na_tweede"]))
-    ok &= check("werkt de eerste, dan die", uit["werkend"] == 0 and uit["getest_werkend"] == [0])
+    headers = {k.lower(): v for k, v in uit["headers"].items()}
+    ok = check("detail-call slaagt", uit["ok"] == ["ok", "Teststraat 1"], str(uit["ok"]))
+    ok &= check("eigen user-agent, geen app-UA",
+                headers.get("user-agent", "").startswith("funda-dagelijkse-check/")
+                and "dart" not in headers.get("user-agent", "").lower(), str(headers))
+    ok &= check("geen app- of traceheaders",
+                not any(h.startswith(("x-funda", "x-datadog", "traceparent", "tracestate"))
+                        for h in headers), str(sorted(headers)))
+    ok &= check("geen impersonate of JA3 bij het verzoek",
+                not {"impersonate", "ja3", "akamai", "extra_fp"} & set(uit["argumenten"]),
+                str(uit["argumenten"]))
+    ok &= check("naar het detail-endpoint", uit["host"] == "listing-detail-page.funda.io", uit["host"])
+    ok &= check("nooit een vingerafdruk getest of gezocht",
+                uit["getest"] == 0 and uit["zoekt_vingerafdruk"] is False)
+    for status in ("403", "429", "401"):
+        ok &= check(f"{status}: DetailEndpointDicht (een RuntimeError)",
+                    uit[status][0] == "DetailEndpointDicht" and "RuntimeError" in uit[status][1],
+                    str(uit[status]))
+    ok &= check("404: WoningNietGevonden (een LookupError), na pyfunda's tweede poging",
+                uit["404"][0] == "WoningNietGevonden" and "LookupError" in uit["404"][1]
+                and uit["n404"] == 2, str(uit["404"]))
+    ok &= check("500: gewone LookupError (telt als storing)", uit["500"][0] == "LookupError",
+                str(uit["500"]))
+    zoek = {k.lower(): v for k, v in uit["zoek_headers"].items()}
+    ok &= check("zoek-API: zelfde eerlijke client, met de gepatchte template",
+                zoek.get("user-agent", "").startswith("funda-dagelijkse-check/")
+                and "referer" not in zoek and uit["zoek_template_nieuw"], str(zoek))
     return ok
 
 
@@ -832,20 +1084,82 @@ def test_pool() -> bool:
     ok &= check("detail-call gecacht voor de rest van de run",
                 zoeker.get_listing(1000001) is not None and client.calls.count(1000001) == 1)
 
-    # Storing: alles faalt. Dan mag er niets als weg gemarkeerd worden, ook niet
-    # bij een woning die al twee mislukkingen had.
+    # Storing: alles faalt. Dan stoppen (main() maakt er exit 2 van), en mag er
+    # niets als weg gemarkeerd worden, ook niet bij een woning die al twee
+    # mislukkingen had.
     class Dicht:
+        def __init__(self):
+            self.calls = 0
+
         def get_listing(self, ident):
-            raise LookupError("403")
+            self.calls += 1
+            raise LookupError("time-out")
 
     tracking2 = {str(1000100 + i): {"last_seen": vandaag, "pool_fout": 2} for i in range(8)}
-    res2 = fz.controleer_pool(fz.DetailCacheZoeker(Dicht()), tracking2, set(),
-                              dagen=120, maximum=50, pauze=0)
-    ok &= check("storing: niets terug", res2 == [])
+    dicht = Dicht()
+    try:
+        fz.controleer_pool(fz.DetailCacheZoeker(dicht), tracking2, set(), dagen=120, maximum=50, pauze=0)
+        ok &= check("storing: DetailEndpointDicht", False)
+    except fz.DetailEndpointDicht:
+        ok &= check("storing: DetailEndpointDicht na vijf calls op rij", dicht.calls == 5, str(dicht.calls))
     ok &= check("storing: niets als weg gemarkeerd",
                 not any(r.get("weg") for r in tracking2.values()))
     ok &= check("storing: teller niet opgehoogd",
                 all(r.get("pool_fout") == 2 for r in tracking2.values()))
+
+    # Een geweigerde client (403/429): meteen stoppen.
+    class Weigert:
+        def __init__(self):
+            self.calls = 0
+
+        def get_listing(self, ident):
+            self.calls += 1
+            raise fz.DetailEndpointDicht("status 403")
+
+    weigert = Weigert()
+    try:
+        fz.controleer_pool(fz.DetailCacheZoeker(weigert), dict(tracking2), set(),
+                           dagen=120, maximum=50, pauze=0)
+        ok &= check("weigering: meteen stoppen", False)
+    except fz.DetailEndpointDicht:
+        ok &= check("weigering: meteen stoppen", weigert.calls == 1, str(weigert.calls))
+
+    # Nette 404's (WoningNietGevonden): het endpoint werkt, dus geen storing,
+    # ook niet als het er meer dan vijf op rij zijn.
+    class Weg:
+        def get_listing(self, ident):
+            raise fz.WoningNietGevonden(f"Listing {ident} niet gevonden (status [404])")
+
+    tracking3 = {str(1000200 + i): {"last_seen": vandaag, "pool_fout": 2} for i in range(7)}
+    res3 = fz.controleer_pool(fz.DetailCacheZoeker(Weg()), tracking3, set(),
+                              dagen=120, maximum=50, pauze=0)
+    ok &= check("zeven 404's: geen afbreking, niets terug", res3 == [])
+    ok &= check("zeven 404's: derde keer niet gevonden = weg",
+                all(r.get("weg") for r in tracking3.values()))
+
+    # De run eindigt met mislukte calls (endpoint ging net dicht): stoppen, en
+    # niets als weg markeren, ook niet wat eerder in de run mislukte.
+    class EindDicht:
+        def __init__(self):
+            self.n = 0
+
+        def get_listing(self, ident):
+            self.n += 1
+            if self.n == 1:
+                raise fz.WoningNietGevonden("niet gevonden")
+            if self.n == 2:
+                return StubListing({"global_id": ident, "status": "available"})
+            raise LookupError("time-out")
+
+    tracking4 = {str(1000300 + i): {"last_seen": vandaag, "pool_fout": 2} for i in range(4)}
+    try:
+        fz.controleer_pool(fz.DetailCacheZoeker(EindDicht()), tracking4, set(),
+                           dagen=120, maximum=50, pauze=0)
+        ok &= check("eindigt met storing: stoppen", False)
+    except fz.DetailEndpointDicht as exc:
+        ok &= check("eindigt met storing: stoppen", "laatste 2" in str(exc), str(exc))
+    ok &= check("eindigt met storing: niets als weg gemarkeerd",
+                not any(r.get("weg") for r in tracking4.values()))
     return ok
 
 
@@ -896,11 +1210,12 @@ def test_pool_in_run() -> bool:
 
 def main() -> int:
     resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(), test_prijs_onbekend(),
-                  test_auto_keten(), test_stadfilter(),
+                  test_prijs_onbekend_rapport(), test_auto_keten(), test_stadfilter(),
                   test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),
-                  test_geen_dubbele_detail_calls(), test_sitemap_overslaan(), test_instellingen(),
-                  test_vaste_vingerafdruk()]
+                  test_geen_dubbele_detail_calls(), test_pool_404_bovenaan(),
+                  test_endpoint_halverwege_dicht(), test_sitemap_overslaan(), test_instellingen(),
+                  test_eerlijke_client()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")
