@@ -727,6 +727,44 @@ def test_detail_halverwege() -> bool:
         ok &= check("acht 404's op rij na twee successen: geen fout, alle calls gedaan",
                     len(r) == 2 and len(client.calls) == 10
                     and z.statistiek["detail_op_rij_mislukt"] == 0, f"{len(r)} {len(client.calls)}")
+        # Time-outs met 404's ertussen: elke 404 is een antwoord en beëindigt de
+        # reeks storingen. Vijf time-outs die alleen door 404's gescheiden zijn,
+        # zijn dus geen "5 op rij" (Codex-review PR #13).
+        class Script(StubClient):
+            def __init__(self, uitkomsten):
+                super().__init__(details)
+                self.uitkomsten = uitkomsten
+
+            def get_listing(self, ident):
+                i = len(self.calls)
+                uitkomst = self.uitkomsten[i] if i < len(self.uitkomsten) else "ok"
+                if uitkomst == "timeout":
+                    self.calls.append(str(ident))
+                    raise LookupError("time-out")
+                if uitkomst == "404":
+                    self.calls.append(str(ident))
+                    raise WoningNietGevonden("Listing x niet gevonden (status [404])")
+                return super().get_listing(ident)
+
+        client = Script(["timeout", "404"] * 5)
+        z = zoeker(web, client, steden=["den-haag"])
+        try:
+            z.search_listing()
+            ok &= check("vijf time-outs met 404's ertussen: geen 'dicht'", True)
+        except DetailEndpointDicht as exc:
+            ok &= check("vijf time-outs met 404's ertussen: geen 'dicht'", False, str(exc))
+        ok &= check("na een laatste 404 staat de reeks op 0",
+                    z.statistiek.get("detail_op_rij_mislukt") == 0,
+                    str(z.statistiek.get("detail_op_rij_mislukt")))
+
+        # Succes, time-out, en dan alleen 404's: de reeks eindigt op 0, zodat de
+        # pool (die doortelt vanaf de zoeker) de run niet laat falen.
+        client = Script(["ok", "timeout"] + ["404"] * 8)
+        z = zoeker(web, client, steden=["den-haag"])
+        z.search_listing()
+        ok &= check("succes, time-out, 404's: reeks op 0",
+                    z.statistiek.get("detail_op_rij_mislukt") == 0,
+                    str(z.statistiek.get("detail_op_rij_mislukt")))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

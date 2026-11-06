@@ -68,8 +68,18 @@ def main() -> int:
     fz.PRIJS_MIN, fz.PRIJS_MAX, fz.M2_MIN = PRIJS_MIN, PRIJS_MAX, M2_MIN
     fz.genereer_rapport = None  # geen rapport, dus ook geen nominatim/OSRM-calls
 
+    # Alle state naar een tijdelijke map: een validatie mag de echte seen-ids,
+    # tracking en run-samenvatting niet aanraken. Anders telt een woning hierna
+    # als "al gezien" zonder dat er ooit een rapport of melding over kwam.
+    tmp = Path(tempfile.mkdtemp())
+    fz.STATE_FILE = tmp / "funda_seen_ids.json"
+    fz.TRACKING_FILE = tmp / "funda_tracking.json"
+    fz.SUMMARY_FILE = tmp / "funda_run_summary.json"
+    fz.LOG_FILE = tmp / "funda_log.txt"
+    fz.THUIS_CACHE = tmp / "funda_thuis_coords.json"
+
     client = fz.Funda()
-    cache = Path(tempfile.mkdtemp()) / "funda_sitemap_cache.json"
+    cache = tmp / "funda_sitemap_cache.json"
     def maak(max_verkennen: int) -> SitemapZoeker:
         return SitemapZoeker(
             client, steden=("den-haag", "voorburg"), prijs_min=PRIJS_MIN, prijs_max=PRIJS_MAX,

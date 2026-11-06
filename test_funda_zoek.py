@@ -704,6 +704,36 @@ def test_pool_404_bovenaan() -> bool:
     return ok
 
 
+def test_pool_404_beeindigt_reeks() -> bool:
+    """In de pool beëindigt een 404 een reeks storingen (Codex-review PR #13).
+
+    Eerder telde de pool time-outs met 404's ertussen door: vijf time-outs,
+    alleen gescheiden door ingetrokken woningen, gaven "detail-endpoint lijkt
+    dicht" en exit 2, terwijl het endpoint gewoon antwoordde.
+    """
+    print("test: pool, time-outs afgewisseld met 404's")
+    import test_funda_sitemap as ts
+    from datetime import timedelta
+
+    details = {k: {**v, "tiny_id": k} for k, v in ts.DETAILS.items()}
+    url = "https://www.funda.nl/detail/koop"
+    gisteren = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    tracking = {"1003": {"last_seen": gisteren, "url": f"{url}/voorburg/appartement-rodelaan-379/44546400/"}}
+    # Tien getrackte woningen buiten de sitemap, oudste laatst: om en om een
+    # storing (500, zoals een time-out) en een 404, eindigend op een 404.
+    for i in range(10):
+        tiny = f"4400008{i}"
+        details[tiny] = {"_status": 500 if i % 2 == 0 else 404}
+        dag = (datetime.now() - timedelta(days=2 + i)).strftime("%Y-%m-%d")
+        tracking[f"108{i}"] = {"last_seen": dag, "url": f"{url}/den-haag/appartement-reeks-{i}/{tiny}/"}
+    r = _sitemaprun(details, tracking)
+    ok = check("geen 'lijkt dicht' en geen exit 2", r["code"] is None and "lijkt dicht" not in r["log"],
+               f"{r['code']}")
+    ok &= check("Rodelaan staat gewoon in het rapport", "Rodelaan 379" in (r["titels"] or []),
+                str(r["titels"]))
+    return ok
+
+
 def test_endpoint_halverwege_dicht() -> bool:
     """Het detail-endpoint gaat tijdens de run dicht: exit 2, geen (half) rapport.
 
@@ -1310,7 +1340,7 @@ def main() -> int:
                   test_prijs_onbekend_rapport(), test_auto_keten(), test_stadfilter(),
                   test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),
-                  test_geen_dubbele_detail_calls(), test_pool_404_bovenaan(),
+                  test_geen_dubbele_detail_calls(), test_pool_404_bovenaan(), test_pool_404_beeindigt_reeks(),
                   test_endpoint_halverwege_dicht(), test_sitemap_overslaan(), test_instellingen(),
                   test_eerlijke_client(), test_auto_push_alleen_docs()]
     print()

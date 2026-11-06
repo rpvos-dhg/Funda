@@ -208,7 +208,9 @@ Actions-cache, niet in de repo.
   - **Detail-endpoint dicht, ook halverwege** (`DetailEndpointDicht`, exit 2):
     meteen bij 401/403/429, en bij `DICHT_NA` (5) mislukte calls op rij, ook na
     eerdere successen. Een nette 404 telt daar niet in mee (een antwoord van een
-    werkend endpoint; de e2e zag er 1 per 200). De pool telt door vanaf de
+    werkend endpoint; de e2e zag er 1 per 200) en zet de reeks terug op 0, in
+    de zoeker en in de pool (Codex-review PR #13: time-outs met 404's ertussen
+    telden anders door tot 5). De pool telt door vanaf de
     laatste calls van de zoeker, en **eindigt de run met mislukte calls, dan
     ook exit 2**: misschien ging het endpoint net dicht. Zonder dit liep de run
     door, vielen de ververste woningen weg en bleef dat halve rapport staan
