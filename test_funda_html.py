@@ -145,8 +145,8 @@ def test_url() -> bool:
     ok &= check("paginering", "search_result=2" in url)
     ok &= check("beschikbaarheid standaard", "availability" in url)
 
-    kaal = bouw_zoek_url(gebied="2596EC")
-    ok &= check("postcode lowercase, geen straal", "2596ec" in kaal and "km" not in kaal, kaal)
+    kaal = bouw_zoek_url(gebied="2513AA")
+    ok &= check("postcode lowercase, geen straal", "2513aa" in kaal and "km" not in kaal, kaal)
     ok &= check("pagina 1 zonder search_result", "search_result" not in kaal)
     return ok
 
@@ -164,8 +164,8 @@ def test_straal() -> bool:
     ok &= check("100 -> 50", snap_straal(100) == 50, str(snap_straal(100)))
     ok &= check("5 blijft 5", snap_straal(5) == 5)
 
-    url = bouw_zoek_url(gebied="2596EC", radius_km=6)
-    ok &= check("URL gebruikt gesnapte straal", "2596ec%2C5km" in url, url)
+    url = bouw_zoek_url(gebied="2513AA", radius_km=6)
+    ok &= check("URL gebruikt gesnapte straal", "2513aa%2C5km" in url, url)
     ok &= check("geen 6km in URL", "6km" not in url)
     return ok
 

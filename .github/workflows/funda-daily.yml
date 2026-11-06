@@ -13,7 +13,15 @@ on:
     # (vroege aanmeldingen net verwerkt) en eind van de middag (net voor de piek).
     - cron: "30 8 * * *"    # 10:30 NL (zomertijd) / 09:30 (wintertijd)
     - cron: "30 16 * * *"   # 18:30 NL (zomertijd) / 17:30 (wintertijd)
-  workflow_dispatch: {}   # knop om handmatig te draaien
+  workflow_dispatch:      # knop om handmatig te draaien
+    inputs:
+      sitemap_max_verkennen:
+        description: >-
+          Sitemaproute: verkennende detail-calls deze run (leeg = standaard 200).
+          Eenmalig hooguit 600 (plafond in de code) om de opstartachterstand
+          sneller weg te werken.
+        required: false
+        default: ""
 
 # Voorkom dat twee runs tegelijk de repo pushen.
 concurrency:
@@ -26,6 +34,10 @@ permissions:
 jobs:
   rapport:
     runs-on: ubuntu-latest
+    # Normaal ~5 minuten (inclusief 90 s wachten op Pages). Een hangend
+    # detail-endpoint stopt de run zelf al (time-outs tellen als storing, en het
+    # verkennen heeft een tijdsbudget); dit is het vangnet daarachter.
+    timeout-minutes: 45
     steps:
       - name: Checkout repo
         uses: actions/checkout@v6
@@ -50,7 +62,9 @@ jobs:
             funda_seen_ids.json
             funda_tracking.json
             funda_werk_coords.json
+            funda_thuis_coords.json
             funda_enrichment_cache.json
+            funda_sitemap_cache.json
             funda_blacklist.json
           key: funda-state-${{ github.run_id }}
           restore-keys: |
@@ -85,11 +99,11 @@ jobs:
         env:
           FUNDA_REQUIRE_ENCRYPTION: "1"   # weiger onversleuteld te publiceren
           WEB_PUSH_PUBLIC_KEY: ${{ secrets.WEB_PUSH_PUBLIC_KEY }}
-          # Mailroute: nodig zolang funda de runner blokkeert. Zonder deze twee
-          # slaat 'auto' de mailroute over en faalt de run luid op de echte
-          # oorzaak, dus ze mogen ontbreken.
-          FUNDA_MAIL_USER: ${{ secrets.FUNDA_MAIL_USER }}
-          FUNDA_MAIL_PASSWORD: ${{ secrets.FUNDA_MAIL_PASSWORD }}
+          # Zoekbron: 'auto' (api -> html -> sitemap); op Actions werkt de
+          # sitemaproute. Geen mail-secrets meer: de mailroute zit niet in 'auto'
+          # en draait alleen bij een expliciete zoek_methode 'mail' (zie CLAUDE.md).
+          # Leeg bij geplande runs; dan geldt de standaard (200 of de config).
+          FUNDA_SITEMAP_MAX_VERKENNEN: ${{ inputs.sitemap_max_verkennen }}
         run: python funda_zoek.py --no-push --no-open
 
       # Geheimen meteen wissen na generatie, voordat we iets committen of cachen.
@@ -97,14 +111,11 @@ jobs:
         if: always()
         run: rm -f funda_personal.json funda_pwa_password.txt
 
-      # Ging de run stuk (bijv. alle zoekopdrachten 401)? Dan meteen de rauwe
-      # API-antwoorden loggen, zodat de oorzaak in dezelfde run zichtbaar is en
-      # niet pas na handmatig naspeuren. Gebruikt geen secrets.
-      - name: API-probe bij mislukte run
-        if: failure()
-        run: |
-          python scripts/funda_api_debug.py
-          python scripts/funda_html_validatie.py
+      # Geen automatische probe meer bij een mislukte run. Die deed extra
+      # verzoeken met andere profielen tegen een endpoint dat net weigerde, twee
+      # keer per dag zolang het stuk was; dat is "nog eens proberen" en hoort
+      # niet bij een lage belasting. De ::error van de run zelf noemt de oorzaak;
+      # verder diagnosticeren gaat met de handmatige workflow "Funda API debug".
 
       - name: Versleuteld rapport publiceren
         run: |
@@ -146,6 +157,8 @@ jobs:
             funda_seen_ids.json
             funda_tracking.json
             funda_werk_coords.json
+            funda_thuis_coords.json
             funda_enrichment_cache.json
+            funda_sitemap_cache.json
             funda_blacklist.json
           key: funda-state-${{ github.run_id }}
