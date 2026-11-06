@@ -111,8 +111,15 @@ Actions-cache, niet in de repo.
     funda-dagelijkse-check/1.0 (+https://github.com/rpvos-dhg/Funda)`
     (`EERLIJKE_UA`), geen app- of traceheaders. Er wordt nooit een vingerafdruk
     gezocht. **Gemeten op 6 nov 2026**: zo'n client (Python-TLS, eigen UA, geen
-    app-headers) krijgt van het detail-endpoint gewoon 200 met JSON (vanaf een
-    sandbox; vanaf Actions zie de e2e). Weigert het endpoint de eerlijke client
+    app-headers) krijgt van het detail-endpoint gewoon 200 met JSON, eerst vanaf
+    een sandbox en daarna vanaf Actions in e2e-run
+    [42281508702](https://github.com/rpvos-dhg/Funda/actions/runs/42281508702):
+    twee runs in `auto`, 200 en 208 detail-calls, alleen nette 404's als fout
+    (1 en 2, `[404, 404]`: pyfunda probeert tinyId en daarna globalId), 0
+    dubbele calls, 153 s en 146 s (was 167 s en 154 s met de app-vermomming),
+    zelfde aantallen als de e2e daarvoor. De zoek-API geeft met deze client geen
+    401 maar een `HTTP/2 stream reset by server`; `auto` gaat dan net zo door
+    naar de volgende bron. Weigert het endpoint de eerlijke client
     ooit, dan is dat een 401/403 en faalt de run luid; niet terugzetten naar de
     app-vermomming zonder dat de gebruiker daar bewust voor kiest. Vastgepind in
     `test_funda_zoek.py::test_eerlijke_client` (tegen het echte pyfunda, met een
