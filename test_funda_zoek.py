@@ -57,6 +57,10 @@ def maak_stub_funda(zoek_gedrag):
     fz.TRACKING_FILE = SCRATCH / "tracking.json"
     fz.SUMMARY_FILE = SCRATCH / "summary.json"
     fz.BLACKLIST_FILE = SCRATCH / "blacklist.json"
+    fz.THUIS_CACHE = SCRATCH / "thuis.json"
+    # Geen Nominatim in offline tests: zonder thuiscoördinaten slaat het
+    # afstandsfilter over. Tests die het filter willen, zetten dit zelf.
+    fz._THUIS["v"] = None
     for p in (fz.STATE_FILE, fz.TRACKING_FILE):
         p.unlink(missing_ok=True)
     return fz
@@ -282,10 +286,185 @@ def test_woningtypefilter() -> bool:
     return ok
 
 
+def test_zoekcriteria() -> bool:
+    """Prijs, m2 en straal als nafilter: wat funda vroeger in de zoekopdracht deed."""
+    print("test: nafilter op prijs, oppervlak en straal")
+    fz = maak_stub_funda(lambda _n: [])
+    fz.PRIJS_MIN, fz.PRIJS_MAX, fz.M2_MIN = 230_000, 310_000, 55
+    thuis = (52.0800, 4.3000)
+    ok = True
+
+    def reden(**velden):
+        return fz.buiten_zoekcriteria(velden, thuis, 5.0)
+
+    ok &= check("binnen alles komt door",
+                reden(price=280_000, living_area=70, latitude=52.09, longitude=4.30) is None)
+    ok &= check("te duur valt af", reden(price=325_000) is not None)
+    ok &= check("te goedkoop valt af", reden(price=199_000) is not None)
+    ok &= check("te klein valt af", reden(price=280_000, living_area=48) is not None)
+    # ~11 km naar het zuiden: buiten 5 km.
+    ok &= check("ver weg valt af",
+                reden(price=280_000, latitude=51.98, longitude=4.30) is not None,
+                str(reden(price=280_000, latitude=51.98, longitude=4.30)))
+    # Onbekend is geen reden om weg te gooien.
+    ok &= check("zonder prijs/m2/coördinaten komt door", reden() is None)
+    ok &= check("zonder thuiscoördinaten geen afstandsfilter",
+                fz.buiten_zoekcriteria({"latitude": 51.0, "longitude": 4.0}, None, 5.0) is None)
+    ok &= check("straal uit = geen afstandsfilter",
+                fz.buiten_zoekcriteria({"latitude": 51.0, "longitude": 4.0}, thuis, None) is None)
+
+    # Standaardstraal: de ingestelde afgerond zoals funda dat deed (6 -> 5).
+    fz.STRAAL_NAFILTER_KM, fz.RADIUS_KM = None, 6
+    ok &= check("standaardstraal 6 wordt 5", fz.nafilter_straal_km() == 5.0,
+                str(fz.nafilter_straal_km()))
+    fz.STRAAL_NAFILTER_KM = 0
+    ok &= check("straal_nafilter_km 0 zet hem uit", fz.nafilter_straal_km() is None)
+    fz.STRAAL_NAFILTER_KM = 7
+    ok &= check("expliciete straal wint", fz.nafilter_straal_km() == 7.0)
+    return ok
+
+
+def test_beschikbaarheid() -> bool:
+    print("test: beschikbaarheid uit de detail-API")
+    fz = maak_stub_funda(lambda _n: [])
+    ok = True
+
+    def oordeel(status=None, kenmerk=None):
+        d = {"status": status}
+        if kenmerk is not None:
+            d["characteristics"] = {"Status": kenmerk}
+        return fz.beschikbaarheid(d)[0]
+
+    ok &= check("niets bekend = beschikbaar", oordeel() == "ja")
+    ok &= check("Beschikbaar", oordeel("available", "Beschikbaar") == "ja")
+    ok &= check("sold = weg", oordeel("sold") == "weg")
+    ok &= check("Verkocht onder voorbehoud = weg",
+                oordeel("available", "Verkocht onder voorbehoud") == "weg")
+    ok &= check("Onder bod = tijdelijk", oordeel("available", "Onder bod") == "tijdelijk")
+    ok &= check("Onder optie = tijdelijk", oordeel("available", "Onder optie") == "tijdelijk")
+    ok &= check("onbekende statustekst = beschikbaar",
+                oordeel("available", "Iets nieuws") == "ja")
+    return ok
+
+
+def test_pool() -> bool:
+    """Bekende woningen blijven in beeld zolang ze te koop staan."""
+    print("test: pool met bekende woningen")
+    fz = maak_stub_funda(lambda _n: [])
+    from datetime import datetime, timedelta
+
+    vandaag = datetime.now().strftime("%Y-%m-%d")
+    oud = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
+
+    antwoorden = {
+        1000001: {"global_id": 1000001, "status": "available",
+                  "characteristics": {"Status": "Beschikbaar"}, "url": "https://www.funda.nl/a/"},
+        1000002: {"global_id": 1000002, "status": "sold"},
+        1000003: {"global_id": 1000003, "status": "available",
+                  "characteristics": {"Status": "Onder bod"}},
+    }
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def get_listing(self, ident):
+            self.calls.append(ident)
+            if ident in antwoorden:
+                return StubListing(dict(antwoorden[ident]))
+            raise LookupError(f"Listing {ident} not found")
+
+    tracking = {
+        "1000001": {"last_seen": vandaag},
+        "1000002": {"last_seen": vandaag},
+        "1000003": {"last_seen": vandaag},
+        "1000004": {"last_seen": vandaag, "pool_fout": 2},   # derde mislukking
+        "1000005": {"last_seen": oud},                       # buiten het venster
+        "1000006": {"last_seen": vandaag},                   # al binnen via mail
+        "1000007": {"last_seen": vandaag, "weg": {"datum": oud}},
+    }
+    client = Client()
+    zoeker = fz.DetailCacheZoeker(client)
+    res = fz.controleer_pool(zoeker, tracking, {"1000006"}, dagen=120, maximum=50, pauze=0)
+    ids = [r.data.get("global_id") for r in res]
+    ok = check("alleen de beschikbare komt terug", ids == [1000001], str(ids))
+    ok &= check("bron is pool", res and res[0].data.get("_bron") == "pool")
+    ok &= check("verkocht wordt gemarkeerd", bool(tracking["1000002"].get("weg")))
+    ok &= check("onder bod blijft gevolgd", not tracking["1000003"].get("weg"))
+    ok &= check("derde mislukking = weg", bool(tracking["1000004"].get("weg")))
+    ok &= check("buiten venster niet opgevraagd", 1000005 not in client.calls)
+    ok &= check("al binnen niet opgevraagd", 1000006 not in client.calls)
+    ok &= check("al weg niet opgevraagd", 1000007 not in client.calls)
+    ok &= check("detail-call gecacht voor de rest van de run",
+                zoeker.get_listing(1000001) is not None and client.calls.count(1000001) == 1)
+
+    # Storing: alles faalt. Dan mag er niets als weg gemarkeerd worden, ook niet
+    # bij een woning die al twee mislukkingen had.
+    class Dicht:
+        def get_listing(self, ident):
+            raise LookupError("403")
+
+    tracking2 = {str(1000100 + i): {"last_seen": vandaag, "pool_fout": 2} for i in range(8)}
+    res2 = fz.controleer_pool(fz.DetailCacheZoeker(Dicht()), tracking2, set(),
+                              dagen=120, maximum=50, pauze=0)
+    ok &= check("storing: niets terug", res2 == [])
+    ok &= check("storing: niets als weg gemarkeerd",
+                not any(r.get("weg") for r in tracking2.values()))
+    ok &= check("storing: teller niet opgehoogd",
+                all(r.get("pool_fout") == 2 for r in tracking2.values()))
+    return ok
+
+
+def test_pool_in_run() -> bool:
+    """Een bekende woning die niet in de mail zit, staat toch in het rapport."""
+    print("test: pool in een volledige run")
+
+    def gedrag(n):
+        if n == 1:
+            return [StubListing({
+                "global_id": "g1", "city": "Den Haag", "neighbourhood": "Bomenbuurt",
+                "price": 250000, "living_area": 60, "title": "Teststraat 1",
+                "detail_url": "/detail/koop/den-haag/appartement-teststraat-1/44500001/",
+            })]
+        return []
+
+    fz = maak_stub_funda(gedrag)
+    import json
+    fz.TRACKING_FILE.write_text(json.dumps({
+        "g1": {"last_seen": "2026-01-01", "first_seen": "2026-01-01", "prices": []},
+        "1234567": {"last_seen": __import__("datetime").datetime.now().strftime("%Y-%m-%d"),
+                    "first_seen": "2026-01-01", "prices": [["2026-01-01", 260000]]},
+    }))
+    gezien = {}
+
+    def rapport(_client, goed, _nieuw):
+        gezien["ids"] = sorted(str(d.get("global_id")) for d in goed)
+        return Path("rapport.html")
+
+    fz.genereer_rapport = rapport
+    try:
+        fz.main()
+        code = None
+    except SystemExit as exc:
+        code = exc.code
+    ok = check("geen afbreking", code is None, str(code))
+    # De stub-client geeft voor elke get_listing dezelfde woning (g1) terug, dus
+    # de pool-woning komt binnen als g1 en wordt ontdubbeld. Wat hier telt: de
+    # pool draaide en het rapport kreeg een gevulde lijst.
+    ok &= check("rapport kreeg woningen", bool(gezien.get("ids")), str(gezien.get("ids")))
+    ok &= check("pool-woning met bekend id niet dubbel", gezien.get("ids") == ["g1"],
+                str(gezien.get("ids")))
+    tracking = json.loads(fz.TRACKING_FILE.read_text())
+    ok &= check("url wordt in tracking bewaard", "url" in tracking.get("g1", {}),
+                str(tracking.get("g1")))
+    return ok
+
+
 def main() -> int:
     resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(),
                   test_auto_keten(), test_stadfilter(),
-                  test_woningtypefilter()]
+                  test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
+                  test_pool(), test_pool_in_run()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

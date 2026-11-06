@@ -19,6 +19,7 @@ Gebruik:
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -108,6 +109,26 @@ def maak_prijs_banden(prijs_min: int, prijs_max: int, stap: int) -> list[tuple[i
         banden.append((lo, hi))
         lo = hi  # grenzen overlappen 1 prijspunt; dedup op id vangt dubbelen op
     return banden
+
+# Nafilter op afstand tot de zoekpostcode. Bij de API- en HTML-route deed funda
+# dit zelf: de straal ging als zoekparameter mee en werd afgerond op een waarde
+# die funda kent (5 km bij een ingestelde 6). Bij de mailroute bepaalt de bewaarde
+# zoekopdracht het gebied, en staat die op "heel Den Haag", dan komen Ypenburg,
+# Wateringse Veld en Loosduinen binnen zonder dat iets ze tegenhoudt. Die wijken
+# staan niet in UITSLUIT_BUURTEN, omdat de straal ze vroeger al wegfilterde.
+# Standaard dezelfde afgeronde straal als funda gebruikte, zodat elke bron
+# hetzelfde gebied oplevert. Zet `straal_nafilter_km` op 0 om uit te zetten.
+STRAAL_NAFILTER_KM = _PERSONAL.get("straal_nafilter_km")
+
+# Pool: eerder getoonde woningen die elke run opnieuw gecontroleerd worden, zodat
+# ze in het rapport blijven zolang ze te koop staan. Zie controleer_pool().
+POOL_DAGEN = int(_PERSONAL.get("pool_dagen", 120))
+POOL_MAX = int(_PERSONAL.get("pool_max", 150))
+
+# Hoe ver de mailroute terugkijkt. Was 3 dagen: dan gingen woningen verloren
+# zodra de run een paar dagen stuk was. De detail-calls zijn per run gecacht en
+# oude woningen vallen vanzelf af op beschikbaarheid, dus ruim is goedkoop.
+MAIL_DAGEN = int(_PERSONAL.get("mail_dagen_terug", 14))
 
 # Buurten die je niet wil zien (substring match, case-insensitive).
 UITSLUIT_BUURTEN = [
@@ -228,6 +249,9 @@ BLACKLIST_FILE = Path(__file__).parent / "funda_blacklist.json"
 # Funda wel/niet teruggeeft, dus betrouwbaar voor prijsdaling-detectie.
 TRACKING_FILE = Path(__file__).parent / "funda_tracking.json"
 SUMMARY_FILE = Path(__file__).parent / "funda_run_summary.json"
+# Coördinaten van de zoekpostcode, voor het afstandsfilter. In de Actions-cache,
+# niet in de repo: een postcode is privé.
+THUIS_CACHE = Path(__file__).parent / "funda_thuis_coords.json"
 
 
 # === Helpers ===
@@ -400,6 +424,286 @@ def is_uitgesloten_straat_nr(d: dict) -> str | None:
     return None
 
 
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2)
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+_THUIS: dict[str, tuple[float, float] | None] = {}
+
+
+def thuis_coords() -> tuple[float, float] | None:
+    """Coördinaten van de zoekpostcode, voor het afstandsfilter.
+
+    Volgorde: `thuis_coords` uit de config, dan de cache, dan één Nominatim-call.
+    Lukt dat allemaal niet, dan None: het afstandsfilter slaat dan over in plaats
+    van alles weg te gooien. Eén keer per run opgezocht.
+    """
+    if "v" in _THUIS:
+        return _THUIS["v"]
+    resultaat: tuple[float, float] | None = None
+    vast = _PERSONAL.get("thuis_coords")
+    if isinstance(vast, (list, tuple)) and len(vast) == 2:
+        resultaat = (float(vast[0]), float(vast[1]))
+    else:
+        try:
+            cache = json.loads(THUIS_CACHE.read_text(encoding="utf-8"))
+        except Exception:
+            cache = {}
+        if isinstance(cache.get(POSTCODE), list) and len(cache[POSTCODE]) == 2:
+            resultaat = (float(cache[POSTCODE][0]), float(cache[POSTCODE][1]))
+        else:
+            try:
+                from funda_rapport import lookup_postcode
+                resultaat = lookup_postcode(POSTCODE)
+            except Exception:
+                resultaat = None
+            if resultaat:
+                THUIS_CACHE.write_text(json.dumps({POSTCODE: list(resultaat)}), encoding="utf-8")
+    _THUIS["v"] = resultaat
+    return resultaat
+
+
+def nafilter_straal_km() -> float | None:
+    """Straal voor het afstandsfilter, of None als het uit staat.
+
+    Standaard de straal die funda zelf gebruikte: de ingestelde waarde afgerond op
+    wat funda kent (1, 2, 5, 10, ...). Zo levert de mailroute hetzelfde gebied op
+    als de oude API- en HTML-route.
+    """
+    if STRAAL_NAFILTER_KM is not None:
+        try:
+            waarde = float(STRAAL_NAFILTER_KM)
+        except (TypeError, ValueError):
+            return None
+        return waarde or None
+    if not RADIUS_KM:
+        return None
+    from funda_html_zoek import snap_straal
+    return float(snap_straal(RADIUS_KM))
+
+
+def _als_int(waarde) -> int | None:
+    try:
+        return int(waarde) if waarde not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def buiten_zoekcriteria(d: dict, thuis: tuple[float, float] | None = None,
+                        straal_km: float | None = None) -> str | None:
+    """Valt deze woning buiten prijs, oppervlak of straal? Geeft de reden.
+
+    Bij de API- en HTML-route deed funda dit al in de zoekopdracht. Bij de
+    mailroute en de pool niet: daar bepaalt de bewaarde zoekopdracht of de
+    tracking wat binnenkomt. Dit maakt alle bronnen gelijk. Ontbreekt een
+    gegeven, dan laten we de woning door: onbekend is geen reden om weg te gooien.
+    """
+    prijs = _als_int(d.get("price"))
+    if prijs:
+        if PRIJS_MAX and prijs > PRIJS_MAX:
+            return f"prijs € {prijs:,} boven maximum € {PRIJS_MAX:,}"
+        if PRIJS_MIN and prijs < PRIJS_MIN:
+            return f"prijs € {prijs:,} onder minimum € {PRIJS_MIN:,}"
+    m2 = _als_int(d.get("living_area"))
+    if m2 and M2_MIN and m2 < M2_MIN:
+        return f"{m2} m2 onder minimum {M2_MIN} m2"
+    lat, lon = d.get("latitude"), d.get("longitude")
+    if thuis and straal_km and lat and lon:
+        try:
+            km = _haversine_km(thuis[0], thuis[1], float(lat), float(lon))
+        except (TypeError, ValueError):
+            return None
+        if km > straal_km:
+            return f"{km:.1f} km van de zoekpostcode (max {straal_km:g} km)"
+    return None
+
+
+# Waarden van het kenmerk "Status" die betekenen dat de woning nu niet te koop
+# staat. De oude zoekopdracht vroeg alleen availability=available op, dus deze
+# kwamen er toen ook niet in.
+NIET_BESCHIKBAAR_TIJDELIJK = ("onder bod", "onder optie", "in onderhandeling")
+NIET_BESCHIKBAAR_DEFINITIEF = ("verkocht", "ingetrokken")
+
+
+def beschikbaarheid(d: dict) -> tuple[str, str | None]:
+    """('ja' | 'tijdelijk' | 'weg', status-tekst) voor een woning uit de detail-API.
+
+    `status` komt van pyfunda (IsSoldOrRented). Het kenmerk "Status" uit de
+    Overdracht-sectie is fijner (onder bod, verkocht onder voorbehoud), maar die
+    vocabulaire is niet gemeten; daarom alleen bekende woorden, en de run logt
+    welke waarden voorkwamen. Onbekend = beschikbaar.
+    """
+    kenmerken = d.get("characteristics") or {}
+    status_tekst = str(kenmerken.get("Status") or "").strip()
+    s = status_tekst.lower()
+    if str(d.get("status") or "").lower() == "sold":
+        return "weg", status_tekst or "sold"
+    if any(w in s for w in NIET_BESCHIKBAAR_DEFINITIEF):
+        return "weg", status_tekst
+    if any(w in s for w in NIET_BESCHIKBAAR_TIJDELIJK):
+        return "tijdelijk", status_tekst
+    return "ja", status_tekst or None
+
+
+class DetailCacheZoeker:
+    """Onthoudt detail-calls binnen één run.
+
+    Dezelfde woning wordt anders tot drie keer opgehaald: in de pool-controle, in
+    de detail-check en in het rapport. Alles behalve get_listing gaat ongewijzigd
+    door naar de onderliggende zoeker.
+    """
+
+    def __init__(self, zoeker: object) -> None:
+        self._zoeker = zoeker
+        self._cache: dict[str, object] = {}
+
+    def get_listing(self, listing_id):
+        sleutel = str(listing_id)
+        if sleutel in self._cache:
+            return self._cache[sleutel]
+        listing = self._zoeker.get_listing(listing_id)
+        self.onthoud(listing, sleutel)
+        return listing
+
+    def onthoud(self, listing: object, *extra_sleutels: str) -> None:
+        data = getattr(listing, "data", None) or {}
+        for veld in ("global_id", "listing_id", "tiny_id"):
+            if data.get(veld):
+                self._cache[str(data[veld])] = listing
+        for sleutel in extra_sleutels:
+            if sleutel:
+                self._cache[sleutel] = listing
+
+    def __getattr__(self, naam: str):
+        if naam.startswith("_"):
+            raise AttributeError(naam)
+        return getattr(self._zoeker, naam)
+
+
+class PoolResultaat:
+    """Zelfde vorm als pyfunda's Listing: een `.data`-dict."""
+
+    __slots__ = ("data",)
+
+    def __init__(self, data: dict) -> None:
+        self.data = data
+
+
+def _pool_ident(sleutel: str, rec: dict):
+    """Waarmee get_listing deze woning kan ophalen, of None."""
+    url = rec.get("url") or ""
+    if url:
+        return url if url.startswith("http") else f"https://www.funda.nl{url}"
+    if sleutel.isdigit():
+        return int(sleutel)
+    if sleutel.startswith("/detail/"):
+        return f"https://www.funda.nl{sleutel}"
+    return None
+
+
+def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[str],
+                    *, dagen: int, maximum: int, pauze: float = 0.4) -> list[PoolResultaat]:
+    """Eerder getoonde woningen opnieuw ophalen en teruggeven als ze nog te koop staan.
+
+    Waarom: de mailroute ziet alleen wat funda de laatste dagen mailde. Zonder dit
+    verdwijnt een woning uit het rapport zodra de mail ouder is dan het
+    terugkijkvenster, ook als hij gewoon nog te koop staat. Vroeger hield de
+    zoekopdracht zelf die woningen in beeld; nu doet de tracking dat.
+
+    Een woning die verkocht is, wordt in de tracking gemarkeerd en daarna niet
+    meer opgevraagd. Onder bod of onder optie: deze run niet tonen, wel blijven
+    volgen. Drie keer niet op te halen: als weg markeren.
+    """
+    if dagen <= 0 or maximum <= 0:
+        return []
+    vandaag = datetime.now().strftime("%Y-%m-%d")
+    grens = datetime.now().timestamp() - dagen * 86400
+
+    kandidaten = []
+    for sleutel, rec in tracking.items():
+        if sleutel in al_binnen or not isinstance(rec, dict) or rec.get("weg"):
+            continue
+        try:
+            laatst = datetime.strptime(rec.get("last_seen") or "", "%Y-%m-%d").timestamp()
+        except ValueError:
+            continue
+        if laatst < grens:
+            continue
+        ident = _pool_ident(sleutel, rec)
+        if ident is not None:
+            kandidaten.append((rec.get("last_seen") or "", sleutel, rec, ident))
+    kandidaten.sort(reverse=True)
+    if len(kandidaten) > maximum:
+        log(f"Pool: {len(kandidaten)} kandidaten, alleen de {maximum} recentste gecontroleerd.")
+        kandidaten = kandidaten[:maximum]
+
+    resultaten: list[PoolResultaat] = []
+    teller: Counter[str] = Counter()
+    statussen: Counter[str] = Counter()
+    mislukt: list[dict] = []
+    geslaagd = 0
+    for _laatst, sleutel, rec, ident in kandidaten:
+        try:
+            listing = zoeker.get_listing(ident)
+        except Exception:
+            teller["fout"] += 1
+            mislukt.append(rec)
+            if len(mislukt) >= 5 and not geslaagd:
+                # Vijf mislukkingen zonder één succes: dan is het endpoint dicht,
+                # niet de woning weg. Stoppen.
+                log("Pool: detail-endpoint lijkt dicht; controle afgebroken.")
+                break
+            continue
+        finally:
+            time.sleep(pauze)
+        geslaagd += 1
+        rec.pop("pool_fout", None)
+        data = dict(getattr(listing, "data", None) or {})
+        if not data:
+            teller["leeg"] += 1
+            continue
+        zoeker.onthoud(listing, sleutel)
+        if any(str(data.get(v)) in al_binnen for v in ("global_id", "tiny_id") if data.get(v)):
+            continue  # zit al in deze run, onder een andere sleutel
+        oordeel, status_tekst = beschikbaarheid(data)
+        statussen[status_tekst or "(geen)"] += 1
+        if oordeel == "weg":
+            rec["weg"] = {"datum": vandaag, "reden": status_tekst or "verkocht"}
+            teller["weg"] += 1
+            continue
+        if oordeel == "tijdelijk":
+            teller["tijdelijk"] += 1
+            continue
+        data.setdefault("detail_url", data.get("url") or rec.get("url") or "")
+        data["_bron"] = "pool"
+        resultaten.append(PoolResultaat(data))
+        teller["beschikbaar"] += 1
+
+    # Een mislukte call telt alleen mee als het endpoint deze run wél werkte.
+    # Anders zou een storing van drie runs alle bekende woningen als weg
+    # markeren, en die komen dan nooit meer terug in de pool.
+    if geslaagd:
+        for rec in mislukt:
+            rec["pool_fout"] = int(rec.get("pool_fout") or 0) + 1
+            if rec["pool_fout"] >= 3:
+                rec["weg"] = {"datum": vandaag, "reden": "3x niet op te halen"}
+                teller["weg"] += 1
+
+    if kandidaten:
+        log(f"Pool: {len(kandidaten)} bekende woning(en) gecontroleerd: "
+            f"{teller['beschikbaar']} nog te koop, {teller['tijdelijk']} onder bod/optie, "
+            f"{teller['weg']} weg, {teller['fout']} fout.")
+        # Alleen de statuswaarden, geen adressen: zo is te zien of het filter de
+        # woorden kent die funda gebruikt.
+        log("Pool: statuswaarden: " + ", ".join(f"{s} ({n}x)" for s, n in statussen.most_common()))
+    return resultaten
+
+
 def auto_push() -> None:
     """Add, commit en push docs/ naar GitHub. Skip als geen wijzigingen of bij --no-push."""
     if "--no-push" in sys.argv:
@@ -562,9 +866,20 @@ def _woningen_uit_mailbox() -> list[tuple[str, str]]:
         return []
 
     try:
-        teksten = haal_mail_teksten(**config, log=log)
+        teksten = haal_mail_teksten(**config, sinds_dagen=MAIL_DAGEN, max_mails=100, log=log)
     except Exception as exc:
         log(f"Mailbox niet te lezen ({type(exc).__name__}: {exc}).")
+        # Als de mailroute nodig is, is dit de echte oorzaak van een mislukte run.
+        # Zonder deze regel eindigt de log op de 403 van de zoekpagina, en die is
+        # al weken bekend en dus niet de reden dat het vandaag stuk is.
+        if "AUTHENTICATIONFAILED" in str(exc) or "Invalid credentials" in str(exc):
+            print("::error::Gmail weigert de login (AUTHENTICATIONFAILED). Het "
+                  "app-wachtwoord in secret FUNDA_MAIL_PASSWORD is niet meer geldig. "
+                  "Dat gebeurt onder meer na een wijziging van het Google-wachtwoord. "
+                  "Maak een nieuw app-wachtwoord op "
+                  "https://myaccount.google.com/apppasswords en zet het in het secret.")
+        else:
+            print(f"::error::Mailbox niet te lezen: {type(exc).__name__}: {exc}")
         return []
 
     woningen: list[tuple[str, str]] = []
@@ -667,9 +982,12 @@ def main() -> None:
     f = Funda()
     seen = laad_state()
     mode = " (debug-wijken)" if debug_wijken else ""
-    log(f"Start{mode}. Postcode {POSTCODE}, radius {RADIUS_KM}km. Reeds gezien: {len(seen)}.")
+    # De log van een publieke repo is voor iedereen leesbaar; de postcode is privé.
+    toon_pc = "(verborgen)" if os.environ.get("GITHUB_ACTIONS") else POSTCODE
+    log(f"Start{mode}. Postcode {toon_pc}, radius {RADIUS_KM}km. Reeds gezien: {len(seen)}.")
 
     zoeker, zoek_methode = kies_zoeker(f)
+    zoeker = DetailCacheZoeker(zoeker)
 
     # Zoek per prijsband los, zodat we onder Funda's resultaatkap (~140) blijven
     # en ook woningen vinden die al lang te koop staan. Dedup op id.
@@ -759,6 +1077,18 @@ def main() -> None:
         log(f"Let op: {zoek_fout} van {zoek_ok + zoek_fout} zoek-calls mislukt; "
             f"resultaat kan onvolledig zijn.")
 
+    # Eerder getoonde woningen die deze run niet binnenkwamen opnieuw controleren.
+    # Pas ná de checks hierboven: een stukke zoekmethode moet nog steeds luid
+    # falen, ook als de pool wél iets oplevert.
+    tracking = laad_tracking()
+    al_binnen: set[str] = set()
+    for r in rauwe:
+        for veld in ("global_id", "listing_id", "tiny_id", "detail_url"):
+            if r.data.get(veld):
+                al_binnen.add(str(r.data[veld]))
+    pool = controleer_pool(zoeker, tracking, al_binnen, dagen=POOL_DAGEN, maximum=POOL_MAX)
+    rauwe.extend(pool)
+
     # Debug: alle binnenkomende wijken inventariseren.
     if debug_wijken:
         wijk_counts: Counter[str] = Counter()
@@ -785,7 +1115,12 @@ def main() -> None:
 
     # Filter op stad, buurt en straat-segment.
     voor: list = []
-    weg_stad = weg_buurt = weg_straat = weg_type = 0
+    weg_stad = weg_buurt = weg_straat = weg_type = weg_status = weg_criteria = 0
+    thuis = thuis_coords()
+    straal = nafilter_straal_km()
+    if straal and not thuis:
+        log("Afstandsfilter: zoekpostcode niet te geocoderen; deze run zonder afstandsfilter.")
+    status_mail: Counter[str] = Counter()
     for r in rauwe:
         d = r.data
         stad = (d.get("city") or "").strip()
@@ -793,6 +1128,17 @@ def main() -> None:
         geen_app = is_geen_appartement(d)
         if geen_app:
             weg_type += 1
+            continue
+        # De oude zoekopdracht vroeg alleen beschikbare woningen op. Een mail van
+        # tien dagen terug kan inmiddels onder bod staan.
+        oordeel, status_tekst = beschikbaarheid(d)
+        if d.get("_bron") == "mail":
+            status_mail[status_tekst or "(geen)"] += 1
+        if oordeel != "ja":
+            weg_status += 1
+            continue
+        if buiten_zoekcriteria(d, thuis, straal):
+            weg_criteria += 1
             continue
         if is_uitgesloten_stad(stad):
             weg_stad += 1
@@ -806,8 +1152,12 @@ def main() -> None:
             continue
         voor.append(r)
 
-    log(f"Na filter: {len(voor)} (weg: {weg_type} woningtype, {weg_stad} stad, "
-        f"{weg_buurt} buurt, {weg_straat} straat-segment).")
+    log(f"Na filter: {len(voor)} (weg: {weg_type} woningtype, {weg_status} niet beschikbaar, "
+        f"{weg_criteria} buiten prijs/m2/straal, {weg_stad} stad, {weg_buurt} buurt, "
+        f"{weg_straat} straat-segment).")
+    if status_mail:
+        log("Mailbron: statuswaarden: "
+            + ", ".join(f"{s} ({n}x)" for s, n in status_mail.most_common()))
 
     # Detail-check op beleggingsobject, begane grond, buitenruimte en blacklist.
     blacklist = laad_blacklist()
@@ -827,6 +1177,12 @@ def main() -> None:
         try:
             details = zoeker.get_listing(lid)
             details_data = details.data if hasattr(details, "data") else None
+
+            # Bij de API-route heeft het zoekresultaat geen coördinaten; die komen
+            # pas uit de detail-call. Dus hier nog een keer, met alles erbij.
+            if details_data and buiten_zoekcriteria({**d, **details_data}, thuis, straal):
+                weg_criteria += 1
+                continue
             tekst = ""
             if details_data:
                 tekst = str(details_data.get("description", ""))
@@ -854,14 +1210,23 @@ def main() -> None:
         except Exception as exc:
             log(f"Detail fout {lid}: {exc} - tonen by default.")
             goed.append(d)
+    if weg_criteria:
+        log(f"Buiten prijs/m2/straal in totaal (incl. na detail-call): {weg_criteria}.")
 
     # Werk prijs-/looptijd-tracking bij en hang afgeleide flags aan elke woning.
-    tracking = laad_tracking()
     n_gedaald = n_lang = 0
     for d in goed:
         sleutel = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url"))
         prijs = int(d.get("price") or 0)
         flags = update_tracking(tracking, sleutel, prijs, pub_data.get(sleutel))
+        # De URL bewaren, zodat de pool deze woning later zelf kan ophalen. En een
+        # woning die weer opduikt, is niet meer weg.
+        rec = tracking.get(sleutel)
+        if isinstance(rec, dict):
+            if _detail_url(d):
+                rec["url"] = _detail_url(d)
+            rec.pop("weg", None)
+            rec.pop("pool_fout", None)
         d["_track"] = flags
         if flags["gedaald"]:
             n_gedaald += 1

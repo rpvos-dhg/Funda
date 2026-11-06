@@ -22,6 +22,7 @@ Detail-calls zijn het dure deel, dus:
 from __future__ import annotations
 
 import html as html_mod
+import os
 import re
 import time
 from typing import Any, Callable, Iterable
@@ -294,7 +295,12 @@ class HtmlZoeker:
 
         if not self._url_gelogd:
             self._url_gelogd = True
-            self._log(f"Zoek-URL (eerste van deze run): {url}")
+            # De log van een publieke repo is voor iedereen leesbaar; de postcode
+            # in selected_area is privé.
+            getoond = url
+            if os.environ.get("GITHUB_ACTIONS"):
+                getoond = re.sub(r"selected_area=[^&]*", "selected_area=(verborgen)", url)
+            self._log(f"Zoek-URL (eerste van deze run): {getoond}")
 
         kaarten = parse_kaarten(self._haal(url))
         if not kaarten:

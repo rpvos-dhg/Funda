@@ -19,6 +19,14 @@
   "prijs_max": 310000,
   "m2_min": 55,
   "radius_km": 6,
+  "straal_nafilter_km": null,
+  "_doc_straal_nafilter_km": "null = zelfde straal als funda's zoekopdracht (radius_km afgerond op 1/2/5/10/...). 0 = afstandsfilter uit.",
+  "thuis_coords": null,
+  "_doc_thuis_coords": "Optioneel [lat, lon] van de zoekpostcode; anders een Nominatim-lookup die gecacht wordt.",
+  "pool_dagen": 120,
+  "pool_max": 150,
+  "_doc_pool": "Eerder getoonde woningen die elke run opnieuw gecontroleerd worden zolang ze binnen pool_dagen gezien zijn. 0 = uit.",
+  "mail_dagen_terug": 14,
   "zoek_sorts": [
     null,
     "oldest"

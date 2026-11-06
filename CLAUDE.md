@@ -42,6 +42,11 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
   pyfunda niet meestuurt; ook v3.1.4 niet (upstream issue 0xMH/pyfunda#15, zelfde
   datum, nog steeds open en zonder commits sinds 17 juli). Daarom zoekt het
   script nu via de publieke zoekpagina, zie hieronder.
+  **Oorzaak, volgens de maintainer in #15 (19 aug):** funda zette Firebase App
+  Check op de mobiele zoek-API. Een geldig `x-firebase-appcheck`-token komt alleen
+  na device attestation (Play Integrity / App Attest), dus vanaf een echte
+  telefoon met de app uit de store. Dit komt niet meer terug via code; reken de
+  zoek-API als dicht. Het detail-endpoint heeft (nog) geen App Check.
   Diagnose herhalen: workflow "Funda API debug" (de probes draaien ook
   automatisch zodra een dagelijkse run faalt). Die workflow heeft drie jobs:
   **tests** moet groen zijn en zegt iets over de code; **funda-live** staat op
@@ -76,6 +81,14 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
   (gecheckt in Gmail, 9 okt); funda mailt wel transactioneel via
   `notificaties@service.funda.nl`, dus het kanaal werkt. Met zo'n mail als bron
   kan het detail-endpoint de rest nog gewoon aanvullen. Zie de mailbron hieronder.
+- **Bewust niet gedaan: funda's botbescherming omzeilen.** In #15 en PR #16
+  noemen mensen een nieuwere TLS-vingerafdruk (`chrome146`) en de host
+  `listing-search-wonen.funda.nl` (de zoekbackend van de website, zonder App
+  Check) als manier om weer te zoeken. Op 6 nov 2026 bewust niet uitgeprobeerd
+  vanaf een server: vingerafdrukken afwisselen of een andere host kiezen om een
+  blokkade te passeren is een botcheck omzeilen. Wat wél kan: funda's eigen
+  mails, het detail-endpoint, en het script draaien vanaf een eigen (thuis)netwerk
+  zoals het oorspronkelijk draaide.
 - **Mailbron: linkconventies gemeten, de alert-mail zelf nog niet.** Op 9 okt
   2026 zijn de twee transactionele funda-mails bekeken die in de eigen mailbox
   stonden (één uit 2022, één uit 2026). Daaruit:
@@ -121,15 +134,23 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
   die zoekopdracht mist, bestaat voor ons niet, en prijsband-splitsing helpt daar
   niet meer. Maar "ruimer zetten" geldt niet voor alles, want de twee soorten
   criteria worden heel verschillend afgehandeld:
-  - **Gebied: ruim zetten.** Stad, buurt en straat-segment worden na het ophalen
-    nog gefilterd (`is_uitgesloten_stad`, `is_uitgesloten_buurt`,
-    `is_uitgesloten_straat_nr`), net als belegging en begane grond. Extra gebied
-    in de zoekopdracht kost dus alleen wat ruis, en mist niets.
-  - **Prijs en m2: exact zetten.** `PRIJS_MIN`, `PRIJS_MAX` en `M2_MIN` zijn
-    alléén zoekparameters; er is **geen** nafilter op prijs of oppervlak. Bij de
-    mailroute bepaalt de bewaarde zoekopdracht die grenzen dus volledig, en staat
-    hij te ruim, dan komen te dure of te kleine woningen ongefilterd in het
-    rapport. Wil je dat afdekken, dan moet er eerst een nafilter bij.
+  - **Gebied en grenzen: ruim zetten mag.** Sinds 6 nov 2026 worden straal,
+    prijs en m2 na het ophalen gefilterd (`buiten_zoekcriteria`), naast stad,
+    buurt, straat-segment, woningtype, belegging en begane grond. Extra gebied of
+    een ruimere prijs in de zoekopdracht kost dus alleen detail-calls.
+  - **Waarom de straal-nafilter er kwam (gemeten 6 nov 2026).** De 35 woningen
+    uit de mailperiode (17 okt t/m 4 nov) gegeocodeerd op postcode: 24 lagen
+    verder dan 5 km van de zoekpostcode, tot 8,1 km (Leyenburg, Kom Loosduinen,
+    Waldeck-Noord, Venen/Oorden/Raden, Kraayenstein). Alle 59 woningen uit de
+    API- en HTML-runs lagen binnen 4,8 km. Die wijken staan niet in
+    `UITSLUIT_BUURTEN` omdat de straal ze vroeger al wegfilterde; zonder nafilter
+    leek het alsof uitgesloten wijken terugkwamen.
+  - De straal is standaard `snap_straal(radius_km)`, dus 5 bij een ingestelde 6:
+    dezelfde waarde die funda's zoekopdracht gebruikte. Instelbaar met
+    `straal_nafilter_km` (0 = uit). Thuiscoördinaten komen uit `thuis_coords` in
+    de config of één Nominatim-call, gecacht in `funda_thuis_coords.json`.
+    Lukt geocoderen niet, dan slaat het afstandsfilter over (onbekend =
+    doorlaten) en staat dat in de log.
 - **Nafilter op woningtype.** `PRIJS_MIN`, `PRIJS_MAX`, `M2_MIN` en
   `object_type` zijn alléén zoekparameters. Staat in de bewaarde zoekopdracht
   "Woonhuis" aangevinkt, dan belandt dat bij de mailroute ongefilterd in het
@@ -147,8 +168,8 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
   - De vocabulaire van `soortwoning` is **niet** gemeten. `mail-live` print
     daarom de woningtypes volgens de URL-slug, zodat zichtbaar is of er
     überhaupt huizen in de mails zitten en of het filter het juiste woord kent.
-  - Prijs en oppervlak hebben nog steeds **geen** nafilter; die blijven volledig
-    aan de bewaarde zoekopdracht.
+  - Prijs, oppervlak en straal hebben sinds 6 nov 2026 wél een nafilter, zie
+    hierboven.
 - **Voorburg versus de gemeente Leidschendam-Voorburg.** `UITSLUIT_STEDEN` doet
   een substring-match, en Voorburg valt onder de gemeente Leidschendam-Voorburg.
   Zonder voorrangsregel matcht "Leidschendam" daarop en valt al het
@@ -203,6 +224,35 @@ werk-coords en verrijkingscache) staat in de Actions-cache, niet in de repo.
     check laten vallen met een misleidende melding, terwijl de echte oorzaak is
     dat er geen mailroute is ingericht. `HtmlZoeker.bereikbaar()` doet de
     tussenstap: één goedkope call, zodat niet alle prijsbanden op een 403 lopen.
+- **Pool: bekende woningen blijven in beeld.** Bij de mailroute stond elke woning
+  maar ~4 dagen in het rapport (gemeten over 38 runs: 27 van 35 stonden er 8-9
+  runs), want de mail viel dan buiten het terugkijkvenster. En geen enkele woning
+  uit de periode daarvoor kwam terug. `controleer_pool()` haalt daarom elke run
+  de woningen uit `funda_tracking.json` (laatst gezien binnen `pool_dagen`,
+  standaard 120) die niet al binnenkwamen opnieuw op via het detail-endpoint.
+  - Verkocht (ook "verkocht onder voorbehoud") of 3x niet op te halen: in de
+    tracking gemarkeerd als `weg` en niet meer opgevraagd. Onder bod/optie: deze
+    run niet tonen, wel blijven volgen. Duikt een woning weer op, dan valt `weg`.
+  - Mislukte calls tellen alleen mee als het endpoint in dezelfde run wél werkte;
+    anders zou een storing van drie runs alle bekende woningen wegmarkeren.
+  - Beschikbaarheid leunt op pyfunda's `status` (IsSoldOrRented) en het kenmerk
+    "Status". Die vocabulaire is **niet gemeten**; de log print daarom per run
+    welke statuswaarden voorkwamen (bij pool en mail), zonder adressen.
+  - De pool draait ná de nul-woningen-checks: een stukke zoekbron laat de run nog
+    steeds luid falen, ook als de pool wel iets oplevert.
+  - `tracking[...]["url"]` wordt sinds 6 nov bewaard; oudere records worden op
+    globalId opgehaald (`get_listing` accepteert dat).
+  - `DetailCacheZoeker` voorkomt dat dezelfde woning drie keer per run wordt
+    opgehaald (pool, detail-check, rapport).
+- **Gmail-wachtwoord vervalt.** Op 4 nov 2026 22:02 begon Gmail de login te
+  weigeren (`AUTHENTICATIONFAILED`); daarna faalde elke run. Een app-wachtwoord
+  wordt onder meer ingetrokken als het Google-wachtwoord wijzigt. De run zet nu een
+  `::error::` met die uitleg, in plaats van te eindigen op de (al weken bekende)
+  403 van de zoekpagina. Terugkijkvenster van de mail is nu 14 dagen
+  (`mail_dagen_terug`), zodat een paar dagen storing geen woningen kost.
+- **Postcode niet in de publieke log.** Op Actions toont de startregel en de
+  zoek-URL de postcode als "(verborgen)". Actions-logs van een publieke repo zijn
+  voor iedereen leesbaar.
 - **Zoeken gaat via HTML, verrijken via de API.** `funda_html_zoek.py` haalt de
   woning-URL's van `www.funda.nl/zoeken/koop` (server-rendered Vue/Nuxt, geen
   bot-muur vanaf een Actions-runner) en laat het detail-endpoint - dat nog wél
@@ -256,7 +306,8 @@ python funda_zoek.py --no-open  # zonder browser
 
 - `python test_funda_zoek.py` - offline tests voor de veiligheidschecks in
   `main()`: een run stopt met exit 2 als álle zoek-calls falen én als ze allemaal
-  slagen maar samen nul woningen opleveren.
+  slagen maar samen nul woningen opleveren. Ook de nafilters (stad, woningtype,
+  prijs/m2/straal), beschikbaarheid en de pool (inclusief het storingsgeval).
 - `python test_funda_mail.py` - offline tests voor de mailbron: linkextractie per
   vorm, ondoorzichtige tracking-links, redirects volgen (inclusief hoplimiet en
   kapotte call), routekeuze van `woningen_uit_mail()`, drop-in-gedrag en cache.

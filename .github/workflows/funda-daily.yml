@@ -50,6 +50,7 @@ jobs:
             funda_seen_ids.json
             funda_tracking.json
             funda_werk_coords.json
+            funda_thuis_coords.json
             funda_enrichment_cache.json
             funda_blacklist.json
           key: funda-state-${{ github.run_id }}
@@ -146,6 +147,7 @@ jobs:
             funda_seen_ids.json
             funda_tracking.json
             funda_werk_coords.json
+            funda_thuis_coords.json
             funda_enrichment_cache.json
             funda_blacklist.json
           key: funda-state-${{ github.run_id }}
