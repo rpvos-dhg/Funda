@@ -279,9 +279,17 @@ Actions-cache, niet in de repo.
     (`sitemap_max_verkennen`), opstart eenmalig 600 en niet hoger
     (`SITEMAP_MAX_VERKENNEN_PLAFOND`);
   - geen wisselende vingerafdrukken.
-  **Heroverwegen** zodra funda de eerlijke client weigert, robots.txt of de
-  voorwaarden dit expliciet verbieden, of funda erom vraagt. Dan Huispedia
-  (prototype op branch `claude/probe-andere-woningsites`) of het thuisnetwerk.
+  De `Disallow: /` op de detail-host was bij dit besluit bekend en is
+  geaccepteerd; dat is dus geen reden om te heroverwegen. Sluit de robots.txt
+  van `www.funda.nl` ooit `/detail/` uit, dan zet `detail_verboden()` de
+  sitemaproute vanzelf uit (exit 2); dat hoeft niemand te bewaken.
+  **Heroverwegen** zodra funda de eerlijke client weigert (401/403/429), funda's
+  voorwaarden dit uitdrukkelijk verbieden, of funda erom vraagt. Alternatief:
+  Huispedia (prototype op branch `claude/probe-andere-woningsites`). Het
+  thuisnetwerk lost die gevallen niet op, want ook daar verrijkt elke route via
+  de detail-host. Het verlaagt alleen het volume (de HTML-route, als de
+  zoekpagina daar werkt, doet minder detail-calls), en helpt alleen als een
+  weigering aan het IP van de runner hangt.
   `local-listings` en `listing-detail-summary` worden door dit script niet
   aangeroepen.
 - **Mailbron: linkconventies gemeten, de alert-mail zelf nog niet.** Op 9 okt
@@ -528,6 +536,14 @@ Actions-cache, niet in de repo.
   zodat er nooit per ongeluk leesbare data publiek komt.
 - **Bot pusht zelf.** De workflow commit `docs/` terug naar `main`. Doe lokaal
   altijd `git pull --rebase` voor je commit, anders wordt je push afgewezen.
+- **Lokale run commit alleen `docs/`.** `auto_push()` (zonder `--no-push`)
+  checkt en commit met het pad `docs/` erbij; andere gestagede wijzigingen
+  blijven gestaged. Eerder ging alles mee wat gestaged stond. Aanleiding
+  (6 nov 2026): twee worktrees op dezelfde branch, in de ene werd gecommit, en
+  de andere checkout had daarna die commit als gestagede terugdraaiing. Een
+  lokale run zou die als "auto: rapport" hebben gepusht. Zet daarom nooit twee
+  worktrees op dezelfde branch, en zet een checkout die zo verschoven is
+  bewust gelijk (`git reset --hard HEAD`, als er geen eigen werk in staat).
 
 ## Lokaal draaien
 
@@ -553,9 +569,11 @@ python funda_zoek.py --no-open  # zonder browser
   door het echte `bouw_rij`, `_sitemap_overslaan` met straal, de workflow-input
   en de eerlijke client met statuscodes (in een subproces tegen het echte
   pyfunda, met een nep-sessie, zonder netwerk).
-  `auto_push()` staat in deze tests uit: `main()` eindigt ermee, en de
-  `git diff --cached`-check daarin ziet álle gestagede wijzigingen, dus zonder
-  die stub commit een testrun je gestagede werk als "auto: rapport".
+  `auto_push()` staat in deze tests uit: `main()` eindigt ermee, en een testrun
+  mag nooit committen of pushen. De echte `auto_push()` wordt apart getest in
+  een tijdelijke repo buiten de projectmap, met een bare repo als remote
+  (`test_auto_push_alleen_docs`): alleen `docs/` in de commit, een gestagede
+  terugdraaiing blijft gestaged en gaat niet mee naar de remote.
 - `python test_funda_sitemap.py` - offline tests voor de sitemaproute: robots en
   index ontleden, kandidaten per stad/type, doelmarkt, drop-in-gedrag per
   prijsband, cache over runs, koop-sitemaps overslaan bij een ongewijzigde index

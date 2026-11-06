@@ -12,8 +12,10 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import types
 from collections import Counter
@@ -94,9 +96,10 @@ def maak_stub_funda(zoek_gedrag, details=None, calls=None, faal_na=None):
     fz.BLACKLIST_FILE = SCRATCH / "blacklist.json"
     fz.THUIS_CACHE = SCRATCH / "thuis.json"
     fz.SITEMAP_CACHE_FILE = SCRATCH / "sitemap.json"
-    # main() eindigt met auto_push(): git add/commit/push. In een werkkopie met
-    # gestagede wijzigingen commit dat die wijzigingen (de check kijkt naar alles
-    # wat gestaged is, niet alleen docs/). Tests mogen nooit committen of pushen.
+    # main() eindigt met auto_push(): git add/commit/push van docs/. Tests mogen
+    # nooit committen of pushen. test_auto_push_alleen_docs test de echte, in een
+    # tijdelijke repo.
+    fz._echte_auto_push = fz.auto_push
     fz.auto_push = lambda: None
     # Geen Nominatim in offline tests: zonder thuiscoördinaten slaat het
     # afstandsfilter over. Tests die het filter willen, zetten dit zelf.
@@ -908,6 +911,81 @@ def test_eerlijke_client() -> bool:
     return ok
 
 
+def test_auto_push_alleen_docs() -> bool:
+    """auto_push() commit alleen docs/, ook als er iets anders gestaged staat.
+
+    Gevonden op 6 nov 2026: een werkkopie waarvan de branch onder de checkout was
+    verschoven (een tweede worktree op dezelfde branch had gecommit), had die
+    commit als gestagede terugdraaiing. De check (`git diff --cached --quiet`)
+    en de commit zagen alles wat gestaged stond, dus een lokale run zette de
+    terugdraaiing als "auto: rapport" op de branch en pushte hem.
+
+    Draait in een tijdelijke repo buiten de projectmap, met een lokale bare repo
+    als remote: geen netwerk, en een mislukte `git init` kan nooit in de
+    projectrepo committen. GIT_*-variabelen (bijvoorbeeld GIT_DIR in een hook)
+    gaan er tijdens de test uit om dezelfde reden.
+    """
+    print("test: auto_push commit alleen docs/")
+    if shutil.which("git") is None:
+        return check("git niet gevonden, overgeslagen", True)
+    fz = maak_stub_funda(lambda n: [])
+    bewaard_env = {k: v for k, v in os.environ.items() if k.startswith("GIT_")}
+    bewaard_argv = sys.argv
+    for k in bewaard_env:
+        del os.environ[k]
+    sys.argv = ["test_funda_zoek.py"]
+    ok = True
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            remote, werk = Path(tmp) / "remote.git", Path(tmp) / "werk"
+
+            def git(*args, cwd=werk) -> str:
+                return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True,
+                                      text=True, check=True, timeout=30).stdout
+
+            subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True, timeout=30)
+            subprocess.run(["git", "init", "-q", str(werk)], check=True, timeout=30)
+            for sleutel, waarde in (("user.name", "test"), ("user.email", "test@example.invalid"),
+                                    ("commit.gpgsign", "false"), ("core.autocrlf", "false")):
+                git("config", sleutel, waarde)
+            (werk / "docs").mkdir()
+            (werk / "code.py").write_text("nieuw\n", encoding="utf-8")
+            (werk / "docs" / "index.html").write_text("rapport 1\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-q", "-m", "start")
+            git("remote", "add", "origin", str(remote))
+            git("push", "-q", "-u", "origin", "HEAD")
+            # De gestagede terugdraaiing: code.py terug naar een oudere versie.
+            (werk / "code.py").write_text("oud\n", encoding="utf-8")
+            git("add", "code.py")
+            start = git("rev-parse", "HEAD").strip()
+
+            fz._echte_auto_push(werk)
+            ok &= check("geen docs-wijziging: geen commit, ook niet van wat gestaged staat",
+                        git("rev-parse", "HEAD").strip() == start)
+
+            (werk / "docs" / "index.html").write_text("rapport 2\n", encoding="utf-8")
+            (werk / "docs" / "nieuw.html").write_text("nieuw\n", encoding="utf-8")
+            fz._echte_auto_push(werk)
+            bestanden = sorted(git("show", "--name-only", "--format=", "HEAD").split())
+            ok &= check("commit bevat alleen docs/ (ook een nieuw bestand)",
+                        bestanden == ["docs/index.html", "docs/nieuw.html"], str(bestanden))
+            ok &= check("commitbericht 'auto: rapport'",
+                        git("log", "-1", "--format=%s").startswith("auto: rapport"))
+            ok &= check("code.py blijft gestaged",
+                        git("diff", "--cached", "--name-only").split() == ["code.py"],
+                        git("diff", "--cached", "--name-only"))
+            ok &= check("remote kreeg het rapport, niet de terugdraaiing",
+                        git("show", "HEAD:code.py", cwd=remote) == "nieuw\n"
+                        and git("show", "HEAD:docs/index.html", cwd=remote) == "rapport 2\n")
+    except subprocess.CalledProcessError as exc:
+        ok = check("git in de tijdelijke repo", False, f"{exc.cmd}: {exc.stderr}")
+    finally:
+        os.environ.update(bewaard_env)
+        sys.argv = bewaard_argv
+    return ok
+
+
 def test_stadfilter() -> bool:
     """Voorburg mag niet sneuvelen op de gemeentenaam Leidschendam-Voorburg."""
     print("test: stadfilter, Voorburg versus Leidschendam")
@@ -1234,7 +1312,7 @@ def main() -> int:
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),
                   test_geen_dubbele_detail_calls(), test_pool_404_bovenaan(),
                   test_endpoint_halverwege_dicht(), test_sitemap_overslaan(), test_instellingen(),
-                  test_eerlijke_client()]
+                  test_eerlijke_client(), test_auto_push_alleen_docs()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

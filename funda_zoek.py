@@ -963,12 +963,20 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
     return resultaten
 
 
-def auto_push() -> None:
-    """Add, commit en push docs/ naar GitHub. Skip als geen wijzigingen of bij --no-push."""
+def auto_push(folder: Path | None = None) -> None:
+    """Add, commit en push docs/ naar GitHub. Skip als geen wijzigingen of bij --no-push.
+
+    Alleen docs/: de check en de commit krijgen allebei het pad mee. Eerder nam
+    de commit alles mee wat gestaged stond. Een werkkopie waarvan de branch
+    onder de checkout was verschoven (een tweede worktree op dezelfde branch
+    had gecommit) had een gestagede terugdraaiing van de code, en een lokale
+    run zette die als "auto: rapport" op de branch. Andere gestagede
+    wijzigingen blijven nu gewoon gestaged staan.
+    """
     if "--no-push" in sys.argv:
         log("Auto-push overgeslagen (--no-push).")
         return
-    folder = Path(__file__).parent
+    folder = folder or Path(__file__).parent
     docs_dir = folder / "docs"
     if not docs_dir.exists():
         log("Geen docs/ folder, push overgeslagen.")
@@ -976,17 +984,21 @@ def auto_push() -> None:
     try:
         subprocess.run(["git", "-C", str(folder), "add", "docs/"], capture_output=True, timeout=10)
         diff = subprocess.run(
-            ["git", "-C", str(folder), "diff", "--cached", "--quiet"],
+            ["git", "-C", str(folder), "diff", "--cached", "--quiet", "--", "docs/"],
             capture_output=True, timeout=10,
         )
         if diff.returncode == 0:
             log("Geen docs-wijzigingen, push overgeslagen.")
             return
         msg = f"auto: rapport {datetime.now():%Y-%m-%d %H:%M}"
-        subprocess.run(
-            ["git", "-C", str(folder), "commit", "-m", msg],
+        commit = subprocess.run(
+            ["git", "-C", str(folder), "commit", "-m", msg, "--", "docs/"],
             capture_output=True, timeout=10,
         )
+        if commit.returncode != 0:
+            err = (commit.stderr or commit.stdout).decode("utf-8", errors="ignore")[:300]
+            log(f"Commit fout, push overgeslagen: {err}")
+            return
         push = subprocess.run(
             ["git", "-C", str(folder), "push"],
             capture_output=True, timeout=60,
