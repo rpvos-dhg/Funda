@@ -1,7 +1,7 @@
 """
 Dagelijkse Funda check voor Remco.
 
-Zoekt koopappartementen binnen 7 km fietsen vanaf postcode 2596EC,
+Zoekt koopappartementen rond de zoekpostcode uit funda_personal.json,
 prijs € 230-310k, min 55 m2. Filtert beleggingsobjecten weg, sluit
 ongewenste buurten uit en markeert twijfelbuurten met een waarschuwing.
 

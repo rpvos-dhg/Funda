@@ -6,6 +6,7 @@ funda_blacklist.json
 funda_log.txt
 funda_werk_coords.json
 funda_thuis_coords.json
+funda_seeds_lokaal.json
 funda_tracking.json
 funda_enrichment_cache.json
 funda_sitemap_cache.json

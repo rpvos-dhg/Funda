@@ -41,15 +41,19 @@ MAX_VERKENNEN = int(os.environ.get("VALIDATIE_MAX_VERKENNEN") or 30)
 STEEKPROEF = int(os.environ.get("VALIDATIE_STEEKPROEF") or 0)
 PAUZE = 0.6
 
-# Zelfde lijst als in scripts/funda_sitemap_probe.py (publieke funda-nummers).
-MAIL_SEEDS = {
-    "80017735", "44656002", "44650476", "44652001", "44546930", "44548508",
-    "44653845", "44650043", "44547026", "80018360", "44668459", "44541872",
-    "44654337", "80015892", "44657010", "80010543", "44533983", "44655308",
-    "44541764", "80015683", "44549244", "44541033", "80014298", "44546295",
-    "44524505", "80019364", "44656881", "80017514", "44651359", "80997843",
-    "44659952", "44655950", "44650472", "44546400", "80023531",
-}
+# Woningen die eerder in het rapport stonden, om de recall te meten. Bewust NIET
+# in de repo: samen verraden die het zoekgebied en budget. Lokaal in
+# funda_seeds_lokaal.json (gitignored, een JSON-lijst met tiny_id's); zonder dat
+# bestand slaat de recall-meting over.
+def _laad_seeds() -> set[str]:
+    pad = Path(__file__).resolve().parent.parent / "funda_seeds_lokaal.json"
+    try:
+        return {str(x) for x in json.loads(pad.read_text(encoding="utf-8"))}
+    except Exception:
+        return set()
+
+
+MAIL_SEEDS = _laad_seeds()
 
 
 def main() -> int:
