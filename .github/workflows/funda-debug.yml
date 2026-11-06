@@ -26,10 +26,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Offline tests huispedia-bron
-        run: python test_bron_huispedia.py
+      - name: Offline tests
+        run: |
+          python test_bron_huispedia.py
+          python test_funda_zoek.py
 
-      # Max 60 verzoeken, >= 0,8 s pauze, robots.txt per URL gecontroleerd,
-      # stopt per site bij 401/403/429 of een bot-controle.
-      - name: Derde-partij woningsites meten
-        run: python scripts/bronnen_derden_probe.py
+      # De meting zelf (scripts/bronnen_derden_probe.py) draaide in run
+      # 42265393898 en staat hier bewust NIET meer: pararius gaf daar een 403,
+      # en een blokkade proberen we niet nog eens.
+      #
+      # End-to-end: funda_zoek.py met huispedia als bron, met een generieke,
+      # niet-persoonlijke config (geen secrets). Max 25 detailpagina's, plus
+      # 2 zoekverzoeken en 2 PDOK-verzoeken. Publiceert niets (--no-push, en
+      # deze workflow commit niets).
+      - name: End-to-end funda_zoek.py via huispedia
+        env:
+          FUNDA_ZOEK_METHODE: huispedia
+          HUISPEDIA_MAX_DETAILS: "25"
+        run: |
+          cat > funda_personal.json <<'EOF'
+          {"bruto_jaar": 50000, "eigen_inleg": 0, "duo_maandlast": 0, "leeftijd": 30,
+           "postcode_huidig": "2511BT", "werk_postcodes": [],
+           "prijs_min": 230000, "prijs_max": 310000, "m2_min": 55, "radius_km": 6}
+          EOF
+          python funda_zoek.py --no-push --no-open
+          echo "--- run-summary (aantallen) ---"
+          python -c "import json; d=json.load(open('funda_run_summary.json')); print({k: (len(v) if isinstance(v, list) else v) for k, v in d.items()})"

@@ -588,9 +588,25 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
     methode = (os.environ.get("FUNDA_ZOEK_METHODE")
                or _PERSONAL.get("zoek_methode") or "auto").lower()
 
-    if methode not in {"auto", "api", "html", "mail"}:
+    if methode not in {"auto", "api", "html", "mail", "huispedia"}:
         log(f"Onbekende zoek_methode {methode!r}, val terug op 'auto'.")
         methode = "auto"
+
+    if methode == "huispedia":
+        # Derde partij in plaats van funda (zie bron_huispedia.py). Bewust nog
+        # niet in 'auto': eerst een paar runs naast de mailroute vergelijken.
+        from bron_huispedia import maak_zoeker
+
+        map_ = Path(__file__).parent
+        max_details = os.environ.get("HUISPEDIA_MAX_DETAILS") or _PERSONAL.get("huispedia_max_details")
+        log("Zoekmethode: huispedia (afgedwongen via configuratie).")
+        return maak_zoeker(
+            prijs_bereik=(PRIJS_MIN, PRIJS_MAX),
+            buurten_cache=map_ / "funda_buurten_cache.json",
+            detail_cache=map_ / "funda_huispedia_cache.json",
+            max_details=int(max_details) if max_details else None,
+            log=log,
+        ), "huispedia"
 
     def html_zoeker():
         from funda_html_zoek import HtmlZoeker

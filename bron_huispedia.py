@@ -34,6 +34,7 @@ import html as html_mod
 import json
 import re
 import time
+from pathlib import Path
 from typing import Any, Callable, Iterable
 from urllib.parse import quote
 
@@ -214,12 +215,17 @@ def parse_detail(html: str) -> dict[str, Any]:
             if "Offer" in soorten and node.get("price"):
                 uit["price"] = node.get("price")
             if "Place" in soorten and "/buurt/" in str(node.get("@id")):
-                uit["neighbourhood"] = node.get("name")
+                # Niet altijd aanwezig: soms noemt huispedia alleen de wijk
+                # (gemeten: Loosduinse Hoofdstraat 268 -> alleen "Loosduinen").
+                # Daarom een eigen veld; `neighbourhood` komt uit de CBS-grenzen.
+                uit["huispedia_buurt"] = node.get("name")
             if any(s in soorten for s in ("Apartment", "House", "SingleFamilyResidence", "Residence")):
                 geo = node.get("geo") or {}
                 uit["latitude"] = geo.get("latitude")
                 uit["longitude"] = geo.get("longitude")
                 uit["house_type"] = node.get("accommodationCategory")
+                uit["bedrooms"] = node.get("numberOfBedrooms")
+                uit["rooms"] = node.get("numberOfRooms")
                 for prop in node.get("additionalProperty") or []:
                     if prop.get("name") and prop.get("value") is not None:
                         kenmerken[str(prop["name"])] = str(prop["value"])
@@ -258,8 +264,19 @@ class HuispediaZoeker:
         buurt_bepaler: Callable[[float | None, float | None], str | None] | None = None,
         haal: Callable[[str], str] | None = None,
         pauze: float = 1.0,
+        max_details: int | None = None,
+        detail_cache_pad: Path | None = None,
         log: Callable[[str], None] | None = None,
     ) -> None:
+        self._max_details = max_details
+        self._details_gehaald = 0
+        self._detail_cache_pad = detail_cache_pad
+        self._blijvend: dict[str, dict[str, Any]] = {}
+        if detail_cache_pad is not None and detail_cache_pad.exists():
+            try:
+                self._blijvend = json.loads(detail_cache_pad.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                self._blijvend = {}
         self._gemeenten = tuple(gemeenten)
         self._prijs_bereik = prijs_bereik
         self._statussen = {s.upper() for s in statussen}
@@ -378,16 +395,88 @@ class HuispediaZoeker:
         if basis is None:
             raise KeyError(f"Onbekende huispedia-woning {sleutel}; eerst search_listing()")
         data = dict(basis)
-        try:
-            detail = parse_detail(self._haal(basis["detail_url"]))
-        except Exception as exc:
-            self._log(f"Huispedia-detail mislukt voor {basis['title']}: {exc}")
-            detail = {}
+        detail = self._blijvend.get(sleutel)
+        if detail is None:
+            if self._max_details is not None and self._details_gehaald >= self._max_details:
+                # Budget op: zoekdata alleen. funda_zoek.py toont de woning dan
+                # gewoon (onbekend = doorlaten); de volgende run haalt hem op.
+                if self._details_gehaald == self._max_details:
+                    self._log(f"Huispedia: detailbudget ({self._max_details}) op; rest volgende run.")
+                    self._details_gehaald += 1
+                return HuispediaResultaat(data)
+            self._details_gehaald += 1
+            try:
+                detail = parse_detail(self._haal(basis["detail_url"]))
+            except Exception as exc:
+                self._log(f"Huispedia-detail mislukt voor {basis['title']}: {exc}")
+                detail = {}
+            if detail:
+                self._blijvend[sleutel] = detail
+                self._bewaar_details()
         for veld, waarde in detail.items():
+            # Prijs en status komen uit de zoekdata van vandaag, niet uit een
+            # (mogelijk gecachete) detailpagina.
+            if veld in ("price", "status"):
+                continue
             if waarde not in (None, "", []):
                 data[veld] = waarde
+        if not data.get("neighbourhood") and detail.get("huispedia_buurt"):
+            data["neighbourhood"] = detail["huispedia_buurt"]
         # Een appartement-subtype ("Galerijflat") mag niet als huis gelden; een
         # echt huistype ("Tussenwoning") wel. is_geen_appartement() regelt dat.
         resultaat = HuispediaResultaat(data)
         self._detail_cache[sleutel] = resultaat
         return resultaat
+
+    def _bewaar_details(self) -> None:
+        if self._detail_cache_pad is None:
+            return
+        try:
+            self._detail_cache_pad.write_text(json.dumps(self._blijvend, ensure_ascii=False),
+                                              encoding="utf-8")
+        except OSError as exc:
+            self._log(f"Huispedia-detailcache niet te schrijven: {exc}")
+
+
+def maak_zoeker(
+    *,
+    prijs_bereik: tuple[int, int],
+    gemeenten: Iterable[str] = STANDAARD_GEMEENTEN,
+    buurten_cache: Path | None = None,
+    detail_cache: Path | None = None,
+    max_details: int | None = None,
+    haal: Callable[[str], str] | None = None,
+    log: Callable[[str], None] | None = None,
+) -> HuispediaZoeker:
+    """Zoeker mét buurtbepaling, klaar voor kies_zoeker() in funda_zoek.py.
+
+    De CBS-buurtgrenzen komen uit `buurten_cache` (JSON) als die er is, anders
+    van PDOK (één verzoek per gemeente) en worden daarna weggeschreven. Lukt
+    dat niet, dan draait de zoeker zonder buurtnamen en wordt dat gelogd: de
+    buurtfilters laten dan alles door (te veel tonen, niets stil verliezen).
+    """
+    from buurten_cbs import BuurtBepaler, buurten_url, parse_buurten
+
+    log = log or (lambda _b: None)
+    zoeker = HuispediaZoeker(gemeenten=gemeenten, prijs_bereik=prijs_bereik, haal=haal, log=log,
+                             max_details=max_details, detail_cache_pad=detail_cache)
+    buurten: list[dict[str, Any]] | None = None
+    if buurten_cache is not None and buurten_cache.exists():
+        try:
+            buurten = json.loads(buurten_cache.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            buurten = None
+    if not buurten:
+        try:
+            buurten = []
+            for gemeente in gemeenten:
+                buurten.extend(parse_buurten(json.loads(zoeker._haal(buurten_url(gemeente)))))
+            if buurten_cache is not None:
+                buurten_cache.write_text(json.dumps(buurten), encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001 - zonder buurten verder, wel melden
+            log(f"CBS-buurten niet te laden ({exc}); buurtfilters krijgen geen buurtnaam.")
+            buurten = []
+    if buurten:
+        zoeker._buurt = BuurtBepaler(buurten)
+        log(f"Huispedia: {len(buurten)} CBS-buurten geladen voor de buurtfilters.")
+    return zoeker

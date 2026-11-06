@@ -328,7 +328,7 @@ def probe_huispedia(c: Client, seeds: list[dict]) -> dict:
         status, tekst = c.haal(d["detail_url"], label=f"detail {d['title']}")
         if tekst:
             det = parse_detail(tekst)
-            print(f"    buurt={det.get('neighbourhood')!r} gelegen_op={det.get('gelegen_op')!r} "
+            print(f"    buurt={det.get('huispedia_buurt')!r} gelegen_op={det.get('gelegen_op')!r} "
                   f"soort={det.get('house_type')!r} sinds={det.get('publication_date')!r} "
                   f"kenmerken={len(det.get('kenmerken') or {})} funda-link={'funda.nl/detail' in tekst}")
     return uitkomst
