@@ -29,3 +29,6 @@ subscription.json
 # Tijdelijke mappen van test_funda_zoek.py en test_funda_sitemap.py
 .test_tmp/
 .test_tmp_sitemap*/
+
+# Tijdelijke map van de cache-migratie in funda-daily.yml
+oude_state/
