@@ -31,6 +31,19 @@ from datetime import datetime
 
 from funda import Funda as _Funda
 
+try:  # alleen voor de vaste vingerafdruk hieronder; de offline tests stubben pyfunda
+    from funda.funda import FINGERPRINT_POOL as _FINGERPRINT_POOL
+except Exception:  # noqa: BLE001
+    _FINGERPRINT_POOL = []
+
+from funda_sitemap_zoek import (
+    ACHTERSTAND as SITEMAP_ACHTERSTAND,
+    MISLUKT as SITEMAP_MISLUKT,
+    NIET_IN_SITEMAP,
+    OPGEHAALD as SITEMAP_OPGEHAALD,
+    OVERGESLAGEN as SITEMAP_OVERGESLAGEN,
+)
+
 try:
     from funda_rapport import genereer_rapport
 except ImportError:
@@ -48,15 +61,62 @@ class Funda(_Funda):
     onopgemerkt bleef). Pas is er in pyfunda v3.1.2, maar v3 is een
     incompatibele dataclass-rewrite. Daarom hier alleen de template-id
     patchen in plaats van te upgraden.
+
+    Daarnaast, los van de template:
+    - **Vaste vingerafdruk.** pyfunda's `_find_working_fingerprint()` loopt
+      FINGERPRINT_POOL af (twee JA3's van de app, twee Safari-profielen, okhttp,
+      chrome) tot er één een 200 krijgt. Bij een blokkade is dat stil wisselen
+      van vingerafdruk tot er één doorkomt, en dat is botbescherming omzeilen
+      (zie CLAUDE.md). Hier wordt alleen FINGERPRINT_POOL[0] geprobeerd; werkt
+      die niet, dan een RuntimeError met uitleg. Die fout wordt onthouden, zodat
+      een run niet bij elke detail-call opnieuw aanklopt.
+    - **Tellen.** Hoeveel detail-calls deze run deed, en hoeveel daarvan een
+      woning ophaalden die deze run al was opgehaald. Staat aan het eind van de
+      run in de log, zodat dubbel werk opvalt.
     """
 
     _STALE_SEARCH_TEMPLATE_ID = "search_result_20250805"
     _FIXED_SEARCH_TEMPLATE_ID = "search_result_20260227"
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.detail_calls = 0
+        self.detail_dubbel = 0
+        self._opgehaald: set[str] = set()
+        self._vingerafdruk_fout: str | None = None
+
     def _post(self, url, headers_list, data=None, json_data=None, for_search=False):
         if for_search and data and self._STALE_SEARCH_TEMPLATE_ID in data:
             data = data.replace(self._STALE_SEARCH_TEMPLATE_ID, self._FIXED_SEARCH_TEMPLATE_ID)
         return super()._post(url, headers_list, data=data, json_data=json_data, for_search=for_search)
+
+    def _find_working_fingerprint(self) -> dict:
+        if self._vingerafdruk_fout:
+            raise RuntimeError(self._vingerafdruk_fout)
+        if not _FINGERPRINT_POOL:
+            self._vingerafdruk_fout = ("pyfunda heeft geen FINGERPRINT_POOL; is de pin op "
+                                       "v2.9.0 nog intact (requirements.txt)?")
+            raise RuntimeError(self._vingerafdruk_fout)
+        vast = _FINGERPRINT_POOL[0]
+        if self._test_fingerprint(vast):
+            return vast
+        self._vingerafdruk_fout = (
+            f"Het funda-detail-endpoint weigert de vaste vingerafdruk ({vast.get('type')}, "
+            "de eerste uit pyfunda's FINGERPRINT_POOL). Bewust geen andere geprobeerd: "
+            "wisselen tot er één doorkomt is botbescherming omzeilen (zie CLAUDE.md). "
+            "Waarschijnlijk is het detail-endpoint dicht voor deze runner."
+        )
+        raise RuntimeError(self._vingerafdruk_fout)
+
+    def get_listing(self, listing_id):
+        self.detail_calls += 1
+        listing = super().get_listing(listing_id)
+        data = getattr(listing, "data", None) or {}
+        sleutel = str(data.get("global_id") or data.get("tiny_id") or listing_id)
+        if sleutel in self._opgehaald:
+            self.detail_dubbel += 1
+        self._opgehaald.add(sleutel)
+        return listing
 
 
 # === Configuratie — laad uit gitignored config bestand ===
@@ -252,6 +312,37 @@ SUMMARY_FILE = Path(__file__).parent / "funda_run_summary.json"
 # Coördinaten van de zoekpostcode, voor het afstandsfilter. In de Actions-cache,
 # niet in de repo: een postcode is privé.
 THUIS_CACHE = Path(__file__).parent / "funda_thuis_coords.json"
+
+
+def _int_instelling(omgeving: str, sleutel: str, standaard: int) -> int:
+    """Geheel getal uit de omgeving, dan de config, dan de standaard.
+
+    Een lege waarde telt als niet gezet: de workflow geeft een lege
+    workflow_dispatch-input door als lege omgevingsvariabele.
+    """
+    for bron, waarde in ((omgeving, os.environ.get(omgeving)), (sleutel, _PERSONAL.get(sleutel))):
+        if waarde is None or not str(waarde).strip():
+            continue
+        try:
+            return int(str(waarde).strip())
+        except ValueError:
+            print(f"WAARSCHUWING: {bron}={waarde!r} is geen geheel getal; genegeerd.")
+    return standaard
+
+
+# Sitemaproute (funda_sitemap_zoek.py). De sitemaps kennen geen straal, alleen
+# URL's per plaats; de stad-, buurt- en afstandsfilters doen de rest. Steden als
+# funda-slug: lowercase, spaties als koppelteken.
+SITEMAP_STEDEN = _PERSONAL.get("sitemap_steden") or ["den-haag", "voorburg"]
+# Verkennende detail-calls per run (nieuwste lastmod eerst) voor woningen die
+# nieuw zijn of een andere lastmod hebben. De eerste runs is er een achterstand
+# (het hele bestaande aanbod, ~3.100 kandidaten); die loopt zo over een paar
+# dagen leeg in plaats van in één run duizenden calls te doen. Eenmalig
+# versnellen kan met de workflow-input sitemap_max_verkennen (bijv. 600).
+SITEMAP_MAX_VERKENNEN = _int_instelling("FUNDA_SITEMAP_MAX_VERKENNEN", "sitemap_max_verkennen", 200)
+# Per woning lastmod en filtervelden, plus de laatste index en kandidatenlijst.
+# Hoort in de Actions-cache (en in .gitignore).
+SITEMAP_CACHE_FILE = Path(__file__).parent / "funda_sitemap_cache.json"
 
 
 # === Helpers ===
@@ -607,7 +698,8 @@ def _pool_ident(sleutel: str, rec: dict):
 
 
 def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[str],
-                    *, dagen: int, maximum: int, pauze: float = 0.4) -> list[PoolResultaat]:
+                    *, dagen: int, maximum: int, pauze: float = 0.4,
+                    sitemap: object | None = None) -> list[PoolResultaat]:
     """Eerder getoonde woningen opnieuw ophalen en teruggeven als ze nog te koop staan.
 
     Waarom: de mailroute ziet alleen wat funda de laatste dagen mailde. Zonder dit
@@ -618,12 +710,32 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
     Een woning die verkocht is, wordt in de tracking gemarkeerd en daarna niet
     meer opgevraagd. Onder bod of onder optie: deze run niet tonen, wel blijven
     volgen. Drie keer niet op te halen: als weg markeren.
+
+    Met de sitemaproute (`sitemap` is dan de SitemapZoeker van deze run) geldt
+    één principe: **de sitemap bepaalt wat de pool níet hoeft op te halen, het
+    detail-endpoint bepaalt wat weg is.** Nooit twee detail-calls voor dezelfde
+    woning in één run. Per getrackte woning (SitemapZoeker.pool_oordeel):
+    - opgehaald door de zoeker: oordelen op dat antwoord, zonder nieuwe call;
+    - door de zoeker geprobeerd en mislukt: overslaan, geen tweede poging;
+    - op de cache overgeslagen (lastmod gelijk, en buiten de doelmarkt of door
+      een filter afgewezen): overslaan, want sinds de vorige call is er niets
+      veranderd dat het oordeel kan omdraaien;
+    - in de achterstand (staat in de sitemap, nog niet verkend): zelf ophalen en
+      in de sitemapcache vastleggen, zodat de zoeker hem niet nog eens verkent;
+    - niet meer in de sitemap: één controle-call. Verkocht, ingetrokken of niet
+      op te halen (terwijl het endpoint deze run wél werkte) = meteen weg, en dan
+      nooit meer opgevraagd. Nog te koop = gewoon tonen: de sitemap loopt een dag
+      achter en of "onder bod" erin blijft is niet gemeten, dus ontbreken in de
+      sitemap is alleen een reden om te controleren, niet om weg te gooien;
+    - onbekend (geen URL, of een stad buiten de sitemapsteden): zoals zonder
+      sitemap.
     """
     if dagen <= 0 or maximum <= 0:
         return []
     vandaag = datetime.now().strftime("%Y-%m-%d")
     grens = datetime.now().timestamp() - dagen * 86400
 
+    oordelen: Counter[str] = Counter()
     kandidaten = []
     for sleutel, rec in tracking.items():
         if sleutel in al_binnen or not isinstance(rec, dict) or rec.get("weg"):
@@ -635,9 +747,15 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
         if laatst < grens:
             continue
         ident = _pool_ident(sleutel, rec)
-        if ident is not None:
-            kandidaten.append((rec.get("last_seen") or "", sleutel, rec, ident))
-    kandidaten.sort(reverse=True)
+        if ident is None:
+            continue
+        oordeel = sitemap.pool_oordeel(rec.get("url") or ident) if sitemap is not None else None
+        if oordeel:
+            oordelen[oordeel] += 1
+        if oordeel in (SITEMAP_MISLUKT, SITEMAP_OVERGESLAGEN):
+            continue
+        kandidaten.append((rec.get("last_seen") or "", sleutel, rec, ident, oordeel))
+    kandidaten.sort(key=lambda k: (k[0], k[1]), reverse=True)
     if len(kandidaten) > maximum:
         log(f"Pool: {len(kandidaten)} kandidaten, alleen de {maximum} recentste gecontroleerd.")
         kandidaten = kandidaten[:maximum]
@@ -645,38 +763,53 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
     resultaten: list[PoolResultaat] = []
     teller: Counter[str] = Counter()
     statussen: Counter[str] = Counter()
+    controle: Counter[str] = Counter()   # uitkomst voor woningen die niet meer in de sitemap staan
     mislukt: list[dict] = []
-    geslaagd = 0
-    for _laatst, sleutel, rec, ident in kandidaten:
+    mislukt_buiten_sitemap: list[dict] = []
+    geslaagd = 0   # alleen echte calls van de pool zelf: bewijs dat het endpoint nu werkt
+    vastgelegd = 0
+    for _laatst, sleutel, rec, ident, oordeel in kandidaten:
+        # Al opgehaald door de sitemapzoeker: get_listing komt uit diens geheugen.
+        uit_zoeker = oordeel == SITEMAP_OPGEHAALD
         try:
             listing = zoeker.get_listing(ident)
         except Exception:
             teller["fout"] += 1
-            mislukt.append(rec)
-            if len(mislukt) >= 5 and not geslaagd:
+            if oordeel == NIET_IN_SITEMAP:
+                controle["fout"] += 1
+                mislukt_buiten_sitemap.append(rec)
+            else:
+                mislukt.append(rec)
+            if len(mislukt) + len(mislukt_buiten_sitemap) >= 5 and not geslaagd:
                 # Vijf mislukkingen zonder één succes: dan is het endpoint dicht,
                 # niet de woning weg. Stoppen.
                 log("Pool: detail-endpoint lijkt dicht; controle afgebroken.")
                 break
             continue
         finally:
-            time.sleep(pauze)
-        geslaagd += 1
+            if not uit_zoeker:
+                time.sleep(pauze)
+        if not uit_zoeker:
+            geslaagd += 1
         rec.pop("pool_fout", None)
         data = dict(getattr(listing, "data", None) or {})
         if not data:
             teller["leeg"] += 1
             continue
         zoeker.onthoud(listing, sleutel)
+        if oordeel == SITEMAP_ACHTERSTAND and sitemap is not None and sitemap.neem_op(listing):
+            vastgelegd += 1
         if any(str(data.get(v)) in al_binnen for v in ("global_id", "tiny_id") if data.get(v)):
             continue  # zit al in deze run, onder een andere sleutel
-        oordeel, status_tekst = beschikbaarheid(data)
+        oordeel_beschikbaar, status_tekst = beschikbaarheid(data)
         statussen[status_tekst or "(geen)"] += 1
-        if oordeel == "weg":
+        if oordeel == NIET_IN_SITEMAP:
+            controle[oordeel_beschikbaar] += 1
+        if oordeel_beschikbaar == "weg":
             rec["weg"] = {"datum": vandaag, "reden": status_tekst or "verkocht"}
             teller["weg"] += 1
             continue
-        if oordeel == "tijdelijk":
+        if oordeel_beschikbaar == "tijdelijk":
             teller["tijdelijk"] += 1
             continue
         data.setdefault("detail_url", data.get("url") or rec.get("url") or "")
@@ -693,6 +826,13 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
             if rec["pool_fout"] >= 3:
                 rec["weg"] = {"datum": vandaag, "reden": "3x niet op te halen"}
                 teller["weg"] += 1
+        # Niet in de sitemap én niet op te halen: twee onafhankelijke signalen,
+        # dus meteen weg in plaats van na drie runs.
+        for rec in mislukt_buiten_sitemap:
+            rec["weg"] = {"datum": vandaag, "reden": "niet in de sitemap en niet op te halen"}
+            teller["weg"] += 1
+    if vastgelegd:
+        sitemap.bewaar_cache()
 
     if kandidaten:
         log(f"Pool: {len(kandidaten)} bekende woning(en) gecontroleerd: "
@@ -701,6 +841,20 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
         # Alleen de statuswaarden, geen adressen: zo is te zien of het filter de
         # woorden kent die funda gebruikt.
         log("Pool: statuswaarden: " + ", ".join(f"{s} ({n}x)" for s, n in statussen.most_common()))
+    if sitemap is not None and oordelen:
+        # Alleen getallen. Laat zien dat de pool geen dubbel werk doet, en hoeveel
+        # getrackte woningen uit de sitemap verdwijnen (meting eerste week).
+        log(f"Pool en sitemap: {sum(oordelen.values())} getrackte woning(en); "
+            f"{oordelen[SITEMAP_OPGEHAALD]} al opgehaald door de sitemapzoeker (geen call), "
+            f"{oordelen[SITEMAP_MISLUKT]} daar mislukt (geen tweede call), "
+            f"{oordelen[SITEMAP_OVERGESLAGEN]} op cache overgeslagen, "
+            f"{oordelen[SITEMAP_ACHTERSTAND]} in de achterstand ({vastgelegd} vastgelegd in de cache), "
+            f"{oordelen[NIET_IN_SITEMAP]} niet meer in de sitemap, "
+            f"{oordelen['onbekend']} onbekend.")
+        if oordelen[NIET_IN_SITEMAP]:
+            log(f"Pool: {oordelen[NIET_IN_SITEMAP]} getrackte woning(en) niet meer in de sitemap; "
+                f"controle-call: {controle['weg']} weg, {controle['ja']} nog te koop, "
+                f"{controle['tijdelijk']} onder bod/optie, {controle['fout']} niet op te halen.")
     return resultaten
 
 
@@ -850,6 +1004,34 @@ def _mag_detail_call_overslaan(kaart: dict) -> bool:
     return is_uitgesloten_straat_nr(kaart) is not None
 
 
+def _sitemap_overslaan(d: dict) -> bool:
+    """Voor de sitemapzoeker: valt een woning (of haar gecachte velden) toch af?
+
+    Dezelfde regels als in main(): woningtype, stad, buurt, straat-segment en
+    prijs/m2/straal (`buiten_zoekcriteria`). De zoeker gebruikt dit om afgewezen
+    woningen niet elke run opnieuw op te halen; met de coördinaten in de cache
+    kost een woning buiten de straal na de eerste keer geen call meer, tot haar
+    lastmod verandert. Onbekend = doorlaten: zonder coördinaten (of zonder
+    thuiscoördinaten) telt de straal niet.
+
+    Beschikbaarheid hoort hier bewust niet bij: "onder bod" kan terugdraaien, en
+    of de lastmod dan verandert is nog niet gemeten. Woningen die verder door
+    alle filters komen, worden daarom elke run vers opgehaald.
+    """
+    return bool(
+        is_geen_appartement(d)
+        or is_uitgesloten_stad((d.get("city") or "").strip())
+        or is_uitgesloten_buurt((d.get("neighbourhood") or "").strip())
+        or is_uitgesloten_straat_nr(d)
+        or buiten_zoekcriteria(d, thuis_coords(), nafilter_straal_km())
+    )
+
+
+# Waarom de mailroute deze run niets opleverde; voor de ::error als geen enkele
+# bron werkt. Alleen een korte oorzaak, nooit mailinhoud.
+_MAIL_REDEN: dict[str, str] = {}
+
+
 def _woningen_uit_mailbox() -> list[tuple[str, str]]:
     """Woningen uit de funda-mails in de mailbox, zonder dubbelen.
 
@@ -859,10 +1041,12 @@ def _woningen_uit_mailbox() -> list[tuple[str, str]]:
     from funda_mail_bron import woningen_uit_mail
     from funda_mail_ophalen import haal_mail_teksten, mail_config
 
+    _MAIL_REDEN.clear()
     config = mail_config(_PERSONAL)
     if not config:
         log("Mailroute: geen mailinstellingen (FUNDA_MAIL_USER en "
             "FUNDA_MAIL_PASSWORD); niets op te halen.")
+        _MAIL_REDEN["v"] = "geen mailinstellingen (FUNDA_MAIL_USER en FUNDA_MAIL_PASSWORD)"
         return []
 
     try:
@@ -873,12 +1057,14 @@ def _woningen_uit_mailbox() -> list[tuple[str, str]]:
         # Zonder deze regel eindigt de log op de 403 van de zoekpagina, en die is
         # al weken bekend en dus niet de reden dat het vandaag stuk is.
         if "AUTHENTICATIONFAILED" in str(exc) or "Invalid credentials" in str(exc):
+            _MAIL_REDEN["v"] = "Gmail weigert de login (AUTHENTICATIONFAILED)"
             print("::error::Gmail weigert de login (AUTHENTICATIONFAILED). Het "
                   "app-wachtwoord in secret FUNDA_MAIL_PASSWORD is niet meer geldig. "
                   "Dat gebeurt onder meer na een wijziging van het Google-wachtwoord. "
                   "Maak een nieuw app-wachtwoord op "
                   "https://myaccount.google.com/apppasswords en zet het in het secret.")
         else:
+            _MAIL_REDEN["v"] = f"mailbox niet te lezen ({type(exc).__name__})"
             print(f"::error::Mailbox niet te lezen: {type(exc).__name__}: {exc}")
         return []
 
@@ -890,20 +1076,58 @@ def _woningen_uit_mailbox() -> list[tuple[str, str]]:
                 gezien.add(tiny_id)
                 woningen.append((pad, tiny_id))
     log(f"Mailroute: {len(woningen)} unieke woning(en) uit {len(teksten)} mail(s).")
+    if not woningen:
+        _MAIL_REDEN["v"] = f"geen woningen in {len(teksten)} mail(s)"
     return woningen
 
 
-def kies_zoeker(f: "Funda") -> tuple[object, str]:
-    """Bepaal waarmee we zoeken: de API, de HTML-pagina of de notificatiemails.
+class GeenBron:
+    """Zoeker voor als geen enkele bron werkt.
 
-    'auto' (standaard) loopt die drie in die volgorde af en gebruikt de eerste
-    die antwoordt. Zo schakelt het zichzelf terug zodra Funda de API of de
-    zoekpagina weer openzet, zonder dat er iets aan de configuratie hoeft.
+    Elke zoekaanroep faalt, zonder netwerk. main() stopt dan op de
+    exit-2-check ("alle zoekopdrachten mislukt") en het rapport blijft staan.
+    De echte oorzaken staan in de ::error die kies_zoeker() er vlak voor zet.
+    """
+
+    def __init__(self, client: object, boodschap: str) -> None:
+        self._client = client
+        self.boodschap = boodschap
+
+    def search_listing(self, *_args, **_kwargs):
+        raise RuntimeError("geen enkele zoekbron werkt (oorzaken in de ::error hierboven)")
+
+    def get_listing(self, listing_id):
+        return self._client.get_listing(listing_id)
+
+    def __getattr__(self, naam: str):
+        if naam.startswith("_"):
+            raise AttributeError(naam)
+        return getattr(self._client, naam)
+
+
+def _kort(tekst: object, n: int = 160) -> str:
+    regel = " ".join(str(tekst).split())
+    return regel if len(regel) <= n else regel[: n - 3] + "..."
+
+
+def kies_zoeker(f: "Funda") -> tuple[object, str]:
+    """Bepaal waarmee we zoeken: de API, de zoekpagina, de sitemaps of de mails.
+
+    'auto' (standaard) loopt ze in die volgorde af en gebruikt de eerste die
+    werkt. Zo schakelt het zichzelf terug zodra funda de API of de zoekpagina
+    weer openzet, zonder dat er iets aan de configuratie hoeft. Per bron kost
+    die vraag weinig: één zoek-call, één pagina, robots.txt plus de
+    sitemap-index (die de sitemapzoeker daarna hergebruikt).
+
+    De mailroute staat achteraan, als terugval: alleen gekozen als er echt
+    woningen uit komen. Werkt geen enkele bron, dan één ::error met alle
+    oorzaken en een GeenBron, zodat de run luid faalt op de exit-2-check in
+    main() zonder nog iets op te halen.
     """
     methode = (os.environ.get("FUNDA_ZOEK_METHODE")
                or _PERSONAL.get("zoek_methode") or "auto").lower()
 
-    if methode not in {"auto", "api", "html", "mail"}:
+    if methode not in {"auto", "api", "html", "sitemap", "mail"}:
         log(f"Onbekende zoek_methode {methode!r}, val terug op 'auto'.")
         methode = "auto"
 
@@ -911,6 +1135,21 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
         from funda_html_zoek import HtmlZoeker
 
         return HtmlZoeker(f, overslaan=_mag_detail_call_overslaan, log=log)
+
+    def sitemap_zoeker():
+        from funda_sitemap_zoek import SitemapZoeker
+
+        return SitemapZoeker(
+            f,
+            steden=SITEMAP_STEDEN,
+            prijs_min=PRIJS_MIN,
+            prijs_max=PRIJS_MAX,
+            m2_min=M2_MIN,
+            max_verkennen=SITEMAP_MAX_VERKENNEN,
+            overslaan=_sitemap_overslaan,
+            cache_pad=SITEMAP_CACHE_FILE,
+            log=log,
+        )
 
     def mail_zoeker():
         from funda_mail_bron import MailBron
@@ -921,6 +1160,10 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
         log("Zoekmethode: mail (afgedwongen via configuratie).")
         return mail_zoeker(), "mail"
 
+    if methode == "sitemap":
+        log("Zoekmethode: sitemap (afgedwongen via configuratie).")
+        return sitemap_zoeker(), "sitemap"
+
     if methode == "html":
         log("Zoekmethode: HTML (afgedwongen via configuratie).")
         return html_zoeker(), "html"
@@ -929,7 +1172,9 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
         log("Zoekmethode: API (afgedwongen via configuratie).")
         return f, "api"
 
-    # auto: eerst even kijken of de zoek-API überhaupt antwoordt.
+    redenen: list[str] = []
+
+    # 1. De zoek-API: één call.
     try:
         f.search_listing(
             location=POSTCODE,
@@ -943,42 +1188,76 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
         )
     except Exception as exc:
         log(f"Zoek-API doet het niet ({exc}); probeer de HTML-zoekpagina.")
+        redenen.append(f"zoek-API: {_kort(exc)}")
     else:
         log("Zoekmethode: API.")
         return f, "api"
 
-    # Dan de zoekpagina. Eén goedkope call, want sinds 8 okt 2026 geeft die een
+    # 2. De zoekpagina. Eén goedkope call, want sinds 8 okt 2026 geeft die een
     # 403 vanaf Actions; dan is er geen reden om alle prijsbanden af te lopen.
     zoeker = html_zoeker()
     try:
         bereikbaar = zoeker.bereikbaar()
     except Exception as exc:
         log(f"Zoekpagina niet te bereiken ({exc}).")
+        zoeker.reden = str(exc)
         bereikbaar = False
-
     if bereikbaar:
         log("Zoekmethode: HTML.")
         return zoeker, "html"
+    redenen.append(f"zoekpagina: {_kort(getattr(zoeker, 'reden', None) or 'niet bereikbaar')}")
 
-    # Als laatste de mails. Alleen als er iets in zit: een lege mailbron zou de
+    # 3. De sitemaps: robots.txt en de index. Die twee verzoeken hergebruikt de
+    # zoeker daarna, dus dit kost niets extra.
+    sitemap = sitemap_zoeker()
+    try:
+        bereikbaar = sitemap.bereikbaar()
+    except Exception as exc:
+        log(f"Sitemaps niet te bereiken ({exc}).")
+        sitemap.reden = str(exc)
+        bereikbaar = False
+    if bereikbaar:
+        log("Zoekmethode: sitemap (zoek-API en zoekpagina liggen eruit).")
+        return sitemap, "sitemap"
+    redenen.append(f"sitemaps: {_kort(getattr(sitemap, 'reden', None) or 'niet bereikbaar')}")
+
+    # 4. Als laatste de mails. Alleen als er iets in zit: een lege mailbron zou de
     # run op de nul-woningen-check laten falen met een misleidende melding,
     # terwijl de echte oorzaak is dat er geen mailroute is ingericht.
     woningen = _woningen_uit_mailbox()
     if woningen:
         from funda_mail_bron import MailBron
 
-        log("Zoekmethode: mail (API en zoekpagina liggen eruit).")
+        log("Zoekmethode: mail (zoek-API, zoekpagina en sitemaps liggen eruit).")
         return MailBron(f, woningen, log=log), "mail"
+    redenen.append(f"mail: {_MAIL_REDEN.get('v') or 'geen woningen uit de mailroute'}")
 
-    log("Geen enkele zoekmethode beschikbaar; ga verder met HTML zodat de run "
-        "luid faalt op de echte oorzaak.")
-    return zoeker, "html"
+    boodschap = "Geen enkele zoekbron werkt. " + "; ".join(redenen) + "."
+    log(boodschap)
+    print(f"::error::{boodschap}")
+    return GeenBron(f, boodschap), "geen"
 
 
 # === Hoofdroutine ===
 
+def _log_kosten(f: object, bron: object, methode: str, start: float) -> None:
+    """Eén regel met wat deze run kostte; alleen getallen."""
+    delen = [f"methode {methode}", f"duur {time.monotonic() - start:.0f}s",
+             f"detail-calls {getattr(f, 'detail_calls', '?')} "
+             f"(waarvan dezelfde woning nog eens: {getattr(f, 'detail_dubbel', '?')})"]
+    st = getattr(bron, "statistiek", None) if methode == "sitemap" else None
+    if st:
+        koop = ("niet opnieuw opgehaald (index ongewijzigd)" if st.get("index_ongewijzigd")
+                else f"{st.get('koop_sitemaps_opgehaald')} opgehaald")
+        delen += [f"sitemap-verzoeken {st.get('sitemap_verzoeken')}", f"koop-sitemaps {koop}",
+                  f"kandidaten {st.get('kandidaten')}", f"in doelmarkt {st.get('in_doelmarkt')}",
+                  f"achterstand {st.get('achterstand')}"]
+    log("Run-kosten: " + "; ".join(delen) + ".")
+
+
 def main() -> None:
     debug_wijken = "--debug-wijken" in sys.argv
+    start = time.monotonic()
     f = Funda()
     seen = laad_state()
     mode = " (debug-wijken)" if debug_wijken else ""
@@ -986,8 +1265,8 @@ def main() -> None:
     toon_pc = "(verborgen)" if os.environ.get("GITHUB_ACTIONS") else POSTCODE
     log(f"Start{mode}. Postcode {toon_pc}, radius {RADIUS_KM}km. Reeds gezien: {len(seen)}.")
 
-    zoeker, zoek_methode = kies_zoeker(f)
-    zoeker = DetailCacheZoeker(zoeker)
+    bron, zoek_methode = kies_zoeker(f)
+    zoeker = DetailCacheZoeker(bron)
 
     # Zoek per prijsband los, zodat we onder Funda's resultaatkap (~140) blijven
     # en ook woningen vinden die al lang te koop staan. Dedup op id.
@@ -1086,7 +1365,10 @@ def main() -> None:
         for veld in ("global_id", "listing_id", "tiny_id", "detail_url"):
             if r.data.get(veld):
                 al_binnen.add(str(r.data[veld]))
-    pool = controleer_pool(zoeker, tracking, al_binnen, dagen=POOL_DAGEN, maximum=POOL_MAX)
+    # Bij de sitemaproute weet de pool wat de zoeker al ophaalde of bewust
+    # oversloeg, zodat geen woning twee keer per run wordt opgehaald.
+    pool = controleer_pool(zoeker, tracking, al_binnen, dagen=POOL_DAGEN, maximum=POOL_MAX,
+                           sitemap=bron if zoek_methode == "sitemap" else None)
     rauwe.extend(pool)
 
     # Debug: alle binnenkomende wijken inventariseren.
@@ -1300,6 +1582,8 @@ def main() -> None:
                     webbrowser.open(lokaal.as_uri())
         except Exception as exc:
             log(f"Rapport-fout: {exc}")
+
+    _log_kosten(f, bron, zoek_methode, start)
 
     # Auto-push docs/ naar GitHub (skipt zelf als er geen wijzigingen zijn).
     auto_push()

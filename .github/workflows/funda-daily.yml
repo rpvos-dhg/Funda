@@ -13,7 +13,14 @@ on:
     # (vroege aanmeldingen net verwerkt) en eind van de middag (net voor de piek).
     - cron: "30 8 * * *"    # 10:30 NL (zomertijd) / 09:30 (wintertijd)
     - cron: "30 16 * * *"   # 18:30 NL (zomertijd) / 17:30 (wintertijd)
-  workflow_dispatch: {}   # knop om handmatig te draaien
+  workflow_dispatch:      # knop om handmatig te draaien
+    inputs:
+      sitemap_max_verkennen:
+        description: >-
+          Sitemaproute: verkennende detail-calls deze run (leeg = standaard 200).
+          Eenmalig bijv. 600 om de opstartachterstand sneller weg te werken.
+        required: false
+        default: ""
 
 # Voorkom dat twee runs tegelijk de repo pushen.
 concurrency:
@@ -52,6 +59,7 @@ jobs:
             funda_werk_coords.json
             funda_thuis_coords.json
             funda_enrichment_cache.json
+            funda_sitemap_cache.json
             funda_blacklist.json
           key: funda-state-${{ github.run_id }}
           restore-keys: |
@@ -91,6 +99,8 @@ jobs:
           # oorzaak, dus ze mogen ontbreken.
           FUNDA_MAIL_USER: ${{ secrets.FUNDA_MAIL_USER }}
           FUNDA_MAIL_PASSWORD: ${{ secrets.FUNDA_MAIL_PASSWORD }}
+          # Leeg bij geplande runs; dan geldt de standaard (200 of de config).
+          FUNDA_SITEMAP_MAX_VERKENNEN: ${{ inputs.sitemap_max_verkennen }}
         run: python funda_zoek.py --no-push --no-open
 
       # Geheimen meteen wissen na generatie, voordat we iets committen of cachen.
@@ -149,5 +159,6 @@ jobs:
             funda_werk_coords.json
             funda_thuis_coords.json
             funda_enrichment_cache.json
+            funda_sitemap_cache.json
             funda_blacklist.json
           key: funda-state-${{ github.run_id }}

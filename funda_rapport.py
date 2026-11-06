@@ -445,11 +445,10 @@ def verrijk_woning(f, d: dict, listing_obj, cache: dict) -> dict:
     if hasattr(f, "get_price_history") and (listing_obj is not None or url):
         def fetch_price_history():
             if listing_obj is not None:
-                try:
-                    return f.get_price_history(listing_obj)
-                except Exception:
-                    if not url:
-                        raise
+                # Geen terugval op de URL: pyfunda haalt de woning dan nog eens op
+                # via het detail-endpoint (een dubbele detail-call in dezelfde run)
+                # en stuurt daarna precies hetzelfde verzoek naar de prijsbron.
+                return f.get_price_history(listing_obj)
             return f.get_price_history(url)
 
         price_history_raw = fetch_with_cache(

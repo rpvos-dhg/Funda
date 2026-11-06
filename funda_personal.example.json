@@ -34,7 +34,14 @@
   "web_push_public_key": "",
   "actions_url": "https://github.com/<gebruiker>/<repo>/actions/workflows/funda-daily.yml",
   "zoek_methode": "auto",
-  "_doc_zoek_methode": "auto (api -> html -> mail), of forceer met api, html of mail.",
+  "_doc_zoek_methode": "auto (api -> html -> sitemap -> mail), of forceer met api, html, sitemap of mail.",
+  "sitemap_steden": [
+    "den-haag",
+    "voorburg"
+  ],
+  "_doc_sitemap_steden": "Sitemaproute: plaatsen als funda-slug (lowercase, spatie wordt koppelteken). De straal en de stad-/buurtfilters doen de rest.",
+  "sitemap_max_verkennen": 200,
+  "_doc_sitemap_max_verkennen": "Detail-calls per run voor nieuwe of gewijzigde woningen uit de sitemap, nieuwste eerst. Omgevingsvariabele FUNDA_SITEMAP_MAX_VERKENNEN (workflow-input sitemap_max_verkennen) gaat voor.",
   "mail_gebruiker": "",
   "mail_host": "imap.gmail.com",
   "mail_map": "",

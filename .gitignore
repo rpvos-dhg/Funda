@@ -8,6 +8,7 @@ funda_werk_coords.json
 funda_thuis_coords.json
 funda_tracking.json
 funda_enrichment_cache.json
+funda_sitemap_cache.json
 funda_run_summary.json
 funda_rapport.md
 funda_rapport.html
@@ -24,5 +25,6 @@ Thumbs.db
 desktop.ini
 subscription.json
 
-# Tijdelijke map van test_funda_zoek.py
+# Tijdelijke mappen van test_funda_zoek.py en test_funda_sitemap.py
 .test_tmp/
+.test_tmp_sitemap*/

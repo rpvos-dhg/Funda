@@ -227,6 +227,9 @@ class HtmlZoeker:
         self._cache: dict[str, Any] = {}
         self._sessie = None
         self._url_gelogd = False
+        # Waarom bereikbaar() nee zei; kies_zoeker() zet het in de ::error als
+        # geen enkele zoekbron werkt.
+        self.reden: str | None = None
 
     # -- HTTP ---------------------------------------------------------------
 
@@ -257,6 +260,7 @@ class HtmlZoeker:
         try:
             self._haal(ZOEK_URL)
         except Exception as exc:
+            self.reden = str(exc)
             self._log(f"Zoekpagina niet bereikbaar: {exc}")
             return False
         return True
