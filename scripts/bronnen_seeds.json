@@ -1,0 +1,355 @@
+{
+ "toelichting": "Publieke funda-woningen die tussen 17 okt en 4 nov 2026 via de mailroute in het rapport stonden (bron: Actions-logs van funda-daily). Alleen publieke advertentiegegevens. Gebruikt door scripts/bronnen_derden_probe.py om de dekking van andere woningsites te meten. Woningen kunnen inmiddels verkocht of ingetrokken zijn.",
+ "woningen": [
+  {
+   "tiny_id": "44533983",
+   "adres": "Newtonplein 81-C",
+   "postcode": "2562JZ",
+   "stad": "Den Haag",
+   "wijk": "Valkenboskwartier",
+   "prijs": 240000,
+   "m2": 58,
+   "laatst_in_rapport": "2026-10-17"
+  },
+  {
+   "tiny_id": "80997843",
+   "adres": "Vreeswijkstraat 63",
+   "postcode": "2546AB",
+   "stad": "Den Haag",
+   "wijk": "Leyenburg",
+   "prijs": 285000,
+   "m2": 79,
+   "laatst_in_rapport": "2026-10-17"
+  },
+  {
+   "tiny_id": "44546400",
+   "adres": "Rodelaan 379",
+   "postcode": "2272SJ",
+   "stad": "Voorburg",
+   "wijk": "Essesteijn / Tuinen",
+   "prijs": 269500,
+   "m2": 58,
+   "laatst_in_rapport": "2026-10-18"
+  },
+  {
+   "tiny_id": "44546930",
+   "adres": "Forellendaal 217",
+   "postcode": "2553JH",
+   "stad": "Den Haag",
+   "wijk": "Kraayenstein en Vroondaal",
+   "prijs": 310000,
+   "m2": 70,
+   "laatst_in_rapport": "2026-10-19"
+  },
+  {
+   "tiny_id": "44546295",
+   "adres": "Viandenstraat 104",
+   "postcode": "2552CE",
+   "stad": "Den Haag",
+   "wijk": "Kom Loosduinen",
+   "prijs": 290000,
+   "m2": 63,
+   "laatst_in_rapport": "2026-10-19"
+  },
+  {
+   "tiny_id": "44524505",
+   "adres": "Viandenstraat 116",
+   "postcode": "2552CE",
+   "stad": "Den Haag",
+   "wijk": "Kom Loosduinen",
+   "prijs": 275000,
+   "m2": 66,
+   "laatst_in_rapport": "2026-10-19"
+  },
+  {
+   "tiny_id": "44548508",
+   "adres": "Goudsbloemlaan 226",
+   "postcode": "2565DA",
+   "stad": "Den Haag",
+   "wijk": "Bloemenbuurt-Oost",
+   "prijs": 299000,
+   "m2": 86,
+   "laatst_in_rapport": "2026-10-20"
+  },
+  {
+   "tiny_id": "44547026",
+   "adres": "Jan Bronnerstraat 110",
+   "postcode": "2552WT",
+   "stad": "Den Haag",
+   "wijk": "Houtwijk",
+   "prijs": 300000,
+   "m2": 86,
+   "laatst_in_rapport": "2026-10-20"
+  },
+  {
+   "tiny_id": "44549244",
+   "adres": "Soestdijksekade 747",
+   "postcode": "2574BM",
+   "stad": "Den Haag",
+   "wijk": "Leyenburg",
+   "prijs": 285000,
+   "m2": 83,
+   "laatst_in_rapport": "2026-10-20"
+  },
+  {
+   "tiny_id": "44541872",
+   "adres": "Loosduinsekade 562",
+   "postcode": "2571CR",
+   "stad": "Den Haag",
+   "wijk": "Leyenburg",
+   "prijs": 289500,
+   "m2": 89,
+   "laatst_in_rapport": "2026-10-23"
+  },
+  {
+   "tiny_id": "44541764",
+   "adres": "Pisuissestraat 83",
+   "postcode": "2553BC",
+   "stad": "Den Haag",
+   "wijk": "Kom Loosduinen",
+   "prijs": 280000,
+   "m2": 65,
+   "laatst_in_rapport": "2026-10-23"
+  },
+  {
+   "tiny_id": "44541033",
+   "adres": "Teunisbloemplein 23",
+   "postcode": "2555AB",
+   "stad": "Den Haag",
+   "wijk": "Bohemen en Meer en Bos",
+   "prijs": 290000,
+   "m2": 69,
+   "laatst_in_rapport": "2026-10-23"
+  },
+  {
+   "tiny_id": "44655950",
+   "adres": "Nicolaas Beetslaan 7",
+   "postcode": "2273RA",
+   "stad": "Voorburg",
+   "wijk": "Bovenveen midden",
+   "prijs": 275000,
+   "m2": 56,
+   "laatst_in_rapport": "2026-10-26"
+  },
+  {
+   "tiny_id": "44655308",
+   "adres": "Pastoorswarande 18",
+   "postcode": "2513TZ",
+   "stad": "Den Haag",
+   "wijk": "Kortenbos",
+   "prijs": 285000,
+   "m2": 75,
+   "laatst_in_rapport": "2026-10-26"
+  },
+  {
+   "tiny_id": "44656881",
+   "adres": "Volendamlaan 811",
+   "postcode": "2547CB",
+   "stad": "Den Haag",
+   "wijk": "Leyenburg",
+   "prijs": 300000,
+   "m2": 81,
+   "laatst_in_rapport": "2026-10-26"
+  },
+  {
+   "tiny_id": "44656002",
+   "adres": "Catharina van Rennesstraat 72",
+   "postcode": "2551GN",
+   "stad": "Den Haag",
+   "wijk": "Waldeck-Noord",
+   "prijs": 250000,
+   "m2": 61,
+   "laatst_in_rapport": "2026-10-27"
+  },
+  {
+   "tiny_id": "44657010",
+   "adres": "Messchaertstraat 35",
+   "postcode": "2551KL",
+   "stad": "Den Haag",
+   "wijk": "Waldeck-Noord",
+   "prijs": 295000,
+   "m2": 59,
+   "laatst_in_rapport": "2026-10-27"
+  },
+  {
+   "tiny_id": "80019364",
+   "adres": "Volendamlaan 797",
+   "postcode": "2547CB",
+   "stad": "Den Haag",
+   "wijk": "Leyenburg",
+   "prijs": 300000,
+   "m2": 83,
+   "laatst_in_rapport": "2026-10-29"
+  },
+  {
+   "tiny_id": "44659952",
+   "adres": "Bruijnings Ingenhoeslaan 132",
+   "postcode": "2273KT",
+   "stad": "Voorburg",
+   "wijk": "Bovenveen midden",
+   "prijs": 305000,
+   "m2": 63,
+   "laatst_in_rapport": "2026-10-30"
+  },
+  {
+   "tiny_id": "44650476",
+   "adres": "Ericalaan 125",
+   "postcode": "2555LG",
+   "stad": "Den Haag",
+   "wijk": "Bohemen en Meer en Bos",
+   "prijs": 289000,
+   "m2": 69,
+   "laatst_in_rapport": "2026-10-30"
+  },
+  {
+   "tiny_id": "80010543",
+   "adres": "Monnickendamplein 9",
+   "postcode": "2547CT",
+   "stad": "Den Haag",
+   "wijk": "Leyenburg",
+   "prijs": 299000,
+   "m2": 92,
+   "laatst_in_rapport": "2026-10-30"
+  },
+  {
+   "tiny_id": "44650472",
+   "adres": "Nicolaas Beetslaan 90",
+   "postcode": "2273RE",
+   "stad": "Voorburg",
+   "wijk": "Bovenveen midden",
+   "prijs": 249500,
+   "m2": 60,
+   "laatst_in_rapport": "2026-10-30"
+  },
+  {
+   "tiny_id": "80014298",
+   "adres": "Veenendaalkade 636",
+   "postcode": "2547BG",
+   "stad": "Den Haag",
+   "wijk": "Leyenburg",
+   "prijs": 265000,
+   "m2": 70,
+   "laatst_in_rapport": "2026-10-30"
+  },
+  {
+   "tiny_id": "44650043",
+   "adres": "Hertenrade 432",
+   "postcode": "2544HS",
+   "stad": "Den Haag",
+   "wijk": "Venen, Oorden en Raden",
+   "prijs": 295000,
+   "m2": 72,
+   "laatst_in_rapport": "2026-10-31"
+  },
+  {
+   "tiny_id": "80015892",
+   "adres": "Meppelweg 906-C",
+   "postcode": "2544CA",
+   "stad": "Den Haag",
+   "wijk": "Venen, Oorden en Raden",
+   "prijs": 280000,
+   "m2": 82,
+   "laatst_in_rapport": "2026-10-31"
+  },
+  {
+   "tiny_id": "80015683",
+   "adres": "Renswoudelaan 71",
+   "postcode": "2546XG",
+   "stad": "Den Haag",
+   "wijk": "Leyenburg",
+   "prijs": 289500,
+   "m2": 91,
+   "laatst_in_rapport": "2026-10-31"
+  },
+  {
+   "tiny_id": "44652001",
+   "adres": "Fahrenheitstraat 58",
+   "postcode": "2561EC",
+   "stad": "Den Haag",
+   "wijk": "Valkenboskwartier",
+   "prijs": 299000,
+   "m2": 73,
+   "laatst_in_rapport": "2026-11-01"
+  },
+  {
+   "tiny_id": "44653845",
+   "adres": "Hart Nibbrigkade 67-57",
+   "postcode": "2597XR",
+   "stad": "Den Haag",
+   "wijk": "Uilennest",
+   "prijs": 285000,
+   "m2": 57,
+   "laatst_in_rapport": "2026-11-01"
+  },
+  {
+   "tiny_id": "80017514",
+   "adres": "Vossenrade 24",
+   "postcode": "2544XK",
+   "stad": "Den Haag",
+   "wijk": "Venen, Oorden en Raden",
+   "prijs": 275000,
+   "m2": 59,
+   "laatst_in_rapport": "2026-11-01"
+  },
+  {
+   "tiny_id": "80017735",
+   "adres": "Baambruggestraat 87",
+   "postcode": "2546SH",
+   "stad": "Den Haag",
+   "wijk": "Leyenburg",
+   "prijs": 269000,
+   "m2": 72,
+   "laatst_in_rapport": "2026-11-02"
+  },
+  {
+   "tiny_id": "80018360",
+   "adres": "Landréstraat 406",
+   "postcode": "2551CC",
+   "stad": "Den Haag",
+   "wijk": "Waldeck-Noord",
+   "prijs": 269000,
+   "m2": 62,
+   "laatst_in_rapport": "2026-11-02"
+  },
+  {
+   "tiny_id": "44651359",
+   "adres": "Vreeswijkstraat 547",
+   "postcode": "2546AN",
+   "stad": "Den Haag",
+   "wijk": "Leyenburg",
+   "prijs": 235000,
+   "m2": 65,
+   "laatst_in_rapport": "2026-11-02"
+  },
+  {
+   "tiny_id": "44654337",
+   "adres": "Melis Stokezijde 96",
+   "postcode": "2543GG",
+   "stad": "Den Haag",
+   "wijk": "Zijden, Steden en Zichten",
+   "prijs": 300000,
+   "m2": 82,
+   "laatst_in_rapport": "2026-11-03"
+  },
+  {
+   "tiny_id": "44668459",
+   "adres": "Loosduinse Hoofdstraat 268",
+   "postcode": "2552AN",
+   "stad": "Den Haag",
+   "wijk": "Kom Loosduinen",
+   "prijs": 289000,
+   "m2": 74,
+   "laatst_in_rapport": "2026-11-04"
+  },
+  {
+   "tiny_id": "80023531",
+   "adres": "van de Wateringelaan 4",
+   "postcode": "2274CH",
+   "stad": "Voorburg",
+   "wijk": "Voorburg Noord noord",
+   "prijs": 300000,
+   "m2": 81,
+   "laatst_in_rapport": "2026-11-04"
+  }
+ ]
+}
