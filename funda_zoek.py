@@ -229,6 +229,14 @@ def maak_prijs_banden(prijs_min: int, prijs_max: int, stap: int) -> list[tuple[i
 # hetzelfde gebied oplevert. Zet `straal_nafilter_km` op 0 om uit te zetten.
 STRAAL_NAFILTER_KM = _PERSONAL.get("straal_nafilter_km")
 
+# Woningen zonder vraagprijs ("prijs op aanvraag"). De oude zoek-API liet die
+# server-side weg, want ze vallen niet binnen een prijsfilter. De sitemaproute
+# liet ze door (onbekend = doorlaten), en zo kwam op 6 nov 2026 een appartement
+# van 145 m2 in Belgisch Park in het rapport (run 42290940091). Standaard dus
+# weer weg; met `prijs_onbekend_tonen: true` komen ze terug, onderaan en met
+# "PRIJS ONBEKEND".
+PRIJS_ONBEKEND_TONEN = bool(_PERSONAL.get("prijs_onbekend_tonen", False))
+
 # Pool: eerder getoonde woningen die elke run opnieuw gecontroleerd worden, zodat
 # ze in het rapport blijven zolang ze te koop staan. Zie controleer_pool().
 POOL_DAGEN = int(_PERSONAL.get("pool_dagen", 120))
@@ -658,8 +666,12 @@ def buiten_zoekcriteria(d: dict, thuis: tuple[float, float] | None = None,
     mailroute en de pool niet: daar bepaalt de bewaarde zoekopdracht of de
     tracking wat binnenkomt. Dit maakt alle bronnen gelijk. Ontbreekt een
     gegeven, dan laten we de woning door: onbekend is geen reden om weg te gooien.
+    Uitzondering: geen vraagprijs. Die viel bij de oude zoekopdracht altijd buiten
+    het prijsfilter, dus hier ook, tenzij `prijs_onbekend_tonen` aan staat.
     """
     prijs = _als_int(d.get("price"))
+    if not prijs and not PRIJS_ONBEKEND_TONEN:
+        return "geen vraagprijs (prijs op aanvraag)"
     if prijs:
         if PRIJS_MAX and prijs > PRIJS_MAX:
             return f"prijs € {prijs:,} boven maximum € {PRIJS_MAX:,}"

@@ -192,23 +192,35 @@ def test_prijs_onbekend() -> bool:
             ]
         return []
 
-    fz = maak_stub_funda(gedrag)
-    gezien = {}
+    def run(tonen: bool):
+        fz = maak_stub_funda(gedrag)
+        fz.PRIJS_ONBEKEND_TONEN = tonen
+        gezien = {}
 
-    def rapport(_client, goed, _nieuw):
-        gezien["titels"] = sorted(d.get("title") for d in goed)
-        return Path("rapport.html")
+        def rapport(_client, goed, _nieuw):
+            gezien["titels"] = sorted(d.get("title") for d in goed)
+            return Path("rapport.html")
 
-    fz.genereer_rapport = rapport
-    try:
-        with contextlib.redirect_stdout(io.StringIO()):
-            fz.main()
-        code = None
-    except SystemExit as exc:
-        code = exc.code
-    ok = check("geen afbreking", code is None, str(code))
-    ok &= check("beide woningen in het rapport",
-                gezien.get("titels") == ["Teststraat 1", "Teststraat 2"], str(gezien.get("titels")))
+        fz.genereer_rapport = rapport
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                fz.main()
+            code = None
+        except SystemExit as exc:
+            code = exc.code
+        return code, gezien.get("titels")
+
+    # Standaard: geen vraagprijs = buiten het prijsfilter, zoals de oude
+    # zoek-API deed (run 42290940091 toonde anders een 145 m2-appartement).
+    code, titels = run(False)
+    ok = check("standaard: geen afbreking", code is None, str(code))
+    ok &= check("standaard: woning zonder vraagprijs valt weg",
+                titels == ["Teststraat 1"], str(titels))
+    # Met prijs_onbekend_tonen: tonen, en de run mag niet crashen op sort().
+    code, titels = run(True)
+    ok &= check("tonen aan: geen afbreking", code is None, str(code))
+    ok &= check("tonen aan: beide woningen in het rapport",
+                titels == ["Teststraat 1", "Teststraat 2"], str(titels))
     return ok
 
 
@@ -1119,12 +1131,17 @@ def test_zoekcriteria() -> bool:
     ok &= check("ver weg valt af",
                 reden(price=280_000, latitude=51.98, longitude=4.30) is not None,
                 str(reden(price=280_000, latitude=51.98, longitude=4.30)))
-    # Onbekend is geen reden om weg te gooien.
-    ok &= check("zonder prijs/m2/coördinaten komt door", reden() is None)
+    # Onbekend is geen reden om weg te gooien, behalve een ontbrekende
+    # vraagprijs: die viel bij de oude zoekopdracht altijd buiten het filter.
+    ok &= check("zonder m2/coördinaten komt door", reden(price=280_000) is None)
+    ok &= check("zonder vraagprijs valt standaard af", reden() is not None, str(reden()))
+    fz.PRIJS_ONBEKEND_TONEN = True
+    ok &= check("zonder vraagprijs komt door met prijs_onbekend_tonen", reden() is None)
+    fz.PRIJS_ONBEKEND_TONEN = False
     ok &= check("zonder thuiscoördinaten geen afstandsfilter",
-                fz.buiten_zoekcriteria({"latitude": 51.0, "longitude": 4.0}, None, 5.0) is None)
+                fz.buiten_zoekcriteria({"price": 280_000, "latitude": 51.0, "longitude": 4.0}, None, 5.0) is None)
     ok &= check("straal uit = geen afstandsfilter",
-                fz.buiten_zoekcriteria({"latitude": 51.0, "longitude": 4.0}, thuis, None) is None)
+                fz.buiten_zoekcriteria({"price": 280_000, "latitude": 51.0, "longitude": 4.0}, thuis, None) is None)
 
     # Standaardstraal: de ingestelde afgerond zoals funda dat deed (6 -> 5).
     fz.STRAAL_NAFILTER_KM, fz.RADIUS_KM = None, 6

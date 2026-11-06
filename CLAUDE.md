@@ -244,8 +244,11 @@ Actions-cache, niet in de repo.
     crashte in `main()` op een woning zonder vraagprijs (`price=None` in
     `sort()`); opgelost, vastgepind in `test_funda_zoek.py::test_prijs_onbekend`.
   - **Prijs op aanvraag.** De oude zoek-API liet woningen zonder vraagprijs
-    server-side weg; de sitemap- en mailroute laten ze door (onbekend =
-    doorlaten). Het rapport rekende dan met prijs 0: budget "PAST", minimale
+    server-side weg. **Sinds 6 nov 2026 standaard weer weg** (`buiten_zoekcriteria`,
+    reden "geen vraagprijs"): run 42290940091 toonde anders een appartement van
+    145 m2 in Belgisch Park, ver buiten het budget. Met `prijs_onbekend_tonen: true`
+    komen ze terug, en dan geldt het volgende. Daarvoor lieten de sitemap- en
+    mailroute ze door (onbekend = doorlaten). Het rapport rekende dan met prijs 0: budget "PAST", minimale
     maandlast, hoogste score, dus bovenaan (e2e-run 42273695515: "€ 0 | 145 m2").
     Nu: budget "PRIJS ONBEKEND", geen maandlast of financierbaarheid, score
     alleen uit voor- en nadelen, altijd achteraan (ook bij client-side

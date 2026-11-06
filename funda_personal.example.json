@@ -22,6 +22,8 @@
   "straal_nafilter_km": null,
   "_doc_straal_nafilter_km": "null = zelfde straal als funda's zoekopdracht (radius_km afgerond op 1/2/5/10/...). 0 = afstandsfilter uit.",
   "thuis_coords": null,
+  "prijs_onbekend_tonen": false,
+  "_doc_prijs_onbekend_tonen": "Woningen zonder vraagprijs (prijs op aanvraag) tonen? Standaard niet, net als de oude zoekopdracht. Aan: onderaan, met PRIJS ONBEKEND.",
   "_doc_thuis_coords": "Optioneel [lat, lon] van de zoekpostcode; anders een Nominatim-lookup die gecacht wordt.",
   "pool_dagen": 120,
   "pool_max": 150,
