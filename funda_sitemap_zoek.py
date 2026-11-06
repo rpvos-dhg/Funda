@@ -901,6 +901,10 @@ class SitemapZoeker:
                     # Een nette 404: het endpoint werkt, deze woning is weg. Geen
                     # storing. Geeft het endpoint voor álles een 404, dan komt er
                     # niets in de doelmarkt en stopt main() op "nul woningen".
+                    # Een 404 is een antwoord, dus de reeks storingen is voorbij:
+                    # anders telden time-outs met 404's ertussen door tot DICHT_NA,
+                    # en liet één time-out vóór een laatste 404 de run falen.
+                    op_rij = 0
                     continue
                 op_rij += 1
                 fout = f"{type(exc).__name__}: {exc}" if exc else "leeg antwoord"

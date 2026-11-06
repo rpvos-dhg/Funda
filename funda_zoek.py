@@ -879,6 +879,7 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
                 mislukt.append(rec)
             if isinstance(exc, WoningNietGevonden):
                 antwoord_404 = True   # een antwoord, geen storing
+                op_rij = 0            # en dus het einde van een reeks storingen
                 continue
             op_rij += 1
             if op_rij >= DICHT_NA:
