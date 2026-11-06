@@ -34,17 +34,17 @@
   "web_push_public_key": "",
   "actions_url": "https://github.com/<gebruiker>/<repo>/actions/workflows/funda-daily.yml",
   "zoek_methode": "auto",
-  "_doc_zoek_methode": "auto (api -> html -> sitemap -> mail), of forceer met api, html, sitemap of mail.",
+  "_doc_zoek_methode": "auto (api -> html -> sitemap), of forceer met api, html, sitemap of mail.",
   "sitemap_steden": [
     "den-haag",
     "voorburg"
   ],
   "_doc_sitemap_steden": "Sitemaproute: plaatsen zoals funda ze in de URL zet. Hoofdletters en spaties worden vanzelf omgezet ('Den Haag' wordt 'den-haag'). Een stad zonder één URL in de sitemaps laat de run falen (typfout of andere slug). De straal en de stad-/buurtfilters doen de rest.",
   "sitemap_max_verkennen": 200,
-  "_doc_sitemap_max_verkennen": "Detail-calls per run voor nieuwe of gewijzigde woningen uit de sitemap, nieuwste eerst. Omgevingsvariabele FUNDA_SITEMAP_MAX_VERKENNEN (workflow-input sitemap_max_verkennen) gaat voor.",
+  "_doc_sitemap_max_verkennen": "Detail-calls per run voor nieuwe of gewijzigde woningen uit de sitemap, nieuwste eerst; hooguit 600 (plafond in de code). Omgevingsvariabele FUNDA_SITEMAP_MAX_VERKENNEN (workflow-input sitemap_max_verkennen) gaat voor.",
   "mail_gebruiker": "",
   "mail_host": "imap.gmail.com",
   "mail_map": "",
-  "_doc_mail": "Mailroute: funda mailt nieuw aanbod uit een bewaarde zoekopdracht. Het app-wachtwoord hoort NIET hier maar in de omgeving (FUNDA_MAIL_PASSWORD), in Actions als Secret.",
-  "_doc_mail_map": "Leeg laten: dan wordt de 'alle mail'-map zelf opgezocht via de \\All-vlag. Zet er GEEN INBOX in, want een gearchiveerde mail zit daar niet meer in."
+  "_doc_mail": "Mailroute, geldt alleen bij zoek_methode=mail (zit niet in auto): funda mailt nieuw aanbod uit een bewaarde zoekopdracht. mail_dagen_terug, mail_gebruiker, mail_host en mail_map doen alleen dan iets. Het app-wachtwoord hoort NIET hier maar in de omgeving (FUNDA_MAIL_PASSWORD).",
+  "_doc_mail_map": "Alleen bij zoek_methode=mail. Leeg laten: dan wordt de 'alle mail'-map zelf opgezocht via de \\All-vlag. Zet er GEEN INBOX in, want een gearchiveerde mail zit daar niet meer in."
 }

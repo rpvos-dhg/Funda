@@ -20,7 +20,8 @@ Actions en publiceert het rapport op GitHub Pages.
 - Zoekbronnen, elk een drop-in voor pyfunda's `Funda`-object: de zoek-API zelf,
   `funda_html_zoek.py` (zoekpagina), `funda_sitemap_zoek.py` (funda's sitemaps,
   op Actions de bron die werkt) en `funda_mail_bron.py` + `funda_mail_ophalen.py`
-  (notificatiemails, terugval). `kies_zoeker()` kiest; zie hieronder.
+  (notificatiemails; sinds 6 nov 2026 alleen nog met `zoek_methode: mail`, niet
+  in `auto`). `kies_zoeker()` kiest; zie hieronder.
 - `funda_rapport.py` - bouwt markdown/HTML/PWA. Rekent maandlasten, hypotheek
   (NHG, starter), reisafstand naar werk, erfpacht, energielabel, pros/cons.
 - `.github/workflows/funda-daily.yml` - draait 2x/dag (08:30 en 16:30 UTC =
@@ -36,7 +37,9 @@ Deze leven alleen lokaal en mogen nooit gecommit worden:
 
 Op GitHub komen dezelfde gegevens uit Secrets: `FUNDA_PERSONAL_JSON` en
 `FUNDA_PWA_PASSWORD`. Optionele PWA push gebruikt `WEB_PUSH_PUBLIC_KEY`,
-`WEB_PUSH_PRIVATE_KEY` en `WEB_PUSH_SUBSCRIPTION`. De state (seen-ids, tracking,
+`WEB_PUSH_PRIVATE_KEY` en `WEB_PUSH_SUBSCRIPTION`. `FUNDA_MAIL_USER` en
+`FUNDA_MAIL_PASSWORD` gebruikt geen workflow meer (sinds 6 nov 2026); die
+secrets mogen weg. De state (seen-ids, tracking,
 werk-coords, verrijkingscache en `funda_sitemap_cache.json`) staat in de
 Actions-cache, niet in de repo.
 
@@ -54,10 +57,11 @@ Actions-cache, niet in de repo.
   zoek-API als dicht. Het detail-endpoint heeft (nog) geen App Check.
   Diagnose herhalen: workflow "Funda API debug", handmatig (sinds nov 2026 niet
   meer automatisch na een mislukte dagelijkse run, zie "Eerlijke client"
-  hieronder). Die workflow heeft drie jobs:
+  hieronder). Die workflow heeft twee jobs:
   **tests** moet groen zijn en zegt iets over de code; **funda-live** staat op
-  `continue-on-error` en zegt iets over funda's kant; **mail-live** zegt iets
-  over onze eigen mailconfiguratie en mag daarom wél gewoon rood worden. Zo
+  `continue-on-error` en zegt iets over funda's kant. (De job **mail-live**, de
+  IMAP-check met de Gmail-secrets, is op 6 nov 2026 weggehaald, samen met de
+  mailroute uit `auto`.) Zo
   blijft de workflow groen bij een netwerkblokkade, terwijl de job-status
   leesbaar blijft: funda-live rood = funda dicht, groen = funda laat weer door.
   Bewust op job-niveau, want `continue-on-error` op een stap laat GitHub die
@@ -142,8 +146,9 @@ Actions-cache, niet in de repo.
     draait alleen handmatig. Alle scripts gebruiken `from funda_zoek import
     Funda`, nooit pyfunda's eigen `Funda` (die wisselt nog steeds).
 - **Sitemaproute: funda's eigen sitemaps als bron** (`funda_sitemap_zoek.py`). In
-  `auto` de derde stap: api -> html -> **sitemap** -> mail. Werkt vanaf Actions
-  zonder mailbox. Gemeten op 6 nov 2026 (runs
+  `auto` de derde en laatste stap: api -> html -> **sitemap**. Werkt vanaf
+  Actions zonder mailbox, en is sinds 6 nov 2026 dé bron op Actions (besluit van
+  de eigenaar; de mailroute is daarmee niet meer nodig). Gemeten op 6 nov 2026 (runs
   [42260153909](https://github.com/rpvos-dhg/Funda/actions/runs/42260153909),
   [42261516145](https://github.com/rpvos-dhg/Funda/actions/runs/42261516145),
   [42262032618](https://github.com/rpvos-dhg/Funda/actions/runs/42262032618)):
@@ -187,7 +192,9 @@ Actions-cache, niet in de repo.
     (verre en te dure woningen kosten maar één call). Nieuw aanbod zit vanaf de
     eerste run in de top. **Sneller:** workflow "Funda dagelijks rapport"
     handmatig starten met input `sitemap_max_verkennen` = 600 (wordt
-    `FUNDA_SITEMAP_MAX_VERKENNEN`); leeg laten = standaard. Het verkennen heeft
+    `FUNDA_SITEMAP_MAX_VERKENNEN`); leeg laten = standaard. Hoger gaat niet:
+    `SITEMAP_MAX_VERKENNEN_PLAFOND` (600) begrenst omgeving en config, zie het
+    robots-besluit hieronder. Het verkennen heeft
     ook een **tijdsbudget** van 15 minuten (`MAX_SECONDEN`; normaal ~0,8 s per
     call); wat dan openstaat, blijft achterstand. De job heeft
     `timeout-minutes: 45` als vangnet.
@@ -208,11 +215,11 @@ Actions-cache, niet in de repo.
     zolang de volgende runs al bij de eerste call faalden. De geslaagde
     verkenning wordt vóór het stoppen in de cache bewaard.
   - **In `auto` gebeurt het zoekwerk al in `kies_zoeker()`** (`ophalen()`):
-    `bereikbaar()` kijkt alleen naar robots.txt en de index, en een koop-sitemap
-    die daarna een 403 gaf, liet elke run rood worden zonder dat de mailroute
-    geprobeerd werd. Nu valt zo'n fout door naar de mailroute, met de oorzaak in
-    de `::error` als die ook niets heeft. Uitzondering: het detail-endpoint dicht.
-    De mailroute heeft dat ook nodig, dus dan meteen exit 2.
+    `bereikbaar()` kijkt alleen naar robots.txt en de index; een koop-sitemap die
+    daarna een 403 geeft, komt zo met zijn oorzaak in de ene `::error` en een
+    `GeenBron` (exit 2). Tot 6 nov 2026 viel zo'n fout eerst nog door naar de
+    mailroute. Detail-endpoint dicht: meteen exit 2, want elke route heeft dat
+    endpoint nodig.
   - **Meting eerste week** (log, alleen getallen): regel "Meting lastmod" telt
     gecachte woningen met een gewijzigde lastmod en hoeveel daarvan een andere
     prijs of status kregen, én hoeveel vers opgehaalde woningen met
@@ -247,23 +254,34 @@ Actions-cache, niet in de repo.
   - Valideren tegen de echte site: `scripts/funda_sitemap_validatie.py`
     (end-to-end door `main()`, zonder rapport of push) en
     `scripts/funda_sitemap_probe.py` (robots en sitemaps meten).
-- **robots.txt van de API-hosts. OPEN BESLUIT voor de gebruiker.**
+- **robots.txt van de API-hosts. BESLUIT 6 nov 2026: optie (b), doorgaan.**
   `www.funda.nl` staat `/detail/` en de sitemap toe.
   `listing-detail-page.funda.io` (het detail-endpoint), `local-listings` en
   `listing-detail-summary` (beide `.funda.io`) hebben `Disallow: /`. Elke
   funda-route hier (api, html, sitemap, mail en de pool) verrijkt via die
   detail-host. De robots-check van de sitemapzoeker (`detail_verboden()`) leest
   alleen de robots.txt van `www.funda.nl` en kan de detail-calls dus **niet**
-  tegenhouden. Eerder stond hier "dat is een keuze van de gebruiker"; daar is
-  geen bron voor, dus: **nog niet besloten.** De sitemaproute schaalt het
-  verkeer naar die host op ten opzichte van de HTML-route (die deed alleen
-  detail-calls voor wat funda's zoekopdracht al op prijs, m2 en straal had
-  gefilterd): **opstart ~3.100 calls** (200 per run, ~8 dagen), **daarna tot
-  ~450 per dag** (2 runs x hooguit 200 verkennend plus de ververste woningen
-  in de doelmarkt en de pool); de e2e mat 200 en 208 per run. Twee opties:
-  (a) de robots.txt van `listing-detail-page.funda.io` meenemen in de check;
-  dan staat de sitemaproute (en elke verrijking) volgens de eigen meting uit;
-  (b) bewust doorgaan zoals nu, met dit volume. Schrijf het besluit hier op.
+  tegenhouden. De sitemaproute schaalt het verkeer naar die host op ten
+  opzichte van de HTML-route (die deed alleen detail-calls voor wat funda's
+  zoekopdracht al op prijs, m2 en straal had gefilterd): **opstart ~3.100
+  calls** (200 per run, ~8 dagen), **daarna tot ~450 per dag** (2 runs x
+  hooguit 200 verkennend plus de ververste woningen in de doelmarkt en de
+  pool); de e2e mat 200 en 208 per run. De opties waren (a) de robots.txt van
+  `listing-detail-page.funda.io` meenemen in de check (dan staat de
+  sitemaproute en elke verrijking uit) of (b) bewust doorgaan met dit volume.
+  **Gekozen: (b)**, op 6 nov 2026 na het onderzoek gedelegeerd door de eigenaar.
+  Waarborgen, en die blijven staan:
+  - eerlijke user-agent met repo-link (`EERLIJKE_UA`), zodat funda ons kan
+    herkennen en blokkeren;
+  - meteen stoppen bij 401/403/429 (`DetailEndpointDicht`, exit 2), nooit
+    omzeilen;
+  - standaard hooguit 200 verkennende detail-calls per run
+    (`sitemap_max_verkennen`), opstart eenmalig 600 en niet hoger
+    (`SITEMAP_MAX_VERKENNEN_PLAFOND`);
+  - geen wisselende vingerafdrukken.
+  **Heroverwegen** zodra funda de eerlijke client weigert, robots.txt of de
+  voorwaarden dit expliciet verbieden, of funda erom vraagt. Dan Huispedia
+  (prototype op branch `claude/probe-andere-woningsites`) of het thuisnetwerk.
   `local-listings` en `listing-detail-summary` worden door dit script niet
   aangeroepen.
 - **Mailbron: linkconventies gemeten, de alert-mail zelf nog niet.** Op 9 okt
@@ -342,9 +360,11 @@ Actions-cache, niet in de repo.
     anders naar het eerste segment van de URL-slug. Dat laatste bewust alleen
     het eerste segment: een straatnaam als "Huisduinenstraat" mag niet
     meetellen. Vastgepind in `test_funda_zoek.py::test_woningtypefilter`.
-  - De vocabulaire van `soortwoning` is **niet** gemeten. `mail-live` print
-    daarom de woningtypes volgens de URL-slug, zodat zichtbaar is of er
-    überhaupt huizen in de mails zitten en of het filter het juiste woord kent.
+  - De vocabulaire van `soortwoning` is **niet** gemeten.
+    `scripts/funda_mail_imap_check.py` (tot 6 nov 2026 de job `mail-live`, nu
+    alleen lokaal) print daarom de woningtypes volgens de URL-slug, zodat
+    zichtbaar is of er überhaupt huizen in de mails zitten en of het filter het
+    juiste woord kent.
   - Prijs, oppervlak en straal hebben sinds 6 nov 2026 wél een nafilter, zie
     hierboven.
 - **Voorburg versus de gemeente Leidschendam-Voorburg.** `UITSLUIT_STEDEN` doet
@@ -358,12 +378,14 @@ Actions-cache, niet in de repo.
   twijfelbuurt naar onderen. Stil verliezen is erger dan een keer te veel laten
   zien. Vastgepind in `test_funda_zoek.py::test_stadfilter`, inclusief dat het
   detail-call-voorfilter zo'n woning niet overslaat.
-- **Mailroute: transport via IMAP; sinds de sitemaproute de terugval.** `auto` is
-  nu api -> html -> sitemap -> mail: de mailbox wordt alleen nog geopend als de
-  sitemaps ook niet werken. `funda_mail_ophalen.py` haalt de mails op,
+- **Mailroute: transport via IMAP; sinds 6 nov 2026 alleen nog expliciet.**
+  `auto` is api -> html -> sitemap; de mailbox gaat alleen open bij
+  `zoek_methode: mail` (of `FUNDA_ZOEK_METHODE=mail`). Geen workflow geeft de
+  mail-secrets nog door, dus op Actions draait de mailroute niet meer; de code
+  en tests blijven voor lokaal gebruik. `funda_mail_ophalen.py` haalt de mails op,
   `funda_mail_bron.py` haalt er de woningen uit. Bewust gescheiden: het transport is te testen zonder mailbox, de
   parser zonder netwerk.
-  - Twee nieuwe instellingen: `FUNDA_MAIL_USER` (of `mail_gebruiker` in de
+  - Twee instellingen, alleen bij `mail`: `FUNDA_MAIL_USER` (of `mail_gebruiker` in de
     config) en `FUNDA_MAIL_PASSWORD`. Dat laatste komt **alleen** uit de
     omgeving - in Actions een Secret - zodat een wachtwoord nooit in
     `funda_personal.json` belandt; `mail_config()` negeert het daar expres.
@@ -384,9 +406,8 @@ Actions-cache, niet in de repo.
     iedereen leesbaar en in een mailbox staan privédingen (een
     wachtwoord-reset-link bijvoorbeeld), dus geen onderwerpen, afzenders,
     mailtekst of tracking-links - alleen hoeveel er waren. Wel tiny_id's, want
-    dat zijn publieke funda-nummers. Houd dat zo. Draait als job `mail-live` in
-    de debug-workflow, die wél gewoon rood mag worden: die gaat over onze eigen
-    configuratie, niet over funda's kant.
+    dat zijn publieke funda-nummers. Houd dat zo. Draaide tot 6 nov 2026 als job
+    `mail-live` in de debug-workflow; nu alleen nog lokaal.
   - **Decoderen is het echte werk.** Een funda-mail is multipart met
     quoted-printable of base64 delen; in de ruwe bytes staan URL's met `=` en
     regelafbrekingen erdoorheen, en dan vindt de parser niets. `tekst_uit_mail()`
@@ -397,15 +418,14 @@ Actions-cache, niet in de repo.
     niets terug te geven; anders lijkt een kapotte mailbox op een week zonder
     nieuw aanbod. Een enkele onophaalbare mail wordt wél overgeslagen, en falen
     bij het afsluiten gooit de al binnengehaalde mails niet weg.
-  - In `auto` staat de mailroute achteraan en wordt die alleen gekozen als er
-    echt woningen uit komen. Een lege mailbron zou de run op de nul-woningen-
-    check laten vallen met een misleidende melding, terwijl de echte oorzaak is
-    dat er geen mailroute is ingericht. `HtmlZoeker.bereikbaar()` en
-    `SitemapZoeker.bereikbaar()` doen de tussenstappen: één of twee goedkope
-    calls, zodat niet alle prijsbanden op een 403 lopen.
-  - Werkt geen enkele bron, dan zet `kies_zoeker()` één `::error` met alle
-    oorzaken (API, zoekpagina, sitemaps, mail) en geeft een `GeenBron` terug die
-    bij elke zoekaanroep faalt zonder netwerk; `main()` stopt dan met exit 2.
+  - In `auto` (api -> html -> sitemap) doen `HtmlZoeker.bereikbaar()` en
+    `SitemapZoeker.bereikbaar()` de tussenstappen: één of twee goedkope calls,
+    zodat niet alle prijsbanden op een 403 lopen. Tot 6 nov 2026 stond de
+    mailroute daar nog achter, als terugval.
+  - Werkt geen enkele bron, dan zet `kies_zoeker()` één `::error` met de
+    oorzaken (API, zoekpagina, sitemaps) en geeft een `GeenBron` terug die bij
+    elke zoekaanroep faalt zonder netwerk; `main()` stopt dan met exit 2. De
+    mailbox gaat in `auto` niet open, ook dan niet.
 - **Pool: bekende woningen blijven in beeld.** Bij de mailroute stond elke woning
   maar ~4 dagen in het rapport (gemeten over 38 runs: 27 van 35 stonden er 8-9
   runs), want de mail viel dan buiten het terugkijkvenster. En geen enkele woning
@@ -456,7 +476,8 @@ Actions-cache, niet in de repo.
   wordt onder meer ingetrokken als het Google-wachtwoord wijzigt. De run zet nu een
   `::error::` met die uitleg, in plaats van te eindigen op de (al weken bekende)
   403 van de zoekpagina. Terugkijkvenster van de mail is nu 14 dagen
-  (`mail_dagen_terug`), zodat een paar dagen storing geen woningen kost.
+  (`mail_dagen_terug`), zodat een paar dagen storing geen woningen kost. Sinds
+  6 nov 2026 alleen nog relevant bij `zoek_methode: mail`.
 - **Postcode niet in de publieke log.** Op Actions toont de startregel en de
   zoek-URL de postcode als "(verborgen)". Actions-logs van een publieke repo zijn
   voor iedereen leesbaar.
@@ -468,8 +489,9 @@ Actions-cache, niet in de repo.
   `HtmlZoeker` is een drop-in voor het `Funda`-object, dus `main()` en het
   rapport weten hier niets van.
   - Schakelen met `FUNDA_ZOEK_METHODE` of `zoek_methode` in de config:
-    `auto` (standaard: api -> html -> sitemap -> mail, de eerste die werkt),
-    `api`, `html`, `sitemap`, `mail`. Zodra funda de API of de zoekpagina weer
+    `auto` (standaard: api -> html -> sitemap, de eerste die werkt), of
+    `api`, `html`, `sitemap`, `mail` (die laatste alleen expliciet, niet in
+    `auto`). Zodra funda de API of de zoekpagina weer
     openzet, schakelt `auto` vanzelf terug.
   - De parser leunt op de klasse `@container` per woningkaart en op de tekst in
     die kaart. Verandert funda's markup, dan faalt `test_funda_html.py` niet
@@ -521,9 +543,11 @@ python funda_zoek.py --no-open  # zonder browser
   `main()`: een run stopt met exit 2 als álle zoek-calls falen én als ze allemaal
   slagen maar samen nul woningen opleveren. Ook de nafilters (stad, woningtype,
   prijs/m2/straal), beschikbaarheid en de pool (storing, weigering, 404's, een
-  run die op een fout eindigt), de auto-volgorde api -> html -> sitemap -> mail
-  (ook: koop-sitemap 403 na een bereikbare index = mail; detail-endpoint dicht
-  = geen terugval), exit 2 bij een kapotte sitemapbron en bij een endpoint dat
+  run die op een fout eindigt), de auto-volgorde api -> html -> sitemap
+  (ook: koop-sitemap 403 na een bereikbare index = `GeenBron` met die oorzaak;
+  detail-endpoint dicht = geen terugval; `auto` opent de mailbox nooit, ook niet
+  als alles faalt; expliciet `mail` werkt nog), het plafond van 600 op
+  `sitemap_max_verkennen`, exit 2 bij een kapotte sitemapbron en bij een endpoint dat
   halverwege dichtgaat, geen dubbele detail-calls tussen sitemapzoeker en pool
   (twee runs door `main()`), vijf 404's bovenaan de pool, prijs op aanvraag
   door het echte `bouw_rij`, `_sitemap_overslaan` met straal, de workflow-input

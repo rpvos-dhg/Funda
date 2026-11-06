@@ -561,8 +561,8 @@ class SitemapZoeker:
         """Het zoekwerk nu doen in plaats van bij de eerste search_listing().
 
         bereikbaar() kijkt alleen naar robots.txt en de index; dit haalt ook de
-        koop-sitemaps op en doet de detail-calls. Zo kan 'auto' in kies_zoeker()
-        nog naar de mailroute als dat misgaat. Gooit dezelfde fout als zoeken
+        koop-sitemaps op en doet de detail-calls. Zo komt in 'auto' een fout
+        daarbij in de ::error van kies_zoeker(). Gooit dezelfde fout als zoeken
         zou gooien; het resultaat wordt onthouden, dus het kost niets extra.
         """
         self._bouw()

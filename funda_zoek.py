@@ -388,8 +388,22 @@ SITEMAP_STEDEN = _PERSONAL.get("sitemap_steden") or ["den-haag", "voorburg"]
 # nieuw zijn of een andere lastmod hebben. De eerste runs is er een achterstand
 # (het hele bestaande aanbod, ~3.100 kandidaten); die loopt zo over een paar
 # dagen leeg in plaats van in één run duizenden calls te doen. Eenmalig
-# versnellen kan met de workflow-input sitemap_max_verkennen (bijv. 600).
-SITEMAP_MAX_VERKENNEN = _int_instelling("FUNDA_SITEMAP_MAX_VERKENNEN", "sitemap_max_verkennen", 200)
+# versnellen kan met de workflow-input sitemap_max_verkennen, tot het plafond.
+# Plafond: besluit van 6 nov 2026 (CLAUDE.md, "robots.txt van de API-hosts"):
+# opstart hooguit 600 per run, ook niet hoger via de omgeving of de config.
+SITEMAP_MAX_VERKENNEN_PLAFOND = 600
+
+
+def _begrens_verkennen(n: int) -> int:
+    if n > SITEMAP_MAX_VERKENNEN_PLAFOND:
+        print(f"WAARSCHUWING: sitemap_max_verkennen={n} is hoger dan het plafond "
+              f"van {SITEMAP_MAX_VERKENNEN_PLAFOND}; dat plafond wordt gebruikt.")
+        return SITEMAP_MAX_VERKENNEN_PLAFOND
+    return n
+
+
+SITEMAP_MAX_VERKENNEN = _begrens_verkennen(
+    _int_instelling("FUNDA_SITEMAP_MAX_VERKENNEN", "sitemap_max_verkennen", 200))
 # Per woning lastmod en filtervelden, plus de laatste index en kandidatenlijst.
 # Hoort in de Actions-cache (en in .gitignore).
 SITEMAP_CACHE_FILE = Path(__file__).parent / "funda_sitemap_cache.json"
@@ -1133,26 +1147,20 @@ def _sitemap_overslaan(d: dict) -> bool:
     )
 
 
-# Waarom de mailroute deze run niets opleverde; voor de ::error als geen enkele
-# bron werkt. Alleen een korte oorzaak, nooit mailinhoud.
-_MAIL_REDEN: dict[str, str] = {}
-
-
 def _woningen_uit_mailbox() -> list[tuple[str, str]]:
     """Woningen uit de funda-mails in de mailbox, zonder dubbelen.
 
-    Geeft een lege lijst als er niets te halen is; main() laat de run dan falen
-    op de nul-woningen-check in plaats van een leeg rapport te publiceren.
+    Alleen bij zoek_methode 'mail'; 'auto' opent de mailbox niet. Geeft een lege
+    lijst als er niets te halen is; main() laat de run dan falen op de
+    nul-woningen-check in plaats van een leeg rapport te publiceren.
     """
     from funda_mail_bron import woningen_uit_mail
     from funda_mail_ophalen import haal_mail_teksten, mail_config
 
-    _MAIL_REDEN.clear()
     config = mail_config(_PERSONAL)
     if not config:
         log("Mailroute: geen mailinstellingen (FUNDA_MAIL_USER en "
             "FUNDA_MAIL_PASSWORD); niets op te halen.")
-        _MAIL_REDEN["v"] = "geen mailinstellingen (FUNDA_MAIL_USER en FUNDA_MAIL_PASSWORD)"
         return []
 
     try:
@@ -1163,14 +1171,12 @@ def _woningen_uit_mailbox() -> list[tuple[str, str]]:
         # Zonder deze regel eindigt de log op de 403 van de zoekpagina, en die is
         # al weken bekend en dus niet de reden dat het vandaag stuk is.
         if "AUTHENTICATIONFAILED" in str(exc) or "Invalid credentials" in str(exc):
-            _MAIL_REDEN["v"] = "Gmail weigert de login (AUTHENTICATIONFAILED)"
             print("::error::Gmail weigert de login (AUTHENTICATIONFAILED). Het "
                   "app-wachtwoord in secret FUNDA_MAIL_PASSWORD is niet meer geldig. "
                   "Dat gebeurt onder meer na een wijziging van het Google-wachtwoord. "
                   "Maak een nieuw app-wachtwoord op "
                   "https://myaccount.google.com/apppasswords en zet het in het secret.")
         else:
-            _MAIL_REDEN["v"] = f"mailbox niet te lezen ({type(exc).__name__})"
             print(f"::error::Mailbox niet te lezen: {type(exc).__name__}: {exc}")
         return []
 
@@ -1182,8 +1188,6 @@ def _woningen_uit_mailbox() -> list[tuple[str, str]]:
                 gezien.add(tiny_id)
                 woningen.append((pad, tiny_id))
     log(f"Mailroute: {len(woningen)} unieke woning(en) uit {len(teksten)} mail(s).")
-    if not woningen:
-        _MAIL_REDEN["v"] = f"geen woningen in {len(teksten)} mail(s)"
     return woningen
 
 
@@ -1217,21 +1221,22 @@ def _kort(tekst: object, n: int = 160) -> str:
 
 
 def kies_zoeker(f: "Funda") -> tuple[object, str]:
-    """Bepaal waarmee we zoeken: de API, de zoekpagina, de sitemaps of de mails.
+    """Bepaal waarmee we zoeken: de API, de zoekpagina of de sitemaps.
 
     'auto' (standaard) loopt ze in die volgorde af en gebruikt de eerste die
     werkt. Zo schakelt het zichzelf terug zodra funda de API of de zoekpagina
     weer openzet, zonder dat er iets aan de configuratie hoeft. Per bron kost
     die vraag weinig: één zoek-call, één pagina, robots.txt plus de
     sitemap-index. Bij de sitemaps gebeurt daarna meteen het zoekwerk zelf
-    (onthouden voor de zoekronde in main()), zodat een kapotte koop-sitemap nog
-    naar de mailroute kan doorvallen. Alleen niet als het detail-endpoint dicht
-    is: de mailroute heeft dat ook nodig.
+    (onthouden voor de zoekronde in main()), zodat een kapotte koop-sitemap in
+    de ::error hieronder terechtkomt.
 
-    De mailroute staat achteraan, als terugval: alleen gekozen als er echt
-    woningen uit komen. Werkt geen enkele bron, dan één ::error met alle
-    oorzaken en een GeenBron, zodat de run luid faalt op de exit-2-check in
-    main() zonder nog iets op te halen.
+    De mailroute zit niet in 'auto' (besluit 6 nov 2026: de sitemaproute is de
+    bron op Actions) en opent de mailbox alleen als zoek_methode 'mail' is.
+    Werkt geen enkele bron, dan één ::error met alle oorzaken en een GeenBron,
+    zodat de run luid faalt op de exit-2-check in main() zonder nog iets op te
+    halen. Is het detail-endpoint dicht, dan geeft de sitemapzoeker die fout bij
+    elke zoekaanroep en stopt main() ook met exit 2.
     """
     methode = (os.environ.get("FUNDA_ZOEK_METHODE")
                or _PERSONAL.get("zoek_methode") or "auto").lower()
@@ -1320,7 +1325,7 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
     # zoeker daarna, dus dit kost niets extra. bereikbaar() zegt alleen dat de
     # index er is; het echte werk (koop-sitemaps, detail-calls) gebeurt daarom
     # hier al. Het resultaat wordt onthouden, dus dat kost ook niets extra, en
-    # gaat het mis, dan kan de mailroute het nog overnemen.
+    # gaat het mis, dan staat de oorzaak in de ::error.
     sitemap = sitemap_zoeker()
     try:
         bereikbaar = sitemap.bereikbaar()
@@ -1332,30 +1337,18 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
         try:
             sitemap.ophalen()
         except DetailEndpointDicht as exc:
-            # De mailroute verrijkt via hetzelfde detail-endpoint, dus die helpt
-            # niet. De sitemapzoeker gooit deze fout bij elke zoekaanroep, en
-            # main() stopt dan met exit 2.
-            log(f"Sitemaproute: het detail-endpoint werkt niet ({exc}); de mailroute "
-                f"heeft datzelfde endpoint nodig, dus geen terugval.")
+            # Elke funda-route verrijkt via dit endpoint, dus er is geen
+            # terugval. De sitemapzoeker gooit deze fout bij elke zoekaanroep,
+            # en main() stopt dan met exit 2.
+            log(f"Sitemaproute: het detail-endpoint werkt niet ({exc}); geen terugval.")
             return sitemap, "sitemap"
         except Exception as exc:
-            log(f"Sitemaps bereikbaar, maar ophalen mislukte ({exc}); probeer de mails.")
+            log(f"Sitemaps bereikbaar, maar ophalen mislukte ({exc}).")
             sitemap.reden = str(exc)
         else:
             log("Zoekmethode: sitemap (zoek-API en zoekpagina liggen eruit).")
             return sitemap, "sitemap"
     redenen.append(f"sitemaps: {_kort(getattr(sitemap, 'reden', None) or 'niet bereikbaar')}")
-
-    # 4. Als laatste de mails. Alleen als er iets in zit: een lege mailbron zou de
-    # run op de nul-woningen-check laten falen met een misleidende melding,
-    # terwijl de echte oorzaak is dat er geen mailroute is ingericht.
-    woningen = _woningen_uit_mailbox()
-    if woningen:
-        from funda_mail_bron import MailBron
-
-        log("Zoekmethode: mail (zoek-API, zoekpagina en sitemaps liggen eruit).")
-        return MailBron(f, woningen, log=log), "mail"
-    redenen.append(f"mail: {_MAIL_REDEN.get('v') or 'geen woningen uit de mailroute'}")
 
     boodschap = "Geen enkele zoekbron werkt. " + "; ".join(redenen) + "."
     log(boodschap)

@@ -18,7 +18,8 @@ on:
       sitemap_max_verkennen:
         description: >-
           Sitemaproute: verkennende detail-calls deze run (leeg = standaard 200).
-          Eenmalig bijv. 600 om de opstartachterstand sneller weg te werken.
+          Eenmalig hooguit 600 (plafond in de code) om de opstartachterstand
+          sneller weg te werken.
         required: false
         default: ""
 
@@ -98,11 +99,9 @@ jobs:
         env:
           FUNDA_REQUIRE_ENCRYPTION: "1"   # weiger onversleuteld te publiceren
           WEB_PUSH_PUBLIC_KEY: ${{ secrets.WEB_PUSH_PUBLIC_KEY }}
-          # Mailroute: nodig zolang funda de runner blokkeert. Zonder deze twee
-          # slaat 'auto' de mailroute over en faalt de run luid op de echte
-          # oorzaak, dus ze mogen ontbreken.
-          FUNDA_MAIL_USER: ${{ secrets.FUNDA_MAIL_USER }}
-          FUNDA_MAIL_PASSWORD: ${{ secrets.FUNDA_MAIL_PASSWORD }}
+          # Zoekbron: 'auto' (api -> html -> sitemap); op Actions werkt de
+          # sitemaproute. Geen mail-secrets meer: de mailroute zit niet in 'auto'
+          # en draait alleen bij een expliciete zoek_methode 'mail' (zie CLAUDE.md).
           # Leeg bij geplande runs; dan geldt de standaard (200 of de config).
           FUNDA_SITEMAP_MAX_VERKENNEN: ${{ inputs.sitemap_max_verkennen }}
         run: python funda_zoek.py --no-push --no-open

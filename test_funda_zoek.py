@@ -263,9 +263,15 @@ def test_prijs_onbekend_rapport() -> bool:
 
 
 def test_auto_keten() -> bool:
-    """'auto' loopt api -> html -> sitemap -> mail af en neemt de eerste die werkt."""
-    print("test: auto kiest de eerste werkende zoekmethode")
+    """'auto' loopt api -> html -> sitemap af en neemt de eerste die werkt.
+
+    De mailroute zit niet in 'auto' (besluit 6 nov 2026): de mailbox gaat in
+    'auto' nooit open, ook niet als er mail zou zijn en alles faalt. Alleen een
+    expliciete zoek_methode 'mail' leest hem nog.
+    """
+    print("test: auto kiest de eerste werkende zoekmethode, zonder mailroute")
     import funda_html_zoek as fhz
+    import funda_mail_ophalen as fmo
     import funda_sitemap_zoek as fsz
 
     fz = maak_stub_funda(lambda _n: [])
@@ -315,13 +321,11 @@ def test_auto_keten() -> bool:
             if StubSitemap.ophaal_fout is not None:
                 raise StubSitemap.ophaal_fout
 
-    mail = {"woningen": []}
-
-    def stub_mail():
+    # De mailbox op IMAP-niveau: ingesteld en met een woning erin, zodat 'auto'
+    # hem zou kunnen gebruiken. Elke opening staat in de volgorde.
+    def stub_imap(**_kw):
         volgorde.append("mail")
-        if not mail["woningen"]:
-            fz._MAIL_REDEN["v"] = "Gmail weigert de login (AUTHENTICATIONFAILED)"
-        return list(mail["woningen"])
+        return ["Nieuw: https://www.funda.nl/detail/koop/den-haag/appartement-a-1/44500000/"]
 
     def kies(client):
         volgorde.clear()
@@ -330,12 +334,13 @@ def test_auto_keten() -> bool:
             zoeker, methode = fz.kies_zoeker(client)
         return zoeker, methode, uit.getvalue()
 
-    origineel = (fhz.HtmlZoeker, fsz.SitemapZoeker, fz._woningen_uit_mailbox)
+    origineel = (fhz.HtmlZoeker, fsz.SitemapZoeker, fmo.mail_config, fmo.haal_mail_teksten)
     os.environ["FUNDA_ZOEK_METHODE"] = "auto"
     try:
         fhz.HtmlZoeker, fsz.SitemapZoeker = StubHtml, StubSitemap
-        fz._woningen_uit_mailbox = stub_mail
-        mail["woningen"] = [("/detail/koop/x/y/44500000/", "44500000")]
+        fmo.mail_config = lambda _personal=None: {"host": "imap.example", "gebruiker": "x",
+                                                  "wachtwoord": "y", "map_naam": ""}
+        fmo.haal_mail_teksten = stub_imap
 
         # 1. API antwoordt: dan niets anders proberen.
         _, methode, _ = kies(ApiOk())
@@ -348,11 +353,10 @@ def test_auto_keten() -> bool:
         ok &= check("API dicht, HTML open -> html, sitemaps niet gevraagd",
                     methode == "html" and volgorde == ["api", "html"], f"{methode} {volgorde}")
 
-        # 3. API en zoekpagina dicht, sitemaps open: sitemap, en de mail blijft
-        # ongemoeid (terugval, geen extra IMAP-login).
+        # 3. API en zoekpagina dicht, sitemaps open: sitemap.
         StubHtml.bereik, StubSitemap.bereik = False, True
         zoeker, methode, _ = kies(ApiDicht())
-        ok &= check("API en HTML dicht, sitemaps open -> sitemap (al opgehaald), mail niet gevraagd",
+        ok &= check("API en HTML dicht, sitemaps open -> sitemap (al opgehaald)",
                     methode == "sitemap" and volgorde == ["api", "html", "sitemap", "ophalen"],
                     f"{methode} {volgorde}")
         ok &= check("sitemapzoeker kent de doelmarkt",
@@ -362,64 +366,64 @@ def test_auto_keten() -> bool:
                     and zoeker.kw["max_verkennen"] == fz.SITEMAP_MAX_VERKENNEN)
 
         # 3b. Index bereikbaar, maar een koop-sitemap geeft 403 (bereikbaar()
-        # kijkt daar niet naar): dan alsnog de mails, met de oorzaak erbij.
+        # kijkt daar niet naar): geen bron, met die oorzaak in de ::error, en
+        # de mailbox blijft dicht, ook al zit er een woning in.
         StubSitemap.ophaal_fout = RuntimeError("https://www.funda.nl/sitemap-detail-koop1.xml gaf status 403")
-        _, methode, _ = kies(ApiDicht())
-        ok &= check("index OK, koop-sitemap 403, mail heeft woningen -> mail",
-                    methode == "mail" and volgorde == ["api", "html", "sitemap", "ophalen", "mail"],
+        zoeker, methode, uitvoer = kies(ApiDicht())
+        ok &= check("index OK, koop-sitemap 403 -> geen, mailbox niet geopend",
+                    methode == "geen" and volgorde == ["api", "html", "sitemap", "ophalen"],
                     f"{methode} {volgorde}")
-        mail_leeg = mail["woningen"]
-        mail["woningen"] = []
-        _, methode, uitvoer = kies(ApiDicht())
-        ok &= check("index OK, koop-sitemap 403, mail leeg -> geen, oorzaak in de ::error",
-                    methode == "geen" and "sitemap-detail-koop1.xml gaf status 403" in uitvoer, methode)
-        mail["woningen"] = mail_leeg
+        ok &= check("koop-sitemap 403: oorzaak in de ::error",
+                    "::error::" in uitvoer and "sitemap-detail-koop1.xml gaf status 403" in uitvoer)
 
-        # 3c. Het detail-endpoint is dicht: de mailroute heeft dat ook nodig, dus
-        # geen terugval (en geen IMAP-login); de sitemapzoeker laat main() falen.
+        # 3c. Het detail-endpoint is dicht: elke route heeft dat nodig, dus geen
+        # terugval; de sitemapzoeker laat main() met exit 2 stoppen.
         StubSitemap.ophaal_fout = fz.DetailEndpointDicht("status 403 voor 44500000")
         _, methode, _ = kies(ApiDicht())
-        ok &= check("detail-endpoint dicht -> sitemap, mail niet gevraagd",
+        ok &= check("detail-endpoint dicht -> sitemap, mailbox niet geopend",
                     methode == "sitemap" and "mail" not in volgorde, f"{methode} {volgorde}")
         StubSitemap.ophaal_fout = None
 
-        # 4. Ook de sitemaps dicht, maar er zitten woningen in de mail.
+        # 4. Niets werkt: luid falen met de oorzaken van api, zoekpagina en
+        # sitemaps, zonder mail-oorzaak en zonder de mailbox te openen.
         StubSitemap.bereik = False
-        _, methode, _ = kies(ApiDicht())
-        ok &= check("alles behalve mail dicht -> mail",
-                    methode == "mail" and volgorde == ["api", "html", "sitemap", "mail"],
-                    f"{methode} {volgorde}")
-
-        # 5. Niets werkt: luid falen met alle oorzaken, zonder nog iets op te halen.
-        mail["woningen"] = []
         zoeker, methode, uitvoer = kies(ApiDicht())
-        ok &= check("niets werkt -> geen", methode == "geen", methode)
+        ok &= check("niets werkt -> geen, mailbox niet geopend",
+                    methode == "geen" and volgorde == ["api", "html", "sitemap"],
+                    f"{methode} {volgorde}")
         fout = [r for r in uitvoer.splitlines() if r.startswith("::error::")]
-        ok &= check("één ::error met alle oorzaken",
+        ok &= check("één ::error met de oorzaken van api, zoekpagina en sitemaps",
                     len(fout) == 1 and all(w in fout[0] for w in
-                                           ("401", "Zoekpagina gaf status 403", "sitemap_index",
-                                            "AUTHENTICATIONFAILED")), str(fout))
+                                           ("401", "Zoekpagina gaf status 403", "sitemap_index")),
+                    str(fout))
+        ok &= check("geen mail-oorzaak in de ::error",
+                    bool(fout) and "mail" not in fout[0].lower(), str(fout))
         try:
             zoeker.search_listing(location="x")
             ok &= check("GeenBron faalt bij zoeken", False)
         except RuntimeError:
             ok &= check("GeenBron faalt bij zoeken", True)
 
-        # 6. Afdwingen blijft werken, ook zonder dat er iets bereikbaar is.
+        # 5. Afdwingen blijft werken, ook zonder dat er iets bereikbaar is. Alleen
+        # 'mail' opent de mailbox, en levert dan de woning uit de mail.
         for gedwongen in ("api", "html", "sitemap", "mail"):
             os.environ["FUNDA_ZOEK_METHODE"] = gedwongen
-            _, methode, _ = kies(ApiDicht())
-            ok &= check(f"afgedwongen {gedwongen}", methode == gedwongen
-                        and "api" not in volgorde and "html" not in volgorde
-                        and "sitemap" not in volgorde, f"{methode} {volgorde}")
+            zoeker, methode, _ = kies(ApiDicht())
+            verwacht = ["mail"] if gedwongen == "mail" else []
+            ok &= check(f"afgedwongen {gedwongen}", methode == gedwongen and volgorde == verwacht,
+                        f"{methode} {volgorde}")
+        ok &= check("afgedwongen mail: woning uit de mailbox",
+                    getattr(zoeker, "_woningen", None)
+                    == [("/detail/koop/den-haag/appartement-a-1/44500000/", "44500000")],
+                    str(getattr(zoeker, "_woningen", None)))
 
-        # 7. Onzin in de config mag niet crashen; dat valt terug op auto.
+        # 6. Onzin in de config mag niet crashen; dat valt terug op auto.
         os.environ["FUNDA_ZOEK_METHODE"] = "telepathie"
         StubHtml.bereik = True
         _, methode, _ = kies(ApiDicht())
         ok &= check("onbekende methode valt terug op auto", methode == "html", methode)
     finally:
-        fhz.HtmlZoeker, fsz.SitemapZoeker, fz._woningen_uit_mailbox = origineel
+        fhz.HtmlZoeker, fsz.SitemapZoeker, fmo.mail_config, fmo.haal_mail_teksten = origineel
         os.environ["FUNDA_ZOEK_METHODE"] = "api"
     return ok
 
@@ -489,22 +493,29 @@ def test_sitemapbron_faalt_luid() -> bool:
     web = ts.StubWeb()
     web.pagina[ts.INDEX_URL] = RuntimeError("status 403")
     echt, Z = _sitemap_met(web)
-    origineel = (fhz.HtmlZoeker, fz._woningen_uit_mailbox)
+    # 'auto' mag de mailbox niet openen; zou hij dat toch doen, dan valt het op.
+    import funda_mail_ophalen as fmo
+
+    mailbox: list[str] = []
+    origineel = (fhz.HtmlZoeker, fmo.mail_config, fmo.haal_mail_teksten)
     os.environ["FUNDA_ZOEK_METHODE"] = "auto"
     fsz.SitemapZoeker, fhz.HtmlZoeker = Z, Dicht
-    fz._woningen_uit_mailbox = lambda: []
+    fmo.mail_config = lambda _personal=None: {"host": "imap.example", "gebruiker": "x",
+                                              "wachtwoord": "y", "map_naam": ""}
+    fmo.haal_mail_teksten = lambda **_kw: mailbox.append("geopend") or []
     try:
         with contextlib.redirect_stdout(io.StringIO()) as uit:
             code, gedraaid = draai(fz)
     finally:
         fsz.SitemapZoeker = echt
-        fhz.HtmlZoeker, fz._woningen_uit_mailbox = origineel
+        fhz.HtmlZoeker, fmo.mail_config, fmo.haal_mail_teksten = origineel
         os.environ["FUNDA_ZOEK_METHODE"] = "api"
     ok &= check("auto, niets werkt: exit 2 zonder rapport", code == 2 and not gedraaid, str(code))
     ok &= check("auto, niets werkt: sitemap-index één keer geprobeerd",
                 web.calls.count(ts.INDEX_URL) == 1, str(web.calls))
     ok &= check("auto, niets werkt: oorzaken in de ::error",
                 "::error::Geen enkele zoekbron werkt" in uit.getvalue())
+    ok &= check("auto, niets werkt: mailbox niet geopend", not mailbox, str(mailbox))
     return ok
 
 
@@ -742,7 +753,8 @@ def test_sitemap_overslaan() -> bool:
 
 
 def test_instellingen() -> bool:
-    """Stap f: een lege workflow-input valt terug op de standaard van 200."""
+    """Stap f: een lege workflow-input valt terug op de standaard van 200, en
+    meer dan 600 per run gaat niet."""
     print("test: sitemap_max_verkennen uit omgeving en config")
     fz = maak_stub_funda(lambda _n: [])
     ok = True
@@ -760,6 +772,13 @@ def test_instellingen() -> bool:
         os.environ["FUNDA_SITEMAP_MAX_VERKENNEN"] = "600"
         ok &= check("omgeving gaat voor op config",
                     fz._int_instelling("FUNDA_SITEMAP_MAX_VERKENNEN", "sitemap_max_verkennen", 200) == 600)
+        # Plafond uit het besluit van 6 nov 2026: hooguit 600 per run.
+        with contextlib.redirect_stdout(io.StringIO()) as uit:
+            begrensd = fz._begrens_verkennen(5000)
+        ok &= check("boven het plafond -> 600, met waarschuwing",
+                    begrensd == 600 and "plafond" in uit.getvalue(), str(begrensd))
+        ok &= check("op of onder het plafond ongewijzigd",
+                    fz._begrens_verkennen(600) == 600 and fz._begrens_verkennen(200) == 200)
     finally:
         fz._PERSONAL.pop("sitemap_max_verkennen", None)
         if oud is None:
