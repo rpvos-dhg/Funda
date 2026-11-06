@@ -53,36 +53,6 @@ jobs:
           # requirements.txt is de enige plek waar versies staan (pyfunda-pin!).
           pip install -r requirements.txt
 
-      # MIGRATIE (6 nov 2026), tijdelijk. De versie van een Actions-cache hangt af
-      # van de lijst paden. PR #13 voegde funda_thuis_coords.json en
-      # funda_sitemap_cache.json toe, en daarna vond de restore hieronder de oude
-      # state niet meer ("Cache not found"); de opstartrun begon met 0 gezien.
-      # Deze stap haalt de oude cache op met de OUDE padenlijst (exact, zelfde
-      # volgorde) en zet hem apart; scripts/state_migratie.py voegt hem samen.
-      # Samenvoegen is idempotent. Weghalen zodra een run "Migratie: oude state
-      # samengevoegd" logde en de daarop volgende run de oude aantallen heeft.
-      # LES: verander de padenlijst van de cache nooit zonder zo'n migratie.
-      - name: Oude state terughalen (migratie)
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            funda_seen_ids.json
-            funda_tracking.json
-            funda_werk_coords.json
-            funda_enrichment_cache.json
-            funda_blacklist.json
-          key: funda-state-migratie-bestaat-niet
-          restore-keys: |
-            funda-state-
-
-      - name: Oude state apart zetten (migratie)
-        run: |
-          mkdir -p oude_state
-          for f in funda_seen_ids.json funda_tracking.json funda_werk_coords.json funda_enrichment_cache.json funda_blacklist.json; do
-            if [ -f "$f" ]; then mv "$f" oude_state/; fi
-          done
-          echo "Oude state: $(ls oude_state | wc -l) bestand(en)."
-
       # State terughalen uit vorige run. Bevat geen persoonlijke gegevens van jou,
       # wel je werk-coordinaten, daarom in de cache en niet in de publieke repo.
       - name: State terughalen (cache)
@@ -99,11 +69,6 @@ jobs:
           key: funda-state-${{ github.run_id }}
           restore-keys: |
             funda-state-
-
-      # MIGRATIE (tijdelijk, zie hierboven): oude en huidige state samenvoegen.
-      # Print alleen aantallen.
-      - name: Oude state samenvoegen (migratie)
-        run: python scripts/state_migratie.py oude_state .
 
       # Secrets naar bestanden schrijven. Stopt hard als het wachtwoord ontbreekt,
       # zodat er nooit per ongeluk een ONVERSLEUTELD rapport publiek wordt gezet.
@@ -161,6 +126,10 @@ jobs:
             echo "Geen wijzigingen in het rapport."
           else
             git commit -m "auto: rapport $(date -u +%Y-%m-%dT%H:%MZ)"
+            # main kan tijdens de run veranderd zijn (een gemergde PR); dan werd
+            # de push geweigerd en ging het rapport verloren (run 42290940091).
+            # docs/ wijzigt alleen deze bot, dus rebasen is veilig.
+            git pull --rebase origin main
             git push
           fi
 

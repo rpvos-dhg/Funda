@@ -544,9 +544,15 @@ Actions-cache, niet in de repo.
   tracking en geen blacklist, en meldde 9 "nieuwe" woningen. Hersteld met een
   tijdelijke migratie in `funda-daily.yml`: de oude cache apart ophalen met de
   oude padenlijst en samenvoegen met `scripts/state_migratie.py` (idempotent,
-  print alleen aantallen). Die stappen mogen weg zodra de state weer compleet
-  in de nieuwe cache staat. Nieuwe state? Liever in een bestaand bestand, of
-  dezelfde migratie herhalen.
+  print alleen aantallen). Gemeten in run 42290940091: seen 137+9 -> 142,
+  tracking 137+9 -> 142. Daarna zijn de migratiestappen weer uit de workflow
+  gehaald; het script blijft staan. Nieuwe state? Liever in een bestaand
+  bestand, of dezelfde migratie opnieuw inbouwen (oude padenlijst exact
+  overnemen, in dezelfde volgorde).
+- **Publiceren rebaset eerst.** Run 42290940091 schreef het rapport, maar de push
+  werd geweigerd (`rejected ... fetch first`): tijdens de run was een PR in main
+  gemerged. De publiceerstap doet nu `git pull --rebase origin main` vóór de
+  push; `docs/` wijzigt alleen de bot, dus dat is veilig.
 - **Bot pusht zelf.** De workflow commit `docs/` terug naar `main`. Doe lokaal
   altijd `git pull --rebase` voor je commit, anders wordt je push afgewezen.
 - **Lokale run commit alleen `docs/`.** `auto_push()` (zonder `--no-push`)
