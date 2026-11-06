@@ -266,6 +266,7 @@ UITSLUIT_BUURTEN = [
     "Oostbroek",
     "Rivierenbuurt",  # Noord + Zuid: veel huur/belegging, hoge criminaliteit/overlast, grenst aan Schilderswijk/Laak
     "Laakhaven",  # Laakhaven-West/-Oost: bedrijvigheid/studentenbouw, grenst aan Laakkwartier/Schilderswijk
+    "Duindorp",  # afgesproken 23 jul 2026 (PR #8, nooit gemerged): niet top gevonden, o.a. Tholensestraat
 ]
 
 # Steden die je niet wil zien (substring match op city-veld, case-insensitive).

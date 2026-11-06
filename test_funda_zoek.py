@@ -1028,6 +1028,25 @@ def test_auto_push_alleen_docs() -> bool:
     return ok
 
 
+def test_buurtfilter() -> bool:
+    """Afgesproken buurtuitsluitingen blijven gelden (substring, hoofdletterongevoelig).
+
+    Duindorp stond sinds 23 jul 2026 in PR #8, maar die is nooit gemerged; bij
+    de controle van de filters op 6 nov bleek Duindorp niet in de lijst te staan.
+    """
+    print("test: afgesproken buurtuitsluitingen")
+    fz = maak_stub_funda(lambda _n: [])
+    ok = True
+    for buurt, verwacht in (("Duindorp", "Duindorp"), ("Laakhaven-West", "Laakhaven"),
+                            ("Rivierenbuurt-Noord", "Rivierenbuurt"), ("Laakkwartier-Oost", "Laakkwartier"),
+                            ("Schildersbuurt-Noord", "Schildersbuurt"), ("Moerwijk-Oost", "Moerwijk")):
+        ok &= check(f"{buurt} valt af", fz.is_uitgesloten_buurt(buurt) == verwacht,
+                    str(fz.is_uitgesloten_buurt(buurt)))
+    for buurt in ("Bomenbuurt", "Valkenboskwartier", "Statenkwartier", "Bezuidenhout-Midden"):
+        ok &= check(f"{buurt} komt door", fz.is_uitgesloten_buurt(buurt) is None)
+    return ok
+
+
 def test_stadfilter() -> bool:
     """Voorburg mag niet sneuvelen op de gemeentenaam Leidschendam-Voorburg."""
     print("test: stadfilter, Voorburg versus Leidschendam")
@@ -1354,7 +1373,7 @@ def test_pool_in_run() -> bool:
 
 def main() -> int:
     resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(), test_prijs_onbekend(),
-                  test_prijs_onbekend_rapport(), test_auto_keten(), test_stadfilter(),
+                  test_prijs_onbekend_rapport(), test_auto_keten(), test_buurtfilter(), test_stadfilter(),
                   test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),
                   test_geen_dubbele_detail_calls(), test_pool_404_bovenaan(), test_pool_404_beeindigt_reeks(),
