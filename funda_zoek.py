@@ -475,6 +475,55 @@ def schrijf_run_summary(nieuw: list[dict], bekend: list[dict], afgewezen: list[t
     SUMMARY_FILE.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def vul_summary_aan(woningen: list[dict]) -> int:
+    """Na het rapport: statusregel en score per nieuwe woning in funda_run_summary.json.
+
+    schrijf_run_summary() draait vóór het rapport (de push-preview hangt eraan); het rapport zet
+    daarna d["_beoordeling"] op dezelfde dicts. Hier komen `status` (status_kort, zonder
+    inkomensbedragen) en `score` erbij, voor scripts/send_web_push.cjs. Zonder beoordeling of
+    zonder bestand verandert er niets. Geeft het aantal aangevulde woningen.
+    """
+    beoordeling = {}
+    for d in woningen:
+        b = d.get("_beoordeling")
+        if isinstance(b, dict) and b.get("status_kort"):
+            beoordeling[str(d.get("global_id") or d.get("listing_id") or d.get("detail_url") or "")] = b
+    if not beoordeling:
+        return 0
+    try:
+        payload = json.loads(SUMMARY_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0
+    n = 0
+    for item in payload.get("nieuw") or []:
+        b = beoordeling.get(str(item.get("id") or ""))
+        if not b:
+            continue
+        item["status"] = str(b["status_kort"])
+        if isinstance(b.get("score"), (int, float)) and not isinstance(b.get("score"), bool):
+            item["score"] = round(float(b["score"]), 1)
+        n += 1
+    if n:
+        SUMMARY_FILE.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return n
+
+
+def twijfel_redenen(d: dict) -> list[str]:
+    """Korte zinnen voor het rapport (d["_twijfel"]): de woning blijft staan, onderaan in zijn groep.
+
+    Het rapport zet er "Onderaan gezet." achter; het model kopieert de lijsten hier niet. Twijfel
+    door een zwakke Leefbaarometer komt uit de verrijking, niet uit deze functie."""
+    uit = []
+    buurt = is_twijfelbuurt((d.get("neighbourhood") or "").strip())
+    if buurt:
+        uit.append(f"Twijfelbuurt {buurt} (jouw lijst).")
+    reden = is_twijfelstad((d.get("city") or "").strip())
+    if reden:
+        uit.append("Stad onduidelijk: Leidschendam of Voorburg? Funda geeft alleen de gemeente."
+                   if "leidschendam" in reden.lower() else f"Stad onduidelijk: {reden}.")
+    return uit
+
+
 def is_uitgesloten_buurt(buurt: str) -> str | None:
     s = buurt.lower()
     for u in UITSLUIT_BUURTEN:
@@ -1663,6 +1712,8 @@ def main() -> None:
             rec.pop("weg", None)
             rec.pop("pool_fout", None)
         d["_track"] = flags
+        # Twijfel zichtbaar in het rapport, onderaan in de groep (nooit een filter).
+        d["_twijfel"] = twijfel_redenen(d)
         if flags["gedaald"]:
             n_gedaald += 1
         if flags["dagen"] >= LANG_OP_FUNDA_DAGEN:
@@ -1725,6 +1776,9 @@ def main() -> None:
             nieuw_ids = {str(d.get("global_id") or d.get("listing_id") or d.get("detail_url")) for d in nieuw}
             pad = genereer_rapport(zoeker, goed, nieuw_ids)
             log(f"Rapport: {pad.name}")
+            if nieuw:
+                n = vul_summary_aan(nieuw)
+                log(f"Pushsamenvatting: {n} van {len(nieuw)} nieuwe woningen met statusregel.")
 
             # Open HTML rapport in browser bij interactieve run.
             # Niet bij Task Scheduler (sys.stdout.isatty() is dan False).

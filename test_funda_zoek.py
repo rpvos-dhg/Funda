@@ -277,6 +277,102 @@ def test_prijs_onbekend_rapport() -> bool:
     return ok
 
 
+def test_twijfel_naar_rapport() -> bool:
+    """Twijfel bereikt het rapport: d["_twijfel"] met korte zinnen, de woning blijft staan."""
+    print("test: twijfelbuurt en Leidschendam-Voorburg krijgen _twijfel")
+
+    def listing(gid, stad, buurt):
+        return StubListing({"global_id": gid, "city": stad, "neighbourhood": buurt, "price": 250000,
+                            "living_area": 60, "title": f"Teststraat {gid}"})
+
+    def gedrag(n):
+        if n == 1:
+            return [listing("g1", "Den Haag", "Bomenbuurt"), listing("g2", "Den Haag", "Leyenburg"),
+                    listing("g3", "Leidschendam-Voorburg", "Damsigt")]
+        return []
+
+    fz = maak_stub_funda(gedrag)
+    gezien = {}
+
+    def rapport(_client, goed, _nieuw):
+        gezien.update({d["global_id"]: d.get("_twijfel") for d in goed})
+        return Path("rapport.html")
+
+    fz.genereer_rapport = rapport
+    with contextlib.redirect_stdout(io.StringIO()):
+        fz.main()
+    ok = check("alle drie in het rapport (twijfel is geen filter)", sorted(gezien) == ["g1", "g2", "g3"], str(gezien))
+    ok &= check("gewone buurt: lege lijst", gezien.get("g1") == [], str(gezien.get("g1")))
+    ok &= check("twijfelbuurt: korte zin met de buurt", gezien.get("g2") == ["Twijfelbuurt Leyenburg (jouw lijst)."],
+                str(gezien.get("g2")))
+    ok &= check("gemeente Leidschendam-Voorburg: stad onduidelijk",
+                gezien.get("g3") == ["Stad onduidelijk: Leidschendam of Voorburg? Funda geeft alleen de gemeente."],
+                str(gezien.get("g3")))
+    ok &= check("geen 'Onderaan gezet.' (dat zet het rapport erachter)",
+                not any("Onderaan" in t for v in gezien.values() for t in (v or [])))
+    return ok
+
+
+def test_vul_summary_aan() -> bool:
+    """Na het rapport: status en score per nieuwe woning in de run-samenvatting, voor de push."""
+    print("test: vul_summary_aan vult status en score aan, en laat het bestand anders intact")
+    fz = maak_stub_funda(lambda _n: [])
+    basis = {"city": "Den Haag", "neighbourhood": "Bomenbuurt", "living_area": 60, "energy_label": "C"}
+    a = {**basis, "global_id": 11, "title": "Teststraat 11", "price": 250000}
+    b = {**basis, "global_id": 12, "title": "Teststraat 12", "price": None}
+    fz.schrijf_run_summary([a, b], [], [])
+    voor = fz.SUMMARY_FILE.read_bytes()
+    ok = check("zonder beoordeling: 0 aangevuld en bestand ongewijzigd",
+               fz.vul_summary_aan([a, b]) == 0 and fz.SUMMARY_FILE.read_bytes() == voor)
+    a["_beoordeling"] = {"poort": "PAST", "status_kort": "Past · € 196 onder je grens", "score": 8.333}
+    b["_beoordeling"] = {"poort": "PRIJS ONBEKEND", "status_kort": "Prijs onbekend · geen vraagprijs, dus geen leentoets",
+                         "score": 6.0}
+    n = fz.vul_summary_aan([a, b])
+    data = json.loads(fz.SUMMARY_FILE.read_text(encoding="utf-8"))
+    per = {x["id"]: x for x in data["nieuw"]}
+    ok &= check("twee aangevuld", n == 2, str(n))
+    ok &= check("status en score (1 decimaal)", per["11"].get("status") == "Past · € 196 onder je grens"
+                and per["11"].get("score") == 8.3, str(per["11"]))
+    ok &= check("prijs op aanvraag: price blijft null", per["12"]["price"] is None and per["12"]["status"].startswith("Prijs onbekend"))
+    ok &= check("rest van de samenvatting blijft", data["nieuw_count"] == 2 and per["11"]["price"] == 250000)
+    ok &= check("geen inkomen of eigen geld in de samenvatting",
+                not any(k in json.dumps(data) for k in ("bruto", "inkomen", "eigen_inleg", "eigen geld")))
+    fz.SUMMARY_FILE.unlink()
+    ok &= check("zonder bestand: geen fout", fz.vul_summary_aan([a]) == 0 and not fz.SUMMARY_FILE.exists())
+    return ok
+
+
+def test_pushtekst() -> bool:
+    """scripts/send_web_push.cjs: '<adres>, <stad> · <status> · <score>', anders het oude formaat."""
+    print("test: pushtekst met statusregel en score, oude vorm als terugval")
+    node = shutil.which("node")
+    if not node:
+        print("  (node niet gevonden; overgeslagen)")
+        return True
+    script = Path(__file__).parent / "scripts" / "send_web_push.cjs"
+    homes = [
+        {"title": "Teststraat 1", "city": "Den Haag", "status": "Past · € 196 onder je grens", "score": 8.3,
+         "price": 265000, "living_area": 68},
+        {"title": "Teststraat 2", "city": "Den Haag", "price": 265000, "living_area": 68},
+        {"title": "Teststraat 3", "city": "Den Haag", "price": None, "living_area": 70},
+        {"title": "Teststraat 4", "city": "Den Haag", "status": "Past · € 0 onder je grens", "score": 7},
+    ]
+    code = (f"const p = require({json.dumps(str(script))});"
+            f"const h = {json.dumps(homes)};"
+            "console.log(JSON.stringify({r: h.map(p.regel), t: p.payloadVoor({nieuw_count: 1, nieuw: h.slice(0, 1)})}));")
+    uit = subprocess.run([node, "-e", code], capture_output=True, text=True, timeout=30)
+    if uit.returncode != 0:
+        return check("node draait het script", False, uit.stderr[-300:])
+    data = json.loads(uit.stdout)
+    r = data["r"]
+    ok = check("nieuwe vorm", r[0] == "Teststraat 1, Den Haag · Past · € 196 onder je grens · 8,3", r[0])
+    ok &= check("oude vorm zonder status", r[1] == "Teststraat 2, Den Haag - € 265.000 - 68 m2", r[1])
+    ok &= check("prijs op aanvraag in de oude vorm", r[2] == "Teststraat 3, Den Haag - prijs op aanvraag - 70 m2", r[2])
+    ok &= check("nooit € 0", r[3] == "Teststraat 4, Den Haag · Past · 7,0" and not any("€ 0" in x for x in r), r[3])
+    ok &= check("titel zonder merknaam", data["t"]["title"] == "1 nieuwe woning", data["t"]["title"])
+    return ok
+
+
 def test_auto_keten() -> bool:
     """'auto' loopt api -> html -> sitemap af en neemt de eerste die werkt.
 
@@ -1373,7 +1469,8 @@ def test_pool_in_run() -> bool:
 
 def main() -> int:
     resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(), test_prijs_onbekend(),
-                  test_prijs_onbekend_rapport(), test_auto_keten(), test_buurtfilter(), test_stadfilter(),
+                  test_prijs_onbekend_rapport(), test_twijfel_naar_rapport(), test_vul_summary_aan(),
+                  test_pushtekst(), test_auto_keten(), test_buurtfilter(), test_stadfilter(),
                   test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),
                   test_geen_dubbele_detail_calls(), test_pool_404_bovenaan(), test_pool_404_beeindigt_reeks(),
