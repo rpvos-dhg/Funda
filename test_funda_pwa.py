@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import json
 import os
 import re
 import sys
@@ -106,8 +107,96 @@ def test_geen_onversleuteld_in_ci() -> bool:
     return ok
 
 
+OUDE_KLEUREN = ["#154c34", "#c9a23c", "#f3efe6", "#ffcd00", "#003d86"]
+
+
+def _png_pixel(pad: Path, x: int = 0, y: int = 0) -> tuple[int, ...]:
+    """Eén pixel uit een PNG zoals _write_png_icon hem schrijft (RGBA, filter 0)."""
+    import struct
+    import zlib
+    data = pad.read_bytes()
+    breed = struct.unpack(">I", data[16:20])[0]
+    idat, i = b"", 8
+    while i < len(data):
+        n = struct.unpack(">I", data[i:i + 4])[0]
+        if data[i + 4:i + 8] == b"IDAT":
+            idat += data[i + 8:i + 8 + n]
+        i += 12 + n
+    rauw = zlib.decompress(idat)
+    rij = rauw[y * (breed * 4 + 1) + 1:(y + 1) * (breed * 4 + 1)]
+    return tuple(rij[x * 4:x * 4 + 4])
+
+
+def test_pwa_uiterlijk() -> bool:
+    print("test: service worker v5, manifest zonder voornaam, eigen palet, slotscherm uit ui/slot.html")
+    import funda_ui
+    ok = check("service worker: cache funda-shortlist-v5", "const CACHE = 'funda-shortlist-v5';" in fr.PWA_SERVICE_WORKER)
+    m = json.loads(fr.PWA_MANIFEST)
+    ok &= check("manifest: Woningrapport / Woningen", m["name"] == "Woningrapport" and m["short_name"] == "Woningen",
+                f"{m['name']} / {m['short_name']}")
+    ok &= check("manifest: geen merknaam in de naam", "Funda" not in m["name"] and "Funda" not in m["short_name"])
+    ok &= check("manifest: kleuren uit het palet", m["theme_color"] == funda_ui.THEME_COLOR
+                and m["background_color"] == funda_ui.ACHTERGROND, f"{m['theme_color']} {m['background_color']}")
+    uit = fr.beveilig_html(BODY, WACHTWOORD)
+    ok &= check("slotscherm: <label for=\"pw\"> en role=\"alert\"", '<label for="pw">' in uit and 'role="alert"' in uit)
+    ok &= check("slotscherm: theme-color uit het palet",
+                f'<meta name="theme-color" content="{funda_ui.THEME_COLOR}">' in uit)
+    ok &= check("slotscherm: titel Woningrapport, geen voornaam", "<title>Woningrapport</title>" in uit)
+    ok &= check("slotscherm: UI-CSS en UI-JS in de wrapper", funda_ui.UI_CSS[:200] in uit and funda_ui.UI_JS[:200] in uit)
+    oud_sleutel = fr.WEB_PUSH_PUBLIC_KEY
+    fr.WEB_PUSH_PUBLIC_KEY = "BFictieveSleutel"
+    try:
+        met_push = fr.beveilig_html(BODY, WACHTWOORD)
+    finally:
+        fr.WEB_PUSH_PUBLIC_KEY = oud_sleutel
+    ok &= check("slotscherm: UI-JS vóór de push-JS (die haakt op fundaAfterReportLoad in)",
+                met_push.index(funda_ui.UI_JS[:200]) < met_push.index("var WEB_PUSH_PUBLIC_KEY") < met_push.index("</head>"))
+    ok &= check("push-JS: verbergt het blok bij een abonnement, geen losse kleur",
+                "verbergAlsIngesteld" in met_push and "style.color" not in met_push)
+    html = fr.render_html([], {})
+    ok &= check("lokale HTML: theme-color, color-scheme en titel",
+                f'content="{funda_ui.THEME_COLOR}"' in html and '<meta name="color-scheme" content="light dark">' in html
+                and "<title>Woningrapport, " in html)
+    for naam, tekst in (("icon.svg", fr.PWA_ICON_SVG), ("favicon.svg", fr.PWA_FAVICON_SVG), ("wrapper", uit),
+                        ("manifest", fr.PWA_MANIFEST), ("lokale HTML", html)):
+        ok &= check(f"{naam}: geen oude kleuren, geen geel of ANWB-blauw",
+                    not any(k in tekst.lower() for k in OUDE_KLEUREN), naam)
+    ok &= check("iconen in het paars van de topbalk", funda_ui.THEME_COLOR in fr.PWA_ICON_SVG
+                and funda_ui.THEME_COLOR in fr.PWA_FAVICON_SVG)
+    with tempfile.TemporaryDirectory() as tmp:
+        pad = Path(tmp) / "icon.png"
+        fr._write_png_icon(pad, 180)
+        kleur = "#" + "".join(f"{c:02x}" for c in _png_pixel(pad)[:3])
+        ok &= check("PNG-icoon: hoek in het paars van de topbalk (vult het vlak)", kleur == funda_ui.THEME_COLOR, kleur)
+        ok &= check("PNG-icoon: midden wit (het huis)", _png_pixel(pad, 70, 120)[:3] == (255, 255, 255),
+                    str(_png_pixel(pad, 70, 120)))
+    return ok
+
+
+def test_pwa_assets() -> bool:
+    print("test: schrijf_pwa_assets met wachtwoord schrijft alles en versleutelt index.html")
+    oud = (fr.UITVOER_DIR, fr.PWA_PASSWORD_FILE)
+    ok = True
+    with tempfile.TemporaryDirectory() as tmp:
+        fr.UITVOER_DIR = Path(tmp)
+        fr.PWA_PASSWORD_FILE = Path(tmp) / "pw.txt"
+        fr.PWA_PASSWORD_FILE.write_text(WACHTWOORD + "\n", encoding="utf-8")
+        try:
+            fr.schrijf_pwa_assets([], {"tijdstip": "2026-11-06T10:34:00+01:00"})
+        finally:
+            fr.UITVOER_DIR, fr.PWA_PASSWORD_FILE = oud
+        docs = Path(tmp) / "docs"
+        namen = sorted(p.name for p in docs.iterdir())
+        ok &= check("alle bestanden", namen == ["apple-touch-icon.png", "favicon.svg", "icon-512.png", "icon.svg",
+                                                "index.html", "manifest.json", "service-worker.js"], ", ".join(namen))
+        body = ontsleutel((docs / "index.html").read_text(encoding="utf-8"), WACHTWOORD)
+        ok &= check("index.html ontsleutelt tot de nieuwe UI", 'id="woning-data"' in body and 'class="app-top' in body)
+    return ok
+
+
 def main() -> int:
-    resultaten = [test_roundtrip(), test_wrapper(), test_geen_onversleuteld_in_ci()]
+    resultaten = [test_roundtrip(), test_wrapper(), test_geen_onversleuteld_in_ci(), test_pwa_uiterlijk(),
+                  test_pwa_assets()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

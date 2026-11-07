@@ -383,6 +383,7 @@ details.groep[open]>.sectie-kop .chev{transform:rotate(180deg)}
 .push-uitvoer{width:100%;min-height:8rem;padding:var(--spacing-100);border:1px solid var(--border-color-interactive-neutral);
   border-radius:var(--radius-100);background:var(--background-color-inset);color:var(--foreground-color-neutral);font:var(--paragraph-body-small)}
 .push-status{color:var(--foreground-color-subtle)}
+.push-status.is-fout{color:var(--foreground-color-feedback-negative)}
 .push-status:empty{display:none}
 
 /* Onderbalk (duimbereik, alleen mobiel) */

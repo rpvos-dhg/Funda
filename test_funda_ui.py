@@ -297,6 +297,8 @@ def test_statusregels() -> bool:
         check("Past niet boven je grens", sr("PAST NIET", {"netto": 1614, "grens": 1450, "tekort": -60})
               == "Past niet · € 164 boven je grens"),
         check("Prijs onbekend", sr("PRIJS ONBEKEND", {}) == "Prijs onbekend · geen vraagprijs, dus geen leentoets"),
+        check("precies op de grens: geen '€ 0'", sr("PAST", {"netto": 1450, "grens": 1450, "tekort": 0})
+              == "Past · precies op je grens"),
         check("bruto norm", sr("KRAP", {"netto": 1300, "bruto": 1750, "grens": 1705, "tekort": 0, "grens_soort": "bruto norm"})
               == "Krap · € 45 boven de norm (bruto)"),
         check("drempels uit meta", funda_ui.status_reden("KRAP", {"netto": 1400, "grens": 1450, "tekort": 1200},

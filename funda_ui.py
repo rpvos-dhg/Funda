@@ -243,7 +243,9 @@ def status_reden(poort: str, fin: dict, meta: dict | None = None) -> str:
         return f"{eur(tekort)} eigen geld te weinig" if tekort > 0 else "woonlasten onbekend"
     if (poort == "PAST NIET" and tekort > te_weinig) or (poort == "KRAP" and tekort > kk and lasten <= grens):
         return f"{eur(tekort)} eigen geld te weinig"
-    if lasten <= grens:
+    if lasten == grens:   # geen "€ 0 onder je grens"
+        return "precies op " + ("de norm (bruto)" if bruto_norm else "je grens")
+    if lasten < grens:
         return f"{eur(grens - lasten)} onder " + ("de norm (bruto)" if bruto_norm else "je grens")
     return f"{eur(lasten - grens)} boven " + ("de norm (bruto)" if bruto_norm else "je grens")
 
@@ -455,7 +457,7 @@ def kaart_html(w, meta: dict | None = None) -> str:
         plus_met, plus_nul = plus_met + plus_nul[:3 - len(plus_met)], plus_nul[3 - len(plus_met):]
     lo = "".join(punt_html(x) for x in w["let_op"]) or '<li class="punt-tekst">Niets gevonden.</li>'
     plus = "".join(punt_html(x) for x in plus_met)
-    ook = (f'<p class="punt-tekst mt-100"><span class="gesch">Ook in orde: </span>'
+    ook = ('<p class="punt-tekst mt-100"><span class="gesch">Ook in orde: </span>'
            + h(", ".join(f"{str(x.get('label', '')).lower()} {x.get('waarde', '')}" for x in plus_nul)) + "</p>") if plus_nul else ""
     onb = "".join(punt_html(x, False) for x in w["onbekend"])
     kans = "".join(punt_html({**x, "oordeel": "kans"}, False) for x in w["kansen"])

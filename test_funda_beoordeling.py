@@ -394,6 +394,7 @@ def test_poort() -> bool:
         "pn_eigen": {"tekort": 16565, "netto": 1476, "bruto": 1800, "grens": 1450, "grens_soort": "netto", "over": 26},
         "pn_boven": {"tekort": 0, "netto": 1614, "bruto": 1900, "grens": 1450, "grens_soort": "netto", "over": 164},
         "bruto": {"tekort": 0, "netto": 1300, "bruto": 1600, "grens": 1705, "grens_soort": "bruto norm", "over": -105},
+        "op_grens": {"tekort": 0, "netto": 1450, "bruto": 1700, "grens": 1450, "grens_soort": "netto", "over": 0},
     }.items():
         fin["poort"] = fb.poort_financieel(fin["tekort"], fin["over"], cfg_g)
         sk[naam] = fb.status_kort(fin["poort"], fin, [], cfg_g)
@@ -403,6 +404,7 @@ def test_poort() -> bool:
     ok &= check("statusregel Past niet, eigen geld", sk["pn_eigen"] == "Past niet · € 16.565 eigen geld te weinig", sk["pn_eigen"])
     ok &= check("statusregel Past niet, boven grens", sk["pn_boven"] == "Past niet · € 164 boven je grens", sk["pn_boven"])
     ok &= check("statusregel bruto norm", sk["bruto"] == "Past · € 105 onder de norm (bruto)", sk["bruto"])
+    ok &= check("precies op de grens: geen '€ 0'", sk["op_grens"] == "Past · precies op je grens", sk["op_grens"])
 
     # Zonder eigen grens: bruto tegen 33% van het bruto maandinkomen.
     f = fb.financiering(_fin_woning(250000), fb.laad_config(profiel), profiel, None, VANDAAG)

@@ -907,7 +907,9 @@ def status_kort(poort_: str, fin: dict, harde: list[str], cfg: dict) -> str:
     if (poort_ == "PAST NIET" and tekort > f["eigen_geld_tekort_past_niet"]) or \
             (poort_ == "KRAP" and tekort > f["kk_onzekerheid"] and waarde <= grens):
         return f"{naam} · {eur(tekort)} eigen geld te weinig"
-    if waarde <= grens:
+    if waarde == grens:   # geen "€ 0 onder je grens"
+        return f"{naam} · precies op {woord}"
+    if waarde < grens:
         return f"{naam} · {eur(grens - waarde)} onder {woord}"
     return f"{naam} · {eur(waarde - grens)} boven {woord}"
 
