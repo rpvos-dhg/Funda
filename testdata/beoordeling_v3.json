@@ -1,5 +1,5 @@
 {
- "_doc": "FICTIEF. Uitvoer van beoordelingsmodel v3 op de 13 testwoningen (testdata/woningen.json), omgezet naar het contract uit beoordeling.md paragraaf 9 plus de scenario-uitbreiding (financiering.scenarios, planning, scenario_tekst). Volgorde = rapportvolgorde. De scenario's zijn verzonnen verhoudingen (nu 6% minder leenruimte, met cao 3% meer) rond het planningsscenario jan 2027; de poort volgt het planningsscenario. Contract voor de UI (funda_ui.py) tot het echte model (funda_beoordeling.py) er is.",
+ "_doc": "FICTIEF. Uitvoer van beoordelingsmodel v3 op de 13 testwoningen (testdata/woningen.json), in de vorm van het contract uit de docstring van funda_beoordeling.py, plus de scenario-uitbreiding (financiering.scenarios, planning, scenario_tekst). Volgorde = rapportvolgorde. De scenario's zijn verzonnen verhoudingen (nu 6% minder leenruimte, met cao 3% meer) rond het planningsscenario jan 2027; de poort volgt het planningsscenario. Vaste invoer voor test_funda_ui.py, los van het model; de uitvoer van funda_beoordeling.py zelf staat in testdata/beoordeling_verwacht.json.",
  "meta": {
   "tijdstip": "2026-11-06T10:34:00+01:00",
   "rente": {

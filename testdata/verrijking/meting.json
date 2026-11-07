@@ -1,5 +1,5 @@
 {
- "_doc": "B2a: eenmalige meting van laag- en veldnamen, 7 nov 2026, vanaf een sandbox met de eerlijke user-agent. Gemeten op openbare plekken: het Plein (52.07945, 4.31330) en het stadhuis van Den Haag (BAG-adres van een kantoorgebouw). Nooit een woonadres. De bestanden hiernaast zijn ingekorte antwoorden; de PDOK-buurt heeft 244 velden, waarvan hier zes verboden velden met waarde -1 staan om de allowlist te testen.",
+ "_doc": "Eenmalige meting van laag- en veldnamen, 7 nov 2026, vanaf een sandbox met de eerlijke user-agent. Gemeten op openbare plekken: het Plein (52.07945, 4.31330) en het stadhuis van Den Haag (BAG-adres van een kantoorgebouw). Nooit een woonadres. De bestanden hiernaast zijn ingekorte antwoorden; de PDOK-buurt heeft 244 velden, waarvan hier zes verboden velden met waarde -1 staan om de allowlist te testen.",
  "robots": {
   "api.pdok.nl": "200: Allow /, Disallow /bzk/locatieserver/*",
   "data.rivm.nl": "404 (geen robots.txt)",

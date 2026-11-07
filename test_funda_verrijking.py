@@ -483,7 +483,7 @@ def test_uit() -> bool:
 
 
 def test_signalen() -> bool:
-    print("Signaalregels (huisverklikker.md par. 7)")
+    print("Signaalregels")
     dr = v.DREMPELS
     ok = check("VvE van 3 = kleine VvE (let op)", v.signalen_bag({"aantal_vbo_pand": 3, "bouwjaar": 1932}, dr)[0]["niveau"] == "let_op")
     ok &= check("VvE van 16 = info", v.signalen_bag({"aantal_vbo_pand": 16, "bouwjaar": 1995}, dr)[0]["niveau"] == "info")
@@ -699,33 +699,37 @@ def test_bag_matching() -> bool:
 
 
 def test_vorm() -> bool:
-    print("Vorm van de uitvoer (verrijking_stub.json en contract par. 9)")
+    print("Vorm van de uitvoer: wat funda_beoordeling leest (contract in funda_beoordeling.py)")
+    import funda_beoordeling as fb
     ws = woningen()
     web = NepWeb(ws)
     web.status["data.rivm.nl"] = 500
     uit = v.verrijk(ws, {}, cfg(), VANDAAG, http=web, ua=UA, log=STIL)
     w = uit[str(ws[0]["global_id"])]
-    stub = v.als_stub(w)
-    ok = check("stub-sleutels", set(stub) == {"bag", "fundering", "geluid", "buurt"})
-    ok &= check("bag: bouwjaar en aantal_vbo_pand", {"bouwjaar", "aantal_vbo_pand"} <= set(stub["bag"]))
-    ok &= check("geluid kapot = 'fout' zoals in de stub", stub["geluid"] == "fout")
+    # Door de lezer van het model zelf: fb._bron() geeft (status, data, reden) per bron.
+    gelezen = {b: fb._bron(w, b) for b in v.BRONNEN}
+    ok = check("bronnen", set(w) >= {"bag", "fundering", "geluid", "buurt"})
+    ok &= check("status zoals het model hem leest",
+                {b: st for b, (st, _, _) in gelezen.items()}
+                == {"bag": "ok", "fundering": w["fundering"]["status"], "geluid": "onbekend", "buurt": "ok"})
+    ok &= check("bag: bouwjaar en aantal_vbo_pand", {"bouwjaar", "aantal_vbo_pand"} <= set(gelezen["bag"][1] or {}))
+    ok &= check("geluid kapot: geen data, wel een reden",
+                gelezen["geluid"][1] is None and bool(gelezen["geluid"][2]))
     ok &= check("buurt: kscore, onv, tevreden_woonomgeving",
-                {"kscore", "onv", "tevreden_woonomgeving"} <= set(stub["buurt"]))
+                {"kscore", "onv", "tevreden_woonomgeving"} <= set(gelezen["buurt"][1] or {}))
+    st_fu, fu, _ = gelezen["fundering"]
     ok &= check("fundering: verschilzetting en paalrot, of niet_nodig",
-                stub["fundering"] == "niet_nodig" or set(stub["fundering"]) == {"verschilzetting", "paalrot"})
-    ok &= check("status_per_bron", v.status_per_bron(w) == {"bag": "ok", "fundering": w["fundering"]["status"],
-                                                            "geluid": "onbekend", "buurt": "ok"})
+                st_fu == "niet_nodig" or set(fu or {}) == {"verschilzetting", "paalrot"})
     for b in v.BRONNEN:
         ok &= check(f"{b}: status, data, reden, signalen",
                     {"status", "data", "reden", "signalen"} <= set(w[b]))
     ok &= check("buurt: twijfel en delen", "twijfel" in w["buurt"] and set(w["buurt"]["delen"]) ==
                 {"buurtcode", "leefbaarometer", "tevredenheid"})
-    ok &= check("zwakke_buurten leeg bij kscore 7", v.zwakke_buurten(uit) == [])
     ok &= check("prioriteit: Past voor Krap voor onbekend voor Past niet",
                 sorted(["PAST NIET", None, "KRAP", "PAST"], key=lambda p: v.prioriteit({"beoordeling": {"poort": p}}))
                 == ["PAST", "KRAP", None, "PAST NIET"])
-    ok &= check("poort als dict (prototype) werkt ook",
-                v.prioriteit({"_beoordeling": {"poort": {"status": "KRAP"}, "score": 6.0}}) == (1, -6.0))
+    ok &= check("prioriteit: poort en score uit d[\"_beoordeling\"]",
+                v.prioriteit({"_beoordeling": {"poort": "KRAP", "score": 6.0}}) == (1, -6.0))
     return ok
 
 

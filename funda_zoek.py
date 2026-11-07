@@ -1,18 +1,19 @@
 """
-Dagelijkse Funda check voor Remco.
+Dagelijkse Funda-check voor een koopappartement.
 
-Zoekt koopappartementen rond de zoekpostcode uit funda_personal.json,
-prijs € 230-310k, min 55 m2. Filtert beleggingsobjecten weg, sluit
-ongewenste buurten uit en markeert twijfelbuurten met een waarschuwing.
+Zoekt koopappartementen rond de zoekpostcode uit funda_personal.json, binnen
+de prijs- en oppervlaktegrenzen uit diezelfde config. Filtert beleggingsobjecten
+en begane grond weg, sluit ongewenste buurten uit en markeert twijfelbuurten
+met een waarschuwing. Woningen die al bekend zijn, blijven via de pool in beeld;
+"nieuw" betekent: niet eerder gezien.
 
-Eerste run: toont alle matches.
-Volgende runs: toont alleen NIEUWE woningen sinds vorige run.
-
-Vereisten:
-    pip install git+https://github.com/0xMH/pyfunda.git
+Vereisten (pyfunda vastgepind op v2.9.0):
+    pip install -r requirements.txt
 
 Gebruik:
-    python funda_zoek.py
+    python funda_zoek.py                 # volledige run, rapport, commit en push van docs/
+    python funda_zoek.py --no-open       # zonder browser
+    python funda_zoek.py --no-push       # zonder commit en push
     python funda_zoek.py --debug-wijken
 """
 
@@ -191,7 +192,6 @@ PRIJS_MIN = _PERSONAL["prijs_min"]
 PRIJS_MAX = _PERSONAL["prijs_max"]
 M2_MIN = _PERSONAL.get("m2_min", 52)
 PAGINAS = 25  # ruim genoeg; loop stopt zelf zodra een band leeg is
-NHG_LABELS = {"A", "A+", "A++", "A+++", "B"}
 
 # Funda kapt een zoekopdracht af op ~140 resultaten. Daardoor verdwijnen
 # woningen die al lang te koop staan (ze zakken achter die grens). Door per
@@ -331,7 +331,7 @@ BLOKKEER_WOORDEN = [
 ]
 
 # Tekst-trefwoorden die op begane grond / souterrain wijzen.
-# Worden afgewezen want Remco wil hoger wonen ivm rust en inbraakrisico.
+# Worden afgewezen: liever hoger wonen, voor rust en minder inbraakrisico.
 BG_WOORDEN = [
     "woning op de begane grond", "appartement op de begane grond",
     "gelegen op de begane grond", "ligt op de begane grond",
@@ -341,23 +341,11 @@ BG_WOORDEN = [
     "benedenwoning", "benedenappartement",
 ]
 
-# Buitenruimte: GEEN harde filter want Funda's boolean is onbetrouwbaar
-# (Busken Huet 66 had een balkon maar werd als False gemarkeerd).
-# Wel als waarschuwing in het rapport tonen.
-EIS_BUITENRUIMTE = False
-
 # Straat-segmenten: voor straten waarvan slechts een deel acceptabel is.
 # Sleutel = lowercased straatnaam, value = (min_huisnummer, max_huisnummer of None, stad).
 STRAAT_SEGMENTEN = {
     "beeklaan": (320, None, "Den Haag"),  # alleen nummers >= 320 (Bomenbuurt/Duinoord-kant)
 }
-
-# Trefwoorden voor buitenruimte (gebruikt door rapport voor pros/cons detectie).
-BUITEN_WOORDEN = [
-    "balkon", "tuin", "dakterras", "loggia", "patio", "terras",
-    "buitenruimte", "veranda", "zonneterras", "voortuin", "achtertuin",
-    "frans balkon",
-]
 
 # State naast het script.
 STATE_FILE = Path(__file__).parent / "funda_seen_ids.json"
@@ -624,14 +612,6 @@ def is_begane_grond(tekst: str, details_data: dict | None = None) -> list[str]:
     # 2) Fallback: tekstmatch op specifieke trefwoorden (geen bare "souterrain", dat triggert op bergingen).
     s = tekst.lower()
     return [w for w in BG_WOORDEN if w in s]
-
-
-def heeft_buitenruimte(details_data: dict | None, tekst: str) -> bool:
-    if details_data:
-        if details_data.get("has_balcony") or details_data.get("has_garden") or details_data.get("has_roof_terrace"):
-            return True
-    s = (tekst or "").lower()
-    return any(w in s for w in BUITEN_WOORDEN)
 
 
 def is_uitgesloten_straat_nr(d: dict) -> str | None:
@@ -1263,10 +1243,10 @@ def _woningen_uit_mailbox() -> list[tuple[str, str]]:
         # al weken bekend en dus niet de reden dat het vandaag stuk is.
         if "AUTHENTICATIONFAILED" in str(exc) or "Invalid credentials" in str(exc):
             print("::error::Gmail weigert de login (AUTHENTICATIONFAILED). Het "
-                  "app-wachtwoord in secret FUNDA_MAIL_PASSWORD is niet meer geldig. "
+                  "app-wachtwoord in omgevingsvariabele FUNDA_MAIL_PASSWORD is niet meer geldig. "
                   "Dat gebeurt onder meer na een wijziging van het Google-wachtwoord. "
                   "Maak een nieuw app-wachtwoord op "
-                  "https://myaccount.google.com/apppasswords en zet het in het secret.")
+                  "https://myaccount.google.com/apppasswords en zet het in de omgevingsvariabele.")
         else:
             print(f"::error::Mailbox niet te lezen: {type(exc).__name__}: {exc}")
         return []
@@ -1659,7 +1639,7 @@ def main() -> None:
         log("Mailbron: statuswaarden: "
             + ", ".join(f"{s} ({n}x)" for s, n in status_mail.most_common()))
 
-    # Detail-check op beleggingsobject, begane grond, buitenruimte en blacklist.
+    # Detail-check op beleggingsobject, begane grond en blacklist.
     blacklist = laad_blacklist()
     goed: list[dict] = []
     afgewezen: list[tuple[dict, list[str]]] = []
@@ -1697,9 +1677,6 @@ def main() -> None:
             bg = is_begane_grond(tekst, details_data)
             if bg:
                 redenen.append(f"begane grond ({bg[0]})")
-
-            if EIS_BUITENRUIMTE and not heeft_buitenruimte(details_data, tekst):
-                redenen.append("geen buitenruimte")
 
             if redenen:
                 afgewezen.append((d, redenen))
@@ -1775,7 +1752,7 @@ def main() -> None:
             toon(d, prefix="     ")
 
     if afgewezen:
-        print("\n--- Afgewezen (belegging/bg/buitenruimte/blacklist) ---")
+        print("\n--- Afgewezen (belegging/bg/blacklist) ---")
         for d, w in afgewezen:
             print(f"  {d.get('title')}: {', '.join(w)}")
 
@@ -1820,7 +1797,6 @@ def toon(d: dict, prefix: str = "") -> None:
     m2 = d.get("living_area", 0) or 0
     ppm = prijs // m2 if m2 else 0
     label = d.get("energy_label", "?")
-    nhg = " | NHG-label" if label in NHG_LABELS else ""
     buurt = d.get("neighbourhood", "")
     twijfel = is_twijfelbuurt(buurt)
     flag = f" /!\\ TWIJFELBUURT ({twijfel})" if twijfel else ""
@@ -1843,7 +1819,7 @@ def toon(d: dict, prefix: str = "") -> None:
     prijs_tekst = "prijs op aanvraag" if prijs_onbekend(d) else f"€ {prijs:,} | {m2} m2 (€{ppm}/m2)"
     if prijs_onbekend(d):
         prijs_tekst += f" | {m2} m2"
-    print(f"\n[{prefix}] {prijs_tekst} | label {label}{nhg}{flag}")
+    print(f"\n[{prefix}] {prijs_tekst} | label {label}{flag}")
     print(f"  {d.get('title')}, {d.get('postcode')} {d.get('city')}")
     print(f"  Wijk: {buurt}")
     print(f"  {d.get('bedrooms')} slpk | {d.get('rooms')} kamers")

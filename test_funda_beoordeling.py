@@ -30,7 +30,7 @@ import funda_beoordeling as fb  # noqa: E402
 FIXTURE = HIER / "testdata" / "woningen.json"
 VERWACHT = HIER / "testdata" / "beoordeling_verwacht.json"
 VANDAAG = "2026-11-06"          # de fixture is van 6 november 2026; vaste klok voor de tests
-GRENS_FICTIEF = 1450            # fictieve netto grens van de fixture (beoordeling.md par. 10)
+GRENS_FICTIEF = 1450            # fictieve netto grens van de fixture
 TWIJFEL_BUURTEN_FIXTURE = ("Mariahoeve", "Houtwijk", "Leyenburg")
 
 # FICTIEF: verzonnen verrijkingswaarden (vorm van funda_verrijking), geen meting van een echte
@@ -343,7 +343,7 @@ def test_rente() -> bool:
     ok = True
     cfg = fb.laad_config({"bruto_jaar": 62000, "eigen_inleg": 10000, "leeftijd": 30})
     r = fb.rente_uit_config(cfg, VANDAAG)
-    ok &= check("zonder rente: standaard 4,11% van 6 juli 2026 (par. 8.4)", r["pct"] == 4.11 and r["datum"] == "2026-07-06"
+    ok &= check("zonder rente: standaard 4,11% van 6 juli 2026", r["pct"] == 4.11 and r["datum"] == "2026-07-06"
                 and r["bron"] == "standaard")
     ok &= check("standaardrente is oud en geeft een melding", r["oud"] is True and "dagen oud" in (r["melding"] or ""))
     p = {"bruto_jaar": 62000, "eigen_inleg": 10000, "leeftijd": 30}
@@ -373,7 +373,7 @@ def test_poort() -> bool:
     cfg_m = fb.laad_config({"beoordeling": {"krap_marge": 50}})
     ok &= check("krap_marge instelbaar", fb.poort_financieel(0, 51, cfg_m) == "PAST NIET" and fb.poort_financieel(0, 50, cfg_m) == "KRAP")
     cfg_oud = fb.laad_config({"beoordeling": {"financiering": {"woonlasten_marge_past_niet": 80, "max_woonlasten_netto": 1300}}})
-    ok &= check("oude sleutels (par. 10) werken nog", cfg_oud["krap_marge"] == 80 and cfg_oud["max_woonlasten_netto"] == 1300)
+    ok &= check("oude sleutels werken nog", cfg_oud["krap_marge"] == 80 and cfg_oud["max_woonlasten_netto"] == 1300)
 
     profiel = {"bruto_jaar": 62000, "eigen_inleg": 10000, "duo_maandlast": 0, "leeftijd": 30}
     for prijs in (None, 0):
@@ -791,7 +791,7 @@ def _alle_teksten(x) -> list[str]:
 
 
 def test_contract() -> bool:
-    print("test: datacontract (beoordeling.md par. 9)")
+    print("test: datacontract (\"Uitvoer\" in de docstring van funda_beoordeling.py)")
     ok = True
     rijen = beoordeel_fixture()
     sleutels = {"poort", "poort_redenen", "status_kort", "twijfel", "score", "onderdelen", "uitleg_regel", "let_op",
@@ -876,7 +876,7 @@ def test_verrijking_vormen() -> bool:
     cfg = fb.laad_config(dict(profiel, beoordeling={"max_woonlasten_netto": GRENS_FICTIEF}))
     a = fb.beoordeel(d, det, routes, tw, profiel, cfg, _verrijking("w03"), vandaag=VANDAAG)
     b = fb.beoordeel(d, det, routes, tw, profiel, cfg, VERRIJKING_FICTIEF["w03"], vandaag=VANDAAG)
-    ok &= check("kale data (vorm van verrijking_stub) = status-dict", a == b)
+    ok &= check("kale data (zonder status) = status-dict", a == b)
     zonder = fb.beoordeel(d, det, routes, tw, profiel, cfg, None, vandaag=VANDAAG)
     ok &= check("zonder verrijking: alles 'uit', geen onbekend-regels voor bronnen",
                 set(zonder["verrijking"].values()) == {"uit"} and not any(i["onderdeel"] in ("geluid", "fundering") for i in zonder["onbekend"]))

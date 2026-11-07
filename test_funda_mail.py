@@ -297,11 +297,49 @@ def test_delegatie() -> bool:
     return ok
 
 
+def test_trackerclient() -> bool:
+    """links.funda.nl krijgt hetzelfde vaste profiel als www.funda.nl, zonder netwerk."""
+    print("\ntest: client voor links.funda.nl")
+    import funda_mail_bron as mb
+    import funda_sitemap_zoek as sz
+    ok = check("profiel gelijk aan www.funda.nl", mb.TRACKER_IMPERSONATE == sz.IMPERSONATE == "safari15_5")
+    ok &= check("user-agent gelijk aan www.funda.nl", mb.TRACKER_UA == sz.UA)
+
+    gezien: list[dict] = []
+
+    class _Antwoord:
+        headers = {"location": "https://www.funda.nl/detail/koop/den-haag/appartement-x-1/99000001/"}
+
+    class _NepRequests:
+        @staticmethod
+        def get(url, **kw):
+            gezien.append({"url": url, **kw})
+            return _Antwoord()
+
+    try:
+        import curl_cffi
+    except Exception:
+        print("  (curl_cffi niet geïnstalleerd: aanroep overgeslagen)")
+        return ok
+    echt = curl_cffi.requests
+    curl_cffi.requests = _NepRequests
+    try:
+        loc = mb._haal_locatie("https://links.funda.nl/s/vb/x/y/23")
+    finally:
+        curl_cffi.requests = echt
+    ok &= check("één aanroep, redirect niet gevolgd",
+                len(gezien) == 1 and gezien[0].get("allow_redirects") is False and loc.endswith("/99000001/"))
+    ok &= check("aanroep met safari15_5 en de Safari-UA",
+                gezien[0].get("impersonate") == "safari15_5"
+                and (gezien[0].get("headers") or {}).get("user-agent") == sz.UA)
+    return ok
+
+
 def main() -> int:
     resultaten = [
         test_links_direct(), test_links_tracking(), test_links_overig(),
         test_tracking_links(), test_redirect_volgen(), test_hoofdingang(),
-        test_bron(), test_delegatie(),
+        test_bron(), test_delegatie(), test_trackerclient(),
     ]
     print()
     if all(resultaten):

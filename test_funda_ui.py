@@ -300,7 +300,7 @@ def test_ids_en_attributen() -> bool:
 
 
 def test_statusregels() -> bool:
-    print("statusregel per poort (spec.md 4.2)")
+    print("statusregel per poort")
     sr = funda_ui.status_tekst
     return all([
         check("Past", sr("PAST", {"netto": 1254, "grens": 1450, "tekort": -20}) == "Past · € 196 onder je grens"),
@@ -443,7 +443,7 @@ def test_css_regels() -> bool:
         check("THEME_COLOR = topbalk (licht)", funda_ui.THEME_COLOR == licht["background-color-strong"]),
         check("ACHTERGROND = pagina (licht)", funda_ui.ACHTERGROND == licht["background-color-page"]),
         check("THEME_COLOR_DONKER = topbalk (donker)", funda_ui.THEME_COLOR_DONKER == donker.get("background-color-strong")),
-        check("palet Inkt en blauw (besluit 8): topbalk, knop, link en pagina",
+        check("palet Inkt en blauw (besluit 7 nov 2026): topbalk, knop, link en pagina",
               (licht["background-color-strong"], licht["background-color-interactive-strong"],
                licht["foreground-color-interactive-strong"], licht["background-color-page"])
               == ("#0f172a", "#2563eb", "#1d4ed8", "#f4f6f9")),

@@ -1,5 +1,5 @@
 {
-  "_doc": "Fictieve testdata voor het Funda-rapport. Geen echte woningen, adressen, makelaars of personen. Per woning: listing = pyfunda v2.9.0 Listing.data (zoals _parse_listing), track = flags van funda_zoek.update_tracking, price_history = get_price_history() of {_fout}. markt = get_market_insights per 'stad|buurt' (ontbreekt = LookupError). makelaars = get_broker_info/_reviews/_listings per broker_id ({_fout} = LookupError; listings_aantallen wordt uitgevouwen). photo_urls zijn paden relatief aan deze map; maak_rapport.py zet ze om naar data-URI's.",
+  "_doc": "Fictieve testdata voor het Funda-rapport. Geen echte woningen, adressen, makelaars of personen. Per woning: listing = pyfunda v2.9.0 Listing.data (zoals _parse_listing), track = flags van funda_zoek.update_tracking, price_history = get_price_history() of {_fout}. markt = get_market_insights per 'stad|buurt' (ontbreekt = LookupError). makelaars = get_broker_info/_reviews per broker_id ({_fout} = LookupError). photo_urls zijn fictieve, relatieve paden zonder bestand erachter: het rapport neemt ze ongewijzigd over, de tests kijken alleen of ze doorkomen.",
   "meta": {
     "vandaag": "2026-11-06",
     "nu_tekst": "6 november 2026 om 10:34",
@@ -143,10 +143,6 @@
         "average": 9.3,
         "number_of_reviews": 214,
         "selectivity_percentage": 41
-      },
-      "listings_aantallen": {
-        "for_sale": 18,
-        "sold": 41
       }
     },
     "900002": {
@@ -162,10 +158,6 @@
         "average": 8.9,
         "number_of_reviews": 58,
         "selectivity_percentage": 63
-      },
-      "listings_aantallen": {
-        "for_sale": 7,
-        "sold": 12
       }
     },
     "900003": {
@@ -181,10 +173,6 @@
         "average": 8.0,
         "number_of_reviews": 25,
         "selectivity_percentage": 88
-      },
-      "listings_aantallen": {
-        "for_sale": 31,
-        "sold": 9
       }
     },
     "900004": {
@@ -198,10 +186,6 @@
       },
       "reviews": {
         "_fout": "Could not fetch broker reviews (status 404)"
-      },
-      "listings_aantallen": {
-        "for_sale": 4,
-        "sold": 6
       }
     }
   },

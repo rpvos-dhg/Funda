@@ -1,4 +1,4 @@
-"""Funda-mails uit een IMAP-mailbox halen.
+r"""Funda-mails uit een IMAP-mailbox halen.
 
 Dit is het transport van de mailroute: het haalt de mailtekst op, en
 `funda_mail_bron.woningen_uit_mail()` haalt daar de woningen uit. Bewust

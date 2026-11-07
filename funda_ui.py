@@ -14,7 +14,7 @@ Publieke API
   vul_slot(waarden) -> str     ui/slot.html met alle placeholders vervangen (waarden per placeholdernaam)
 
 Rij (per woning, zoals funda_rapport.bouw_rij hem maakt):
-  beoordeling   contract uit beoordeling.md paragraaf 9, plus financiering.scenarios/planning/scenario_tekst
+  beoordeling   contract uit de docstring van funda_beoordeling.py ("Uitvoer"), met financiering.scenarios/planning/scenario_tekst
   d             zoekresultaat: global_id, title, neighbourhood, city, price, living_area, rooms, energy_label,
                 url of detail_url, en _enrichment.price_history.latest_woz (WOZ met datum)
   details       detail-antwoord: characteristics, photo_urls, construction_year, offered_since (valt terug op d)
@@ -28,7 +28,6 @@ Meta (alles optioneel):
   push_beschikbaar  er is een Web Push-sleutel: toon "Meldingen op deze iPhone"
   push_ingesteld    er is al een abonnement: verberg dat blok
   scenarios         [{"id", "label", "max_koopsom"}] voor "Jouw budget"; anders afgeleid uit de rijen
-  budget_regels     extra [label, tekst]-paren voor "Jouw budget" (nooit inkomen)
   kk_onzekerheid, eigen_geld_tekort_past_niet, lang_op_funda_dagen, run_cron_utc, leentoets_jaar
 """
 from __future__ import annotations
@@ -46,7 +45,7 @@ UI_JS = (UI_DIR / "app.js").read_text(encoding="utf-8")
 SLOT_HTML = (UI_DIR / "slot.html").read_text(encoding="utf-8")
 SLOT_PLACEHOLDERS = ("__APP_CSS__", "__MAP_HEAD__", "__APP_SCRIPTS__", "__GZ__", "__SALT__", "__IV__", "__CT__", "__ITERS__")
 
-# Palet "Inkt en blauw" (ui/app.css, besluit 8): topbalk en pagina in licht, voor het manifest en
+# Palet "Inkt en blauw" (ui/app.css, .interface-design/system.md): topbalk en pagina in licht, voor het manifest en
 # <meta name="theme-color">; THEME_COLOR_DONKER is de topbalk in donker (theme-color met media query).
 THEME_COLOR = "#0f172a"
 THEME_COLOR_DONKER = "#1e293b"
@@ -59,8 +58,6 @@ KK_ONZEKERHEID = 1500
 TEKORT_PAST_NIET = 5000
 LANG_OP_FUNDA_DAGEN = 90
 MAX_FOTOS = 6
-OVERIG_STANDAARD = 160
-VVE_STANDAARD = 175
 
 POORTEN = ("PAST", "KRAP", "PAST NIET", "PRIJS ONBEKEND")
 POORT_RANG = {p: i for i, p in enumerate(POORTEN)}
@@ -237,7 +234,7 @@ def _woning(rij: dict, meta: dict) -> dict:
 
 
 def status_reden(poort: str, fin: dict, meta: dict | None = None) -> str:
-    """Eén reden met het bedrag dat de poort bepaalt (spec.md 4.2). Eigen geld gaat voor als dat de poort zet."""
+    """Eén reden met het bedrag dat de poort bepaalt. Eigen geld gaat voor als dat de poort zet."""
     meta = meta or {}
     kk = meta.get("kk_onzekerheid", KK_ONZEKERHEID)
     te_weinig = meta.get("eigen_geld_tekort_past_niet", TEKORT_PAST_NIET)
@@ -356,8 +353,8 @@ def opbouw_lasten(w) -> str:
     o = f.get("opbouw") or {}
     if f.get("netto") is None or not o:
         return ""
-    vve = o.get("vve") if o.get("vve") is not None else VVE_STANDAARD
-    overig = o.get("overig") if o.get("overig") is not None else OVERIG_STANDAARD
+    # vve en overig zet funda_beoordeling.financiering() altijd (de VvE geschat als hij ontbreekt).
+    vve, overig = o["vve"], o["overig"]
     energie, canon = o.get("energie") or 0, o.get("canon_maand") or 0
     rente = f.get("rente")
     rentetekst = (f"{komma(rente * 100, 2)}%, " if rente else "") + (
@@ -655,8 +652,6 @@ def _budget_html(meta: dict, woningen: list[dict], r: dict, nu: datetime) -> str
     jaar = meta.get("leentoets_jaar") or nu.year
     rijen.append(("Leentoets", f"regeling hypothecair krediet {jaar}, tabel 1"))
     rijen.append(("Fietstijd", f"routeafstand gedeeld door {komma(kmu, 0) if float(kmu).is_integer() else komma(kmu)} km/u"))
-    for regel in meta.get("budget_regels") or []:
-        rijen.append((str(regel[0]), str(regel[1])))
     dl = "".join(f"<dt>{h(a)}</dt><dd>{h(b)}</dd>" for a, b in rijen)
     sc, plan_label = _scenarios_budget(meta, woningen)
     sc_html = ""
