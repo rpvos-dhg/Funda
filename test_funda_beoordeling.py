@@ -1138,15 +1138,19 @@ def test_kansen_en_info() -> bool:
 
 
 def test_import_zonder_personal() -> bool:
-    print("test: importeert zonder funda_personal.json en zonder funda_rapport")
+    print("test: importeert zonder funda_personal.json en zonder andere projectmodules")
     ok = True
     with tempfile.TemporaryDirectory() as tmp:
+        # funda_verrijking importeert LBM_KLASSE en FUND_KLASSE hier vandaan, dus andersom mag niet.
         code = ("import sys; sys.path.insert(0, %r); import funda_beoordeling as fb; "
-                "print(fb.laad_config(None)['score_basis'], 'funda_rapport' in sys.modules, 'funda_zoek' in sys.modules)") % str(HIER)
+                "print(fb.laad_config(None)['score_basis'], "
+                "sorted(m for m in sys.modules if m.startswith('funda') and m != 'funda_beoordeling'))") % str(HIER)
         uit = subprocess.run([sys.executable, "-c", code], cwd=tmp, capture_output=True, text=True, timeout=60,
                              env={k: v for k, v in os.environ.items() if not k.startswith("FUNDA_")})
-    ok &= check("import in een lege map", uit.returncode == 0 and uit.stdout.strip() == "5 False False", uit.stdout + uit.stderr)
+    ok &= check("import in een lege map, zonder andere projectmodules", uit.returncode == 0 and uit.stdout.strip() == "5 []",
+                uit.stdout + uit.stderr)
     bron = (HIER / "funda_beoordeling.py").read_text(encoding="utf-8")
+    ok &= check("geen projectimports in de bron", not re.search(r"^\s*(import|from)\s+funda_", bron, re.M))
     ok &= check("geen netwerk-imports", not any(m in bron for m in ("import requests", "urllib", "http.client", "socket", "curl_cffi")))
     ok &= check("geen em dash of gedachtestreepje in de module", "\u2014" not in bron and "\u2013" not in bron)
     return ok

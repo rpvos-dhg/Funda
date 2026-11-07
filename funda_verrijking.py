@@ -17,7 +17,7 @@ Haag), nooit op een woonadres.
 Regels (CLAUDE.md):
 - Al het netwerk loopt via één injecteerbare functie `http(url, timeout=, headers=)`
   die `(status, body_bytes)` teruggeeft; de tests geven een nep-functie mee.
-- Eerlijke user-agent (`EERLIJKE_UA` uit funda_zoek, of als parameter), time-outs,
+- Eerlijke user-agent (`EERLIJKE_UA` hieronder, de enige bron; of als parameter), time-outs,
   sequentieel met een pauze, robots.txt per host eerst. Vers op de dag van ophalen (RFC 9309
   par. 2.4: hooguit 24 uur); de laatste goede versie (hooguit 30 dagen) alleen als terugval
   wanneer robots.txt onbereikbaar is (time-out of 5xx).
@@ -55,6 +55,20 @@ import urllib.request
 from collections import Counter
 from datetime import date, datetime
 
+import funda_beoordeling
+from funda_beoordeling import FUND_KLASSE, LBM_KLASSE
+
+# ---------------------------------------------------------------- netiquette
+
+# Hoe dit project zich meldt bij elke host die het met een eigen client aanspreekt: de open bronnen
+# hier, PDOK en OSRM (funda_rapport), de rentebronnen (funda_rente) en funda's API-hosts (de
+# Funda-subklasse in funda_zoek, die hem als EERLIJKE_UA exporteert). Als zichzelf, met een link naar
+# de publieke repo; geen browser, geen app. Eén bron: hier. Niet voor www.funda.nl: daar gebruiken de
+# sitemap- en HTML-zoeker bewust één vast Safari-profiel (funda_sitemap_zoek.UA en IMPERSONATE).
+EERLIJKE_UA = "funda-dagelijkse-check/1.0 (+https://github.com/rpvos-dhg/Funda)"
+# De naam waarmee robots.txt ons per groep kan aanspreken: het deel van de user-agent voor de "/".
+ROBOTS_AGENT = EERLIJKE_UA.split("/", 1)[0]
+
 # ---------------------------------------------------------------- bronnen (gemeten 7 nov 2026)
 
 BAG_BASIS = "https://api.pdok.nl/kadaster/bag/ogc/v2/collections"
@@ -81,7 +95,7 @@ KEA_KLASSEN = {
     "verschilzetting": ((1.0, "zeer laag"), (5.0, "laag"), (10.0, "matig"), (25.0, "hoog"), (math.inf, "zeer hoog")),
     "paalrot": ((0.8, "zeer laag"), (3.0, "laag"), (6.0, "matig"), (15.0, "hoog"), (math.inf, "zeer hoog")),
 }
-FUND_KLASSE = ["zeer laag", "laag", "matig", "hoog", "zeer hoog"]
+# De namen van die klassen, van laag naar hoog: FUND_KLASSE uit funda_beoordeling (één bron).
 
 RIVM_WMS = "https://data.rivm.nl/geo/alo/wms"
 # Volgorde telt: de GetFeatureInfo-features hebben geen id en komen in deze volgorde terug.
@@ -95,8 +109,7 @@ RIVM_LAGEN = (
 LBM_WFS = "https://geo.leefbaarometer.nl/lbm3/ows"
 LBM_LAAG = "lbm3:buurtscore24"
 LBM_JAAR = 2024
-LBM_KLASSE = {1: "zeer onvoldoende", 2: "ruim onvoldoende", 3: "onvoldoende", 4: "zwak", 5: "voldoende",
-              6: "ruim voldoende", 7: "goed", 8: "zeer goed", 9: "uitstekend"}
+# De namen van kscore 1 tot 9: LBM_KLASSE uit funda_beoordeling (één bron).
 
 CBS_50150 = "https://dataderden.cbs.nl/ODataApi/odata/50150NED/TypedDataSet"
 CBS_PERIODE = "2024JJ00"
@@ -132,6 +145,8 @@ UITVOER_VELDEN = {
 
 # ---------------------------------------------------------------- instellingen
 
+# De enige standaard voor beoordeling.verrijking: funda_beoordeling.STANDAARD heeft geen eigen blok,
+# en instellingen() legt het blok uit de config (beoordeling.verrijking) hier overheen.
 STANDAARD = {
     "aan": True,
     "bronnen": {"bag": True, "fundering": True, "geluid": True, "buurt": True, "tevredenheid": True},
@@ -148,22 +163,15 @@ STANDAARD = {
 # Onbereikbaar (time-out, 5xx): de laatste goede versie, hooguit ROBOTS_TERUGVAL_DAGEN oud.
 ROBOTS_DAGEN = 1
 ROBOTS_TERUGVAL_DAGEN = 30
-# Zelfde waarden als funda_beoordeling.STANDAARD["drempels"] (dat blok is ruimer); de config kan ze overschrijven.
-DREMPELS = {
-    "vve_klein_max_woningen": 4,
-    "fundering_bouwjaar_voor": 1970,
-    "fundering_klasse_let_op": "matig",
-    "geluid_lden_weg": [55, 60, 65],
-    "geluid_lnight_weg": [47, 52, 57],
-    "geluid_lden_trein": [54, 59, 64],
-    "geluid_lnight_trein": [46, 51, 56],
-    "geluid_rustig_lden": 50,
-    "leefbaarometer_twijfel_max": 4,
-    "leefbaarometer_goed_min": 7,
-    "leefbaarometer_onv_let_op": -0.15,
-    "tevreden_woonomgeving_let_op": 80,
-    "tevreden_woonomgeving_goed": 90,
-}
+# De drempels die de verrijking zelf gebruikt (signalen en twijfel). De waarden komen uit
+# funda_beoordeling.STANDAARD["drempels"] (één bron; dat blok is ruimer); de config kan ze overschrijven.
+DREMPEL_SLEUTELS = (
+    "vve_klein_max_woningen", "fundering_bouwjaar_voor", "fundering_klasse_let_op",
+    "geluid_lden_weg", "geluid_lnight_weg", "geluid_lden_trein", "geluid_lnight_trein", "geluid_rustig_lden",
+    "leefbaarometer_twijfel_max", "leefbaarometer_goed_min", "leefbaarometer_onv_let_op",
+    "tevreden_woonomgeving_let_op", "tevreden_woonomgeving_goed",
+)
+DREMPELS = {k: copy.deepcopy(funda_beoordeling.STANDAARD["drempels"][k]) for k in DREMPEL_SLEUTELS}
 POORT_RANG = {"PAST": 0, "KRAP": 1, "PAST NIET": 3, "PRIJS ONBEKEND": 4}
 POORT_ONBEKEND_RANG = 2
 
@@ -287,7 +295,7 @@ def punt_sleutel(lat: float, lon: float) -> str:
 
 # ---------------------------------------------------------------- robots.txt
 
-def robots_regels(tekst: str, agent: str = "funda-dagelijkse-check") -> list[list[str]]:
+def robots_regels(tekst: str, agent: str = ROBOTS_AGENT) -> list[list[str]]:
     """De regels uit de groep voor onze user-agent, anders de groep voor '*'."""
     groepen: list[tuple[list[str], list[list[str]]]] = []
     agents: list[str] = []
@@ -387,14 +395,6 @@ def standaard_http(url: str, timeout: float = 10, headers: dict | None = None) -
     return status, body
 
 
-def _eerlijke_ua() -> str | None:
-    try:
-        from funda_zoek import EERLIJKE_UA  # noqa: PLC0415
-        return EERLIJKE_UA
-    except Exception:  # noqa: BLE001
-        return None
-
-
 class Sessie:
     """Eén run: budget, pauze, robots per host en een stroomonderbreker per host."""
 
@@ -405,7 +405,7 @@ class Sessie:
         self.cache = cache
         self.vandaag = _datum(vandaag).isoformat()
         self.http = http or standaard_http
-        self.ua = ua or _eerlijke_ua()
+        self.ua = ua or EERLIJKE_UA
         self.over = max_verzoeken
         self.max_verzoeken = max_verzoeken
         self.timeout_s = timeout_s
@@ -443,8 +443,6 @@ class Sessie:
 
     # -- intern
     def _verzoek(self, url: str, accept: str) -> tuple[int, bytes]:
-        if not self.ua:
-            raise BronFout("geen user-agent beschikbaar")
         if self.over <= 0:
             raise GeenBudget()
         if self.gedaan and self.pauze_s:

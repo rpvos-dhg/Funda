@@ -616,7 +616,7 @@ def test_rapport_rente_cache_ua() -> bool:
     finally:
         urllib.request.urlopen = oud_urlopen
     ok &= check("OSRM krijgt de eerlijke user-agent met repo-link",
-                len(gezien) == 1 and all(ua == fr._eerlijke_ua() and "github.com/rpvos-dhg/Funda" in ua for ua in gezien),
+                len(gezien) == 1 and all(ua == fr.EERLIJKE_UA and "github.com/rpvos-dhg/Funda" in ua for ua in gezien),
                 str(gezien))
     return ok
 
@@ -659,7 +659,7 @@ def test_geocoding() -> bool:
         return 200, json.dumps(body).encode()
 
     def nieuwe_run():
-        fr.GEOCODER = fv.Geocoder(http=nep, ua=fr._eerlijke_ua(), slaap=lambda _s: None)
+        fr.GEOCODER = fv.Geocoder(http=nep, ua=fr.EERLIJKE_UA, slaap=lambda _s: None)
 
     def adresvragen() -> list[str]:
         return [urllib.parse.parse_qs(urllib.parse.urlparse(u).query)["postcode"][0]
@@ -764,7 +764,7 @@ def test_geocoding() -> bool:
             fr.ENRICHMENT_CACHE.write_text(json.dumps({"verrijking_weigering": weigering}), encoding="utf-8")
             ok &= check("standaard-Geocoder: eerlijke user-agent, geen verzoek voor een ongeldige postcode",
                         fr.geocodeer_postcode("onzin") == (None, "geen geldige postcode")
-                        and fr.GEOCODER.sessie.ua == fr._eerlijke_ua() and fr.GEOCODER.sessie.gedaan == 0)
+                        and fr.GEOCODER.sessie.ua == fr.EERLIJKE_UA and fr.GEOCODER.sessie.gedaan == 0)
             ok &= check("standaard-Geocoder leest funda_enrichment_cache.json (een eerdere weigering geldt ook daar)",
                         fr.GEOCODER.sessie.cache.get("verrijking_weigering") == weigering)
     finally:

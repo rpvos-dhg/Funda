@@ -89,7 +89,8 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   gewichten, harde eisen, `verrijking`) en `financien` (scenario's met
   toetsinkomen, eigen geld, studieschuld, BKR, kosten koper, rente) in
   `funda_personal.json` en de secret `FUNDA_PERSONAL_JSON`. Alles optioneel; de
-  standaard staat in de code (`funda_beoordeling.STANDAARD`). Voorbeeld met
+  standaard staat in de code (`funda_beoordeling.STANDAARD`; die van
+  `beoordeling.verrijking` alleen in `funda_verrijking.STANDAARD`). Voorbeeld met
   fictieve waarden in `funda_personal.example.json`. Zonder `financien` rekent
   het model met `bruto_jaar`, `eigen_inleg`, `duo_maandlast` en `leeftijd`,
   zonder scenario's. Inkomen komt nooit in het rapport, de log of de pushmelding.
@@ -148,6 +149,12 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   **Bewust niet gebruikt:** de eigen API achter de rentepagina van ASN (vraagt een
   sleutel uit hun JavaScript-bundel) en de API van DNB (abonnementssleutel).
 - **Verrijking (`funda_verrijking.py`).** Aan (`beoordeling.verrijking.aan`).
+  **Eén bron per waarde:** de standaard van `beoordeling.verrijking` staat alleen
+  in `funda_verrijking.STANDAARD` (`instellingen()` legt het blok uit de config
+  eroverheen); `LBM_KLASSE`, `FUND_KLASSE` en de drempels die de verrijking
+  gebruikt komen uit `funda_beoordeling` (die zelf geen projectmodule importeert,
+  `test_import_zonder_personal`); `EERLIJKE_UA` staat in `funda_verrijking` en
+  `funda_zoek` exporteert hem opnieuw (`test_ua`, `test_een_bron`).
   Bronnen en robots (gemeten 7 nov 2026): BAG en CBS-buurten via `api.pdok.nl`
   (robots verbiedt alleen de Locatieserver, die niet gebruikt wordt),
   Klimaateffectatlas (`cas.cloud.sogelink.com`, geen robots.txt), RIVM-
@@ -351,7 +358,10 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
     subklasse (detail, zoek-API, prijshistorie, makelaar) via één gewone client:
     curl zonder browser- of app-profiel, `user-agent:
     funda-dagelijkse-check/1.0 (+https://github.com/rpvos-dhg/Funda)`
-    (`EERLIJKE_UA`), geen app- of traceheaders. Er wordt nooit een vingerafdruk
+    (`EERLIJKE_UA`: één constante in `funda_verrijking.py`, door `funda_zoek`
+    opnieuw geëxporteerd en ook gebruikt voor de open bronnen, PDOK, OSRM en de
+    rente; niet voor `www.funda.nl`, daar het vaste Safari-profiel van de
+    sitemap- en HTML-zoeker), geen app- of traceheaders. Er wordt nooit een vingerafdruk
     gezocht. **Gemeten op 6 nov 2026**: zo'n client (Python-TLS, eigen UA, geen
     app-headers) krijgt van het detail-endpoint gewoon 200 met JSON, eerst vanaf
     een sandbox en daarna vanaf Actions in e2e-run
@@ -908,7 +918,8 @@ python funda_zoek.py --no-open  # zonder browser
   bronnen en de rente met een nep-HTTP-functie en ingekorte echte antwoorden
   (`testdata/verrijking/`, `testdata/rente/`): fail-soft, robots, weigering stopt
   een host, cache en budget, allowlist, één poging per dag, de standaardrente uit
-  `funda_beoordeling.STANDAARD_RENTE`, en de geocoding (`test_geocode`: het
+  `funda_beoordeling.STANDAARD_RENTE`, één bron voor de user-agent (`test_ua`) en
+  voor verrijkingsstandaard, klassen en drempels (`test_een_bron`), en de geocoding (`test_geocode`: het
   gemeten adres-antwoord in `testdata/verrijking/bag_adres_postcode.json`,
   robots eerst, time-out, weigering en 5xx sluiten de host; `test_geocode_gedeelde_stand`:
   één stand voor `api.pdok.nl` met de verrijking, in beide richtingen).

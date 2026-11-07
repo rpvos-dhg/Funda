@@ -24,7 +24,6 @@ from __future__ import annotations
 import json
 import math
 import os
-import sys
 import time
 import urllib.request
 from collections import Counter
@@ -36,6 +35,7 @@ import funda_rente
 import funda_ui
 import funda_verrijking
 from funda_sitemap_zoek import log_tekst, publieke_log
+from funda_verrijking import EERLIJKE_UA  # ook voor PDOK (geocoding) en OSRM (routes), zonder naam
 
 # === Persoonlijke config: uit het gitignored bestand (in Actions: secret FUNDA_PERSONAL_JSON) ===
 
@@ -103,9 +103,6 @@ def _werk_postcodes() -> list[tuple[str, str]]:
 
 WERK_CACHE = Path(__file__).parent / "funda_werk_coords.json"
 ENRICHMENT_CACHE = Path(__file__).parent / "funda_enrichment_cache.json"
-# PDOK (geocoding) en OSRM (routes): dezelfde eerlijke user-agent als de rest (EERLIJKE_UA uit funda_zoek,
-# met repo-link), zonder naam. Op het moment van aanroepen gelezen, zodat er geen kringimport ontstaat.
-USER_AGENT_TERUGVAL = "funda-dagelijkse-check/1.0 (+https://github.com/rpvos-dhg/Funda)"
 
 
 # === Geocoding en routing ===
@@ -124,8 +121,7 @@ def geocodeer_postcode(postcode: str) -> tuple[tuple[float, float] | None, str |
     global GEOCODER
     try:
         if GEOCODER is None:
-            GEOCODER = funda_verrijking.Geocoder(ua=_eerlijke_ua() or USER_AGENT_TERUGVAL,
-                                                 cache=load_enrichment_cache())
+            GEOCODER = funda_verrijking.Geocoder(ua=EERLIJKE_UA, cache=load_enrichment_cache())
         return GEOCODER.punt(postcode)
     except Exception as exc:  # noqa: BLE001
         return None, f"interne fout ({type(exc).__name__})"
@@ -188,7 +184,7 @@ def osrm_route_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float |
         f"{lon1},{lat1};{lon2},{lat2}?overview=false"
     )
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": _eerlijke_ua() or USER_AGENT_TERUGVAL})
+        req = urllib.request.Request(url, headers={"User-Agent": EERLIJKE_UA})
         with urllib.request.urlopen(req, timeout=4) as r:
             data = json.loads(r.read())
         if data.get("code") == "Ok" and data.get("routes"):
@@ -484,20 +480,6 @@ def sorteer_rijen(rijen: list[dict]) -> list[dict]:
 
 # === Rente en verrijking: fail-soft ===
 
-def _eerlijke_ua() -> str | None:
-    """EERLIJKE_UA uit funda_zoek. Draait funda_zoek.py als script, dan staat die in __main__;
-    zo wordt dat script niet nog een keer als module geladen."""
-    for naam in ("funda_zoek", "__main__"):
-        ua = getattr(sys.modules.get(naam), "EERLIJKE_UA", None)
-        if isinstance(ua, str) and ua:
-            return ua
-    try:
-        from funda_zoek import EERLIJKE_UA  # noqa: PLC0415
-        return EERLIJKE_UA
-    except Exception:  # noqa: BLE001
-        return None
-
-
 def haal_rente(cfg: dict, cache: dict, vandaag, http=None, ua: str | None = None) -> dict:
     """De rente voor de beoordeling en de UI: {"pct", "bron", "datum", "oud", "melding", "rentevast_jaren"}.
 
@@ -588,7 +570,7 @@ def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None,
     nieuw_ids = nieuw_ids or set()
     nu = _nu()
     vandaag = vandaag or nu.date()
-    ua = ua or _eerlijke_ua()
+    ua = ua or EERLIJKE_UA
     werk_coords = get_werk_coords()
     cache = load_enrichment_cache()
     # De geocoding (zoek- en werkpostcode) sprak api.pdok.nl al aan: zijn weigering en robots.txt in

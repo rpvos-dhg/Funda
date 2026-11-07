@@ -734,13 +734,56 @@ def test_vorm() -> bool:
 
 
 def test_ua() -> bool:
-    print("User-agent komt uit funda_zoek")
+    print("User-agent: één constante in funda_verrijking, door funda_zoek en funda_rapport hergebruikt")
+    import funda_rapport
+    import funda_sitemap_zoek
     import funda_zoek
-    ok = check("EERLIJKE_UA wordt hergebruikt", v._eerlijke_ua() == funda_zoek.EERLIJKE_UA)
+    ok = check("de waarde zelf (met repo-link)", v.EERLIJKE_UA == UA)
+    ok &= check("funda_zoek exporteert dezelfde constante als EERLIJKE_UA", funda_zoek.EERLIJKE_UA is v.EERLIJKE_UA)
+    ok &= check("funda_rapport gebruikt dezelfde constante", funda_rapport.EERLIJKE_UA is v.EERLIJKE_UA)
+    ok &= check("robots.txt: de naam voor de '/'", v.ROBOTS_AGENT == "funda-dagelijkse-check")
+    ok &= check("niet voor www.funda.nl: daar het vaste Safari-profiel",
+                funda_sitemap_zoek.UA != v.EERLIJKE_UA and "Safari" in funda_sitemap_zoek.UA)
+    # Geen tweede kopie van de waarde in de code (tests mogen hem vastpinnen, zoals UA hierboven).
+    code = sorted(HIER.glob("funda_*.py")) + sorted((HIER / "scripts").glob("*.py"))
+    kopie = [p.name for p in code if p.name != "funda_verrijking.py"
+             and "funda-dagelijkse-check/" in p.read_text(encoding="utf-8")]
+    ok &= check("de waarde staat alleen in funda_verrijking.py", not kopie, str(kopie))
     web = NepWeb(woningen()[:1])
     v.verrijk(woningen()[:1], {}, cfg(), VANDAAG, http=web, log=STIL)
     ok &= check("zonder ua-parameter: EERLIJKE_UA in de header",
-                {h.get("User-Agent") for h in web.headers} == {funda_zoek.EERLIJKE_UA})
+                {h.get("User-Agent") for h in web.headers} == {v.EERLIJKE_UA})
+    return ok
+
+
+def test_een_bron() -> bool:
+    print("Eén bron: verrijkingsstandaard hier, klassen en drempels uit funda_beoordeling")
+    import funda_beoordeling as fb
+    ok = check("funda_beoordeling.STANDAARD heeft geen eigen verrijkingsblok", "verrijking" not in fb.STANDAARD)
+    ok &= check("laad_config zonder override: geen verrijkingsblok", "verrijking" not in fb.laad_config({}))
+    # De productieroute: funda_rapport geeft laad_config() door aan verrijk() en dus aan instellingen().
+    ok &= check("standaard uit funda_verrijking.STANDAARD", v.instellingen(fb.laad_config({}))[0] == v.STANDAARD)
+    eigen = {"beoordeling": {"verrijking": {"max_calls_per_run": 7, "bronnen": {"geluid": False}},
+                             "drempels": {"geluid_rustig_lden": 45}}}
+    vcfg, dr = v.instellingen(fb.laad_config(eigen))
+    ok &= check("override beoordeling.verrijking werkt (via laad_config)",
+                vcfg["max_calls_per_run"] == 7 and vcfg["bronnen"]["geluid"] is False
+                and vcfg["bronnen"]["bag"] is True and vcfg["timeout_s"] == v.STANDAARD["timeout_s"]
+                and vcfg["bewaar_dagen"] == v.STANDAARD["bewaar_dagen"], str(vcfg))
+    ok &= check("override werkt ook op de hele persoonlijke config", v.instellingen(eigen)[0] == vcfg)
+    ok &= check("override drempels werkt", dr["geluid_rustig_lden"] == 45)
+    ok &= check("standaard ongewijzigd na een override", v.STANDAARD["max_calls_per_run"] == 60
+                and v.STANDAARD["bronnen"]["geluid"] is True)
+    ok &= check("LBM_KLASSE en FUND_KLASSE zijn die van funda_beoordeling",
+                v.LBM_KLASSE is fb.LBM_KLASSE and v.FUND_KLASSE is fb.FUND_KLASSE)
+    ok &= check("klassen van de Klimaateffectatlas zijn precies FUND_KLASSE, van laag naar hoog",
+                all([k for _, k in grenzen] == list(fb.FUND_KLASSE) for grenzen in v.KEA_KLASSEN.values()))
+    ok &= check("drempels van de verrijking komen uit funda_beoordeling.STANDAARD",
+                v.DREMPELS == {k: fb.STANDAARD["drempels"][k] for k in v.DREMPEL_SLEUTELS}
+                and v.instellingen({})[1] == v.DREMPELS)
+    bron = (HIER / "funda_verrijking.py").read_text(encoding="utf-8")
+    ok &= check("geen eigen kopie van de klassen in funda_verrijking.py",
+                "LBM_KLASSE = " not in bron and "FUND_KLASSE = " not in bron)
     return ok
 
 
@@ -1004,7 +1047,7 @@ def test_geocode_gedeelde_stand() -> bool:
 def main() -> int:
     resultaten = [test_parsers(), test_gray_index(), test_volledige_run(), test_bron_faalt(), test_weigering(),
                   test_fout_opnieuw(), test_allowlist(), test_budget(), test_uit(), test_signalen(), test_robots(), test_robots_een_dag(),
-                  test_log(), test_bag_matching(), test_vorm(), test_ua(), test_doorverwijzing(), test_geocode(), test_geocode_gedeelde_stand()]
+                  test_log(), test_bag_matching(), test_vorm(), test_ua(), test_een_bron(), test_doorverwijzing(), test_geocode(), test_geocode_gedeelde_stand()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")
