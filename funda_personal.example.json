@@ -8,11 +8,11 @@
   "werk_postcodes": [
     [
       "1012AB",
-      "huidig"
+      "A"
     ],
     [
       "1013CD",
-      "vanaf jaar X"
+      "B"
     ]
   ],
   "prijs_min": 230000,
@@ -95,19 +95,22 @@
   "financien": {
     "alleenstaand": true,
     "starter_tot": null,
-    "planning": "2027_01",
+    "planning": "later",
     "scenarios": {
       "nu": {
         "bruto_jaar": 48000,
         "label": "Nu"
       },
-      "2027_01": {
+      "later": {
         "bruto_jaar": 50000,
-        "label": "Vanaf jan 2027"
+        "datum": "2027-07-01",
+        "label": "Later"
       },
-      "2027_01_met_cao": {
+      "later_extra": {
         "bruto_jaar": 53000,
-        "label": "Met cao-verhoging"
+        "datum": "2027-07-01",
+        "label": "Met bonus",
+        "voorwaardelijk": true
       }
     },
     "studieschuld": {
@@ -131,5 +134,5 @@
       "bron": "auto"
     }
   },
-  "_doc_financien": "Persoonlijke cijfers voor de leentoets 2026, alleen in funda_personal.json en de secret, nooit in de repo. scenarios: toetsinkomen per moment (nu, 2027_01 = vanaf 1 januari 2027, ..._met_cao); de poort volgt planning (standaard 2027_01). Per scenario mag ook datum en eigen_geld. eigen_geld op een scenariodatum = nu + per_maand x hele maanden sinds datum, min buffer. starter_tot: datum tot wanneer de startersvrijstelling geldt (leeg = leeftijd onder 35). bkr: [{limiet, opgezegd}] of [{maandlast}]. kosten_koper.nhg_pct in procent. rente.pct leeg = actuele rente ophalen (ASN, anders DNB; bron auto, asn, dnb of uit); een getal gaat altijd voor (zet dan ook rente.datum). rente.rentevast_jaren (standaard 10) kiest het tarief en bepaalt de toetsrente (korter dan 10 jaar: 5%); dit is de enige plek voor rente en rentevast. Zonder dit blok rekent het model met bruto_jaar, eigen_inleg, duo_maandlast en leeftijd hierboven, zonder scenario's."
+  "_doc_financien": "Persoonlijke cijfers voor de leentoets 2026, alleen in funda_personal.json en de secret, nooit in de repo. scenarios: toetsinkomen (bruto_jaar) per moment, met eigen id en label; de poort volgt planning (standaard het eerste scenario na nu op datum). Per scenario mag ook datum (anders uit een id JJJJ_MM, of vandaag), eigen_geld en voorwaardelijk: true (nog onzeker; tekst 'Past alleen ' + label, en geen standaardplanning zolang er een gewoon scenario is). Tekst per woning: 'Past ' + label met een kleine eerste letter. eigen_geld op een scenariodatum = nu + per_maand x hele maanden sinds datum, min buffer. starter_tot: datum tot wanneer de startersvrijstelling geldt (leeg = leeftijd onder 35). bkr: [{limiet, opgezegd}] of [{maandlast}]. kosten_koper.nhg_pct in procent. rente.pct leeg = actuele rente ophalen (ASN, anders DNB; bron auto, asn, dnb of uit); een getal gaat altijd voor (zet dan ook rente.datum). rente.rentevast_jaren (standaard 10) kiest het tarief en bepaalt de toetsrente (korter dan 10 jaar: 5%); dit is de enige plek voor rente en rentevast. Zonder dit blok rekent het model met bruto_jaar, eigen_inleg, duo_maandlast en leeftijd hierboven, zonder scenario's."
 }

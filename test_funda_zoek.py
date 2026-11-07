@@ -351,8 +351,10 @@ def test_rapport_testdata() -> bool:
     td = json.loads((Path(__file__).parent / "testdata" / "woningen.json").read_text(encoding="utf-8"))
     profiel = dict(td["meta"]["profiel"])   # fictief
     profiel["beoordeling"] = {"max_woonlasten_netto": 1450, "verrijking": {"pauze_s": 0}}
-    profiel["financien"] = {"planning": "2027_01",
-                            "scenarios": {"nu": 62000, "2027_01": 64000, "2027_01_met_cao": 68000},
+    profiel["financien"] = {"planning": "later",
+                            "scenarios": {"nu": 62000, "later": {"bruto_jaar": 64000, "datum": "2027-07-01"},
+                                          "later_extra": {"bruto_jaar": 68000, "datum": "2027-07-01",
+                                                          "label": "Met bonus", "voorwaardelijk": True}},
                             "eigen_geld": {"nu": 7000, "datum": "2026-11-01", "per_maand": 300}}
     titels = [w["listing"]["title"] for w in td["woningen"]]
     postcodes = [w["listing"]["postcode"] for w in td["woningen"]] + [w["postcode"] for w in td["meta"]["werk"]]
@@ -435,7 +437,7 @@ def test_rapport_testdata() -> bool:
             ok &= check("verzoeken alleen via de meegegeven http", bool(verzoeken)
                         and all(u.startswith("https://") and "funda" not in u for u in verzoeken))
             ok &= check("rente: standaardwaarde met melding", 'id="rente-melding"' in body and "dagen oud" in body)
-            ok &= check("scenario's zichtbaar (fictief)", "Vanaf jan 2027" in body and "(planning)" in body)
+            ok &= check("scenario's zichtbaar (fictief)", "Later (planning)" in body and "Met bonus" in body)
             ok &= check("WOZ met peildatum uit het ISO-tijdstip van de prijshistorie", "(peildatum 1 januari 2026)" in body
                         and "jan, 2026)" not in body)
             md = (tmp / "funda_rapport.md").read_text(encoding="utf-8")

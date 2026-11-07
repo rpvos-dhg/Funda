@@ -86,16 +86,29 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   alleen in het versleutelde rapport. Vangnet in het script: elk deel met een
   €-teken valt weg, ook bij een oude samenvatting met `status`.
 - **Config.** `beoordeling` (grens `max_woonlasten_netto`, `krap_marge`,
-  gewichten, harde eisen, `verrijking`) en `financien` (scenario's `nu`,
-  `2027_01`, `2027_01_met_cao` met toetsinkomen, eigen geld, studieschuld, BKR,
-  kosten koper, rente) in `funda_personal.json` en de secret
-  `FUNDA_PERSONAL_JSON`. Alles optioneel; de standaard staat in de code
-  (`funda_beoordeling.STANDAARD`). Voorbeeld met fictieve waarden in
-  `funda_personal.example.json`. De poort volgt het planningsscenario (standaard
-  `2027_01`); per woning staat erbij of hij past nu, vanaf jan 2027 of alleen
-  met cao. Zonder `financien` rekent het model met `bruto_jaar`, `eigen_inleg`,
-  `duo_maandlast` en `leeftijd`, zonder scenario's. Inkomen komt nooit in het
-  rapport, de log of de pushmelding.
+  gewichten, harde eisen, `verrijking`) en `financien` (scenario's met
+  toetsinkomen, eigen geld, studieschuld, BKR, kosten koper, rente) in
+  `funda_personal.json` en de secret `FUNDA_PERSONAL_JSON`. Alles optioneel; de
+  standaard staat in de code (`funda_beoordeling.STANDAARD`). Voorbeeld met
+  fictieve waarden in `funda_personal.example.json`. Zonder `financien` rekent
+  het model met `bruto_jaar`, `eigen_inleg`, `duo_maandlast` en `leeftijd`,
+  zonder scenario's. Inkomen komt nooit in het rapport, de log of de pushmelding.
+  **Scenario's zonder eigen namen in de code** (opruimronde nov 2026). De echte
+  id's en labels staan alleen in de secret; code, tests, fixtures en de
+  voorbeeldconfig gebruiken fictieve (`nu`, `later`, `later_extra`; werk A en
+  B). `test_funda_beoordeling.py::test_geen_scenarionamen` weigert de oude
+  namen in elk bijgehouden bestand buiten `docs/`, ook als datum of
+  uitgeschreven maand (met een eigen controle op die patronen). De logica kent geen id's
+  behalve `nu`: scenario's staan op datum (`datum`, anders uit een id
+  `JJJJ_MM`, anders vandaag), op dezelfde datum een voorwaardelijk scenario
+  (`"voorwaardelijk": true`) na het gewone. De poort volgt `planning`; zonder
+  geldige planning het eerste scenario na `nu` op datum (een voorwaardelijk
+  alleen als er geen ander is), of het enige. Per woning: "Past " + label met
+  een kleine eerste letter ("Past nu", "Past later"), bij een voorwaardelijk
+  scenario "Past alleen " + label, anders "Past in geen scenario". Zonder label:
+  "Nu", "Vanaf <maand jaar>" (plus wat er in het id na `JJJJ_MM` staat) of het
+  id. Ontbreekt de vlag, dan is het voorwaardelijke scenario stil een gewoon
+  scenario ("Past " + label); zet hem dus in de secret.
   **Welke sleutels gelden (sinds 7 nov 2026 alleen deze; de secret gebruikt ze
   ook):**
   - `beoordeling`: `score_basis`, `m2_wens`, `max_woonlaag_zonder_lift`,
@@ -105,8 +118,8 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
     `gewichten`, `drempels`, `verrijking`. `lang_op_funda_dagen` mag ook op het
     hoogste niveau (die leest `funda_zoek` ook).
   - `financien`: `alleenstaand`, `starter_tot`, `planning`, `scenarios` (per id
-    `bruto_jaar`, `label`, optioneel `datum` en `eigen_geld`; een kaal getal mag
-    ook), `studieschuld.maandlast`, `bkr` (`[{limiet, opgezegd}]` of
+    `bruto_jaar`, `label`, optioneel `datum`, `eigen_geld` en `voorwaardelijk`;
+    een kaal getal mag ook), `studieschuld.maandlast`, `bkr` (`[{limiet, opgezegd}]` of
     `[{maandlast}]`), `eigen_geld` (`nu`, `datum`, `per_maand`, `buffer`),
     `kosten_koper` (`vast`, `nhg_pct`) en `rente` (`pct`, `datum`,
     `rentevast_jaren`, `bron`, `nhg`, `ltv`, `max_dagen`).
@@ -878,7 +891,9 @@ python funda_zoek.py --no-open  # zonder browser
 - `python scripts/funda_html_validatie.py` - controleert diezelfde parser tegen
   de échte funda.nl. Dit is de test die afgaat als funda hun HTML verandert.
 - `python test_funda_beoordeling.py` - het model: leentoets 2026 (tabel 1,
-  labelbedragen, alleenstaandenbedrag, studieschuld, BKR), scenario's, poort- en
+  labelbedragen, alleenstaandenbedrag, studieschuld, BKR), scenario's (volgorde,
+  standaardplanning, `voorwaardelijk`, labels, en geen eigen scenarionamen in de
+  repo: `test_geen_scenarionamen`), poort- en
   statusregels (ook "precies op je grens", nooit "€ 0"), harde eisen, score en
   begrenzing, parsers (52 zinnen), sortering, contract, oude configsleutels (niet
   gelezen, wel genoemd door `oude_sleutels()`), golden file

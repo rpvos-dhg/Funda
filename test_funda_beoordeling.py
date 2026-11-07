@@ -82,8 +82,8 @@ FINANCIEN_FICTIEF = {
     "starter_tot": "2030-01-01",
     "scenarios": {
         "nu": {"bruto_jaar": 52000, "label": "Nu"},
-        "2027_01": {"bruto_jaar": 56000, "label": "Vanaf jan 2027"},
-        "2027_01_met_cao": {"bruto_jaar": 61000, "label": "Met cao-verhoging"},
+        "later": {"bruto_jaar": 56000, "datum": "2027-07-01", "label": "Later"},
+        "later_extra": {"bruto_jaar": 61000, "datum": "2027-07-01", "label": "Met bonus", "voorwaardelijk": True},
     },
     "studieschuld": {"maandlast": 40},
     "bkr": [{"limiet": 1000, "opgezegd": True}],
@@ -256,15 +256,15 @@ def test_scenarios() -> bool:
     cfg = fb.laad_config({"leeftijd": 30, "beoordeling": {"max_woonlasten_netto": 1600}, "financien": FINANCIEN_FICTIEF})
     rente = {"pct": 4.2, "bron": "handmatig", "datum": "2026-11-01", "oud": False, "melding": None}
     inv = fb.financien_invoer(cfg, {"leeftijd": 30}, VANDAAG)
-    ok &= check("planning standaard 2027_01", inv["planning"] == "2027_01")
-    ok &= check("scenario's op datum, cao na de basis", [s["id"] for s in inv["scenarios"]] == ["nu", "2027_01", "2027_01_met_cao"])
+    ok &= check("planning standaard: het eerste scenario na nu op datum", inv["planning"] == "later")
+    ok &= check("scenario's op datum, voorwaardelijk na het gewone", [s["id"] for s in inv["scenarios"]] == ["nu", "later", "later_extra"])
     eg = {s["id"]: fb._eigen_geld_op(inv, s) for s in inv["scenarios"]}
-    ok &= check("eigen geld groeit per maand tot de scenariodatum", eg == {"nu": 10000, "2027_01": 10600, "2027_01_met_cao": 10600}, str(eg))
+    ok &= check("eigen geld groeit per maand tot de scenariodatum", eg == {"nu": 10000, "later": 12400, "later_extra": 12400}, str(eg))
     ok &= check("opgezegde BKR-limiet telt niet", inv["bkr_maand"] == 0)
 
     overzicht = fb.scenario_overzicht(cfg, {"leeftijd": 30}, rente, VANDAAG)
     mh = {s["id"]: s["max_hypotheek"] for s in overzicht}
-    ok &= check("max. hypotheek stijgt met het inkomen", mh["nu"] < mh["2027_01"] < mh["2027_01_met_cao"], str(mh))
+    ok &= check("max. hypotheek stijgt met het inkomen", mh["nu"] < mh["later"] < mh["later_extra"], str(mh))
     verwacht_nu = fb.max_hypotheek(52000, 0.042, 10, None, 0, 40, 0, True)
     ok &= check("scenario nu = leentoets met studieschuld en alleenstaand", mh["nu"] == verwacht_nu, f"{mh['nu']} {verwacht_nu}")
     mk_nu = next(s["max_koopsom"] for s in overzicht if s["id"] == "nu")
@@ -277,9 +277,9 @@ def test_scenarios() -> bool:
     mk = {s["id"]: s["max_koopsom"] for s in overzicht}
     gevallen = [
         (mk["nu"] - 6000, "Past nu"),
-        ((mk["nu"] + mk["2027_01"]) // 2 + 4000, "Past vanaf jan 2027"),
-        ((mk["2027_01"] + mk["2027_01_met_cao"]) // 2 + 6000, "Alleen met cao-verhoging"),
-        (mk["2027_01_met_cao"] + 30000, "Past in geen scenario"),
+        ((mk["nu"] + mk["later"]) // 2 + 4000, "Past later"),
+        ((mk["later"] + mk["later_extra"]) // 2 + 6000, "Past alleen met bonus"),
+        (mk["later_extra"] + 30000, "Past in geen scenario"),
     ]
     for prijs, tekst in gevallen:
         f = fin_voor(prijs)
@@ -287,10 +287,10 @@ def test_scenarios() -> bool:
     f = fin_voor(gevallen[1][0])
     ok &= check("scenario's in het contract: id, label, max_hypotheek, max_koopsom, past",
                 all(set(s) == {"id", "label", "max_hypotheek", "max_koopsom", "past"} for s in f["scenarios"])
-                and [s["id"] for s in f["scenarios"]] == ["nu", "2027_01", "2027_01_met_cao"]
+                and [s["id"] for s in f["scenarios"]] == ["nu", "later", "later_extra"]
                 and all(isinstance(s["past"], bool) for s in f["scenarios"]))
-    ok &= check("planning in de financiering", f["planning"] == "2027_01")
-    plan = next(s for s in f["scenarios"] if s["id"] == "2027_01")
+    ok &= check("planning in de financiering", f["planning"] == "later")
+    plan = next(s for s in f["scenarios"] if s["id"] == "later")
     ok &= check("de poort volgt het planningsscenario", f["max_hypotheek"] == plan["max_hypotheek"] and plan["past"]
                 and f["poort"] in ("PAST", "KRAP"), f"{f['poort']} {f['max_hypotheek']}")
     cfg_nu = fb.laad_config({"leeftijd": 30, "beoordeling": {"max_woonlasten_netto": 1600},
@@ -318,9 +318,9 @@ def test_scenarios() -> bool:
     # sleutels). Ze vallen dus terug op de standaard, en oude_sleutels() noemt ze (alleen namen) voor een waarschuwing.
     alias = {
         "alleenstaand": True, "startersvrijstelling_tot": "2030-01-01",
-        "toetsinkomen": {"nu": 52000, "2027_01": 56000, "2027_01_met_cao": 61000},
+        "toetsinkomen": {"nu": 52000, "later": 56000, "later_extra": 61000},
         "verplichtingen_maand": {"duo": 40}, "bkr_limieten": 0,
-        "eigen_geld": {"nu": 10000, "per_maand": 300, "datum": "2026-11-06", "2027_01": 20000}, "buffer": 1500,
+        "eigen_geld": {"nu": 10000, "per_maand": 300, "datum": "2026-11-06", "later": 20000}, "buffer": 1500,
         "kosten_koper": {"vast": 5000, "nhg_pct": 0.4},
         "rente": {"handmatig": 4.2, "datum": "2026-11-01", "rentevast_jaar": 10},
     }
@@ -355,13 +355,123 @@ def test_scenarios() -> bool:
                 and fb.oude_sleutels(json.loads((HIER / "funda_personal.example.json").read_text(encoding="utf-8"))) == []
                 and fb.oude_sleutels(None) == [])
     per_sc = dict(FINANCIEN_FICTIEF, scenarios=dict(FINANCIEN_FICTIEF["scenarios"],
-                                                    **{"2027_01": {"bruto_jaar": 56000, "eigen_geld": 20000}}))
+                                                    **{"later": {"bruto_jaar": 56000, "datum": "2027-07-01",
+                                                                 "eigen_geld": 20000}}))
     inv2 = fb.financien_invoer(fb.laad_config({"financien": per_sc}), {}, VANDAAG)
     ok &= check("vaste waarde eigen geld per scenario (scenarios.<id>.eigen_geld) gaat voor",
-                {s["id"]: fb._eigen_geld_op(inv2, s) for s in inv2["scenarios"]}["2027_01"] == 20000)
+                {s["id"]: fb._eigen_geld_op(inv2, s) for s in inv2["scenarios"]}["later"] == 20000)
     bkr_open = fb.financien_invoer(fb.laad_config({"financien": dict(FINANCIEN_FICTIEF, bkr=[{"limiet": 2500}])}), {}, VANDAAG)
     ok &= check("niet opgezegde limiet: 2% per maand", bkr_open["bkr_maand"] == 50)
     return ok
+
+
+def test_scenario_regels() -> bool:
+    """Geen scenario-id of -naam in de logica: volgorde op datum, de vlag voorwaardelijk, label of id."""
+    print("test: scenarioregels (volgorde, standaardplanning, voorwaardelijk, labels)")
+    ok = True
+    rente = {"pct": 4.2, "bron": "handmatig", "datum": "2026-11-01", "oud": False, "melding": None}
+
+    def inv(scenarios, **extra):
+        return fb.financien_invoer(fb.laad_config({"financien": dict(FINANCIEN_FICTIEF, scenarios=scenarios, **extra)}),
+                                   {}, VANDAAG)
+
+    sc = FINANCIEN_FICTIEF["scenarios"]
+    omgekeerd = inv({"nu": sc["nu"], "later_extra": sc["later_extra"], "later": sc["later"]})
+    ok &= check("voorwaardelijk op dezelfde datum na het gewone, ook als het eerst staat",
+                [s["id"] for s in omgekeerd["scenarios"]] == ["nu", "later", "later_extra"] and omgekeerd["planning"] == "later",
+                str([s["id"] for s in omgekeerd["scenarios"]]))
+    vroeg = inv({"nu": sc["nu"], "eerder_extra": dict(sc["later_extra"], datum="2027-03-01"), "later": sc["later"]})
+    ok &= check("standaardplanning slaat een eerder voorwaardelijk scenario over", vroeg["planning"] == "later"
+                and [s["id"] for s in vroeg["scenarios"]] == ["nu", "eerder_extra", "later"])
+    ok &= check("alleen nu en een voorwaardelijk scenario: dat wordt de planning",
+                inv({"nu": sc["nu"], "later_extra": sc["later_extra"]})["planning"] == "later_extra")
+    ok &= check("alleen nu: nu is de planning (het enige)", inv({"nu": sc["nu"]})["planning"] == "nu")
+    ok &= check("zonder nu: het eerste op datum", inv({"b": dict(sc["later"], datum="2027-09-01"),
+                                                      "a": sc["later"]})["planning"] == "a")
+    ok &= check("een ingestelde planning gaat voor, ook een voorwaardelijke",
+                inv(sc, planning="later_extra")["planning"] == "later_extra" and inv(sc, planning="nu")["planning"] == "nu")
+    ok &= check("onbekende planning: de standaard", inv(sc, planning="bestaat_niet")["planning"] == "later")
+    ok &= check("voorwaardelijk alleen bij true", [s["voorwaardelijk"] for s in inv(
+        {"nu": sc["nu"], "x": dict(sc["later"], voorwaardelijk="ja"), "y": dict(sc["later"], voorwaardelijk=True)})["scenarios"]]
+        == [False, False, True])
+
+    ok &= check("label zonder config: nu, JJJJ_MM, met rest, ander id",
+                [fb._scenario_label(i) for i in ("nu", "2028_03", "2028_03_extra", "later_extra", "2028_13")]
+                == ["Nu", "Vanaf mrt 2028", "Vanaf mrt 2028 extra", "Later extra", "2028 13"])
+    ok &= check("datum uit een id JJJJ_MM, anders vandaag", fb._scenario_datum("2028_03_extra", date(2026, 11, 6))
+                == date(2028, 3, 1) and fb._scenario_datum("later", date(2026, 11, 6)) == date(2026, 11, 6))
+
+    def tekst(scenarios, prijs_factor):
+        cfg = fb.laad_config({"beoordeling": {"max_woonlasten_netto": 1600},
+                              "financien": dict(FINANCIEN_FICTIEF, scenarios=scenarios)})
+        mk = {s["id"]: s["max_koopsom"] for s in fb.scenario_overzicht(cfg, {}, rente, VANDAAG)}
+        prijs = prijs_factor(mk)
+        return fb.financiering(_fin_woning(prijs), cfg, {}, rente, VANDAAG)["scenario_tekst"]
+
+    tussen = lambda mk: (mk["later"] + mk["later_extra"]) // 2 + 6000   # noqa: E731
+    ok &= check("zonder vlag is het een gewoon scenario: Past + label",
+                tekst(dict(sc, later_extra={k: v for k, v in sc["later_extra"].items() if k != "voorwaardelijk"}), tussen)
+                == "Past met bonus")
+    ok &= check("tekst volgt het label, ook bij nu", tekst(dict(sc, nu=dict(sc["nu"], label="Vandaag")),
+                                                          lambda mk: mk["nu"] - 6000) == "Past vandaag")
+    kaal = {"nu": 52000, "2028_03": {"bruto_jaar": 56000}, "2028_03_extra": {"bruto_jaar": 61000, "voorwaardelijk": True}}
+    ok &= check("zonder labels: tekst uit het id",
+                tekst(kaal, lambda mk: (mk["nu"] + mk["2028_03"]) // 2 + 4000) == "Past vanaf mrt 2028"
+                and tekst(kaal, lambda mk: (mk["2028_03"] + mk["2028_03_extra"]) // 2 + 6000)
+                == "Past alleen vanaf mrt 2028 extra")
+    return ok
+
+
+def test_geen_scenarionamen() -> bool:
+    """Eigen scenarionamen staan alleen in de secret, niet in de publieke repo (CLAUDE.md, "Config").
+
+    Niet alleen het id, ook dezelfde maand in een andere vorm: als datum (jaar-maand of dag-maand-jaar, met
+    streepje, liggend streepje, schuine streep of punt), uitgeschreven (kort, met punt, voluit, Engels) of als
+    date(...)-aanroep. De woorden zelf staan hier in stukken of achter regex-tekens, anders weigert de test
+    zichzelf. docs/ (alleen de bot schrijft er, versleuteld) en de git-historie vallen erbuiten; niet
+    bijgehouden bestanden ook (funda_personal.json)."""
+    print("test: geen eigen scenarionamen in code, tests, fixtures en voorbeeldconfig")
+    patronen = [re.compile(p, re.IGNORECASE) for p in (
+        r"(?<![a-z])ca" + r"o(?![a-z])",
+        r"collectieve\s+arbeidsovereenkomst",
+        r"(?<!\d)2027[-_/.]0?1(?!\d)",
+        r"(?<!\d)0?1[-_/.]2027(?!\d)",
+        r"(?<![a-z])jan(?:uari|uary)?\.?\s*2027",
+        r"(?<!\d)2027\s*,\s*0?1(?!\d)",
+    )]
+    raak = lambda s: any(p.search(s) for p in patronen)  # noqa: E731
+    # Controle op de patronen zelf: varianten die geweigerd moeten worden, en fictieve waarden die mogen.
+    geweigerd = ["Met CA" + "O-verhoging", "x_2027" + "_01_y", "vanaf Jan" + " 2027", "vanaf janu" + "ari 2027",
+                 "januar" + "y 2027", "jan." + " 2027", '"datum": "2027' + '-01-01"', "per 01-" + "2027",
+                 "1-1-" + "2027", "date(2027" + ", 1, 1)", "2027/" + "1"]
+    toegestaan = ["2027-07-01", "2027-03-01", "2027-09-01", "2027-10-01", "2027-11-30", "11-2027", "21-2027",
+                  "{2026: 555_000, 2027: 615_000}", "later_extra", "Met bonus", "cacao", "jaarwissel op 1 januari"]
+    try:
+        uit = subprocess.run(["git", "ls-files", "-z"], cwd=HIER, capture_output=True, check=True)
+        bestanden = [HIER / n for n in uit.stdout.decode("utf-8").split("\0") if n]
+    except (OSError, subprocess.CalledProcessError):
+        # Geen git (bijv. een uitgepakte zip): de vaste plekken van code, tests en fixtures.
+        bestanden = [f for patroon in ("*.py", "*.md", "funda_personal.example.json", "requirements.txt", "scripts/*",
+                                       "ui/*", "data/*", "testdata/**/*", ".github/workflows/*", ".interface-design/*")
+                     for f in HIER.glob(patroon) if f.name not in ("funda_rapport.md",)]
+    treffers = []
+    for f in bestanden:
+        rel = f.relative_to(HIER).as_posix()
+        if rel.startswith("docs/") or not f.is_file():
+            continue
+        tekst = f.read_bytes().decode("utf-8", errors="ignore")
+        treffers += [f"{rel}: {p.pattern}" for p in patronen if p.search(tekst)]
+    namen = {f.relative_to(HIER).as_posix() for f in bestanden}
+    return all([
+        check("patronen weigeren de varianten", all(raak(s) for s in geweigerd),
+              "; ".join(s for s in geweigerd if not raak(s))),
+        check("patronen laten fictieve waarden staan", not any(raak(s) for s in toegestaan),
+              "; ".join(s for s in toegestaan if raak(s))),
+        check("bestanden gevonden (code, tests, fixtures, voorbeeldconfig)",
+              {"funda_beoordeling.py", "test_funda_beoordeling.py", "funda_personal.example.json",
+               "testdata/woningen.json"} <= namen, str(len(namen))),
+        check("geen eigen scenarionamen", not treffers, "; ".join(treffers[:8])),
+    ])
 
 
 def test_rente() -> bool:
@@ -1061,7 +1171,8 @@ def main() -> int:
     if "--schrijf-verwacht" in sys.argv:
         schrijf_verwacht()
         return 0
-    resultaten = [test_leentoets(), test_kosten_koper_en_koopsom(), test_scenarios(), test_rente(), test_poort(),
+    resultaten = [test_leentoets(), test_kosten_koper_en_koopsom(), test_scenarios(), test_scenario_regels(),
+                  test_geen_scenarionamen(), test_rente(), test_poort(),
                   test_harde_eisen(), test_score(), test_parsers(), test_erfpacht_fixronde(), test_erfpacht_ontkenning(), test_sortering(), test_contract(),
                   test_geen_bevolkingskenmerken(), test_verrijking_vormen(), test_rommelige_invoer(), test_fixture_verwachting(),
                   test_log_kenmerk_labels(), test_kansen_en_info(), test_import_zonder_personal()]

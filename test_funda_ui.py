@@ -249,7 +249,7 @@ def test_contract_testdata() -> bool:
         if set(f) != fin_velden:
             fouten.append(f"{r['id']} financiering {set(f) ^ fin_velden}")
         for s in f["scenarios"]:
-            if set(s) != scen_velden or s["id"] not in ("nu", "2027_01", "2027_01_met_cao") or not isinstance(s["past"], bool):
+            if set(s) != scen_velden or s["id"] not in ("nu", "later", "later_extra") or not isinstance(s["past"], bool):
                 fouten.append(f"{r['id']} scenario {s}")
         planning = next((s for s in f["scenarios"] if s["id"] == f["planning"]), None)
         if planning and planning["past"] != (b["poort"] != "PAST NIET"):
@@ -261,7 +261,7 @@ def test_contract_testdata() -> bool:
         check("13 rijen", len(bv["rijen"]) == 13, str(len(bv["rijen"]))),
         check("velden volgens het contract", not fouten, "; ".join(fouten[:5])),
         check("scenario_tekst in vier soorten", {r["beoordeling"]["financiering"]["scenario_tekst"] for r in bv["rijen"]}
-              == {"Past nu", "Past vanaf jan 2027", "Alleen met cao-verhoging", "Past in geen scenario", None}),
+              == {"Past nu", "Past later", "Past alleen met bonus", "Past in geen scenario", None}),
         check("geen em dash of gedachtestreepje", "—" not in tekst and "–" not in tekst),
         check("geen bevolkingskenmerken", not any(w in tekst.lower() for w in BEVOLKING)),
         check("rente in meta", set(bv["meta"]["rente"]) == {"pct", "bron", "datum", "oud", "melding"}),
@@ -345,11 +345,11 @@ def test_status_en_scenario_in_kaart() -> bool:
     w10 = _kaart(body, "7990110")
     return all([
         check("statusregel, scenario, klasse en icoon per kaart", not fouten, str(fouten)),
-        check("scenario met label: Financiering: past vanaf jan 2027 bij w01", "Financiering: past vanaf jan 2027" in w01),
-        check("Financiering: alleen met cao-verhoging bij w02", "Financiering: alleen met cao-verhoging" in w02),
+        check("scenario met label: Financiering: past later bij w01", "Financiering: past later" in w01),
+        check("Financiering: past alleen met bonus bij w02", "Financiering: past alleen met bonus" in w02),
         check("scenario_regel", funda_ui.scenario_regel("Past nu") == "Financiering: past nu"
               and funda_ui.scenario_regel(None) == ""),
-        check("scenario's in laag 2 met planning", "Vanaf jan 2027 (planning)</dt><dd>past" in w01
+        check("scenario's in laag 2 met planning", "Later (planning)</dt><dd>past" in w01
               and "<dt>Nu</dt><dd>past niet, max. koopsom" in w01),
         check("twijfelregel met Onderaan gezet", "Twijfelbuurt Leyenburg (jouw lijst). Onderaan gezet." in w10),
         check("redenregel met minteken U+2212 in de punten", "−" in body and "-0,5" not in body),
@@ -499,9 +499,9 @@ def test_rente_en_budget() -> bool:
         check("ASN met datum", "ASN Bank, peildatum 5 november 2026" in vers and "3,86%" in vers),
         check("rente als fractie wordt procent", "3,86%" in fractie),
         check("kop zegt rente oud", "· rente 123 dagen oud" in oud),
-        check("max. koopsom per scenario", "<dt>Nu</dt>" in budget and "<dt>Vanaf jan 2027 (planning)</dt>" in budget
-              and "<dt>Vanaf jan 2027 met cao</dt>" in budget),
-        check("groepen volgen planning", "volgen het scenario &quot;Vanaf jan 2027&quot;" in budget),
+        check("max. koopsom per scenario", "<dt>Nu</dt>" in budget and "<dt>Later (planning)</dt>" in budget
+              and "<dt>Met bonus</dt>" in budget),
+        check("groepen volgen planning", "volgen het scenario &quot;Later&quot;" in budget),
         check("geen inkomen in de body", "inkomen" not in oud.lower() and "62.000" not in oud),
         check("scenario's uit meta gaan voor", "<dd>€\u00a0250.000</dd>" in _body(
             {"scenarios": [{"id": "nu", "label": "Nu", "max_koopsom": 250000}]})),

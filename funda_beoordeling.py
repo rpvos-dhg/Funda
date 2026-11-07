@@ -86,8 +86,10 @@ voor de scenario's uit financien.scenarios, met het energielabel en de erfpachtc
 woning. past = tekort aan eigen geld (na buffer) hooguit kk_onzekerheid; de woonlasten tellen
 daar niet in mee, die bepalen de poort. Leeg zonder financien-blok en bij Prijs onbekend.
 financiering["planning"]: id van het planningsscenario (de poort volgt dat scenario), of None.
-financiering["scenario_tekst"]: "Past nu", "Past vanaf jan 2027", "Alleen met cao-verhoging"
-of "Past in geen scenario"; nooit een inkomensbedrag. None zonder scenario's.
+financiering["scenario_tekst"]: "Past " + het label van het eerste scenario (op datum) waarin de
+woning past, met een kleine eerste letter ("Past nu", "Past later"); bij een voorwaardelijk
+scenario "Past alleen " + het label ("Past alleen met bonus"); anders "Past in geen
+scenario". Nooit een inkomensbedrag. None zonder scenario's.
 
 Config
 ======
@@ -116,14 +118,20 @@ alleen in de secret, nooit in de repo):
     "financien": {
       "alleenstaand": true,
       "starter_tot": "JJJJ-MM-DD",       startersvrijstelling tot deze datum; leeg = leeftijd < 35
-      "planning": "2027_01",             scenario voor de poort; standaard 2027_01, anders het eerste
+      "planning": "later",               scenario voor de poort; standaard het eerste na "nu" op
+                                         datum (een voorwaardelijk alleen als er geen ander is)
       "scenarios": {
-        "nu":              {"bruto_jaar": 0, "label": "Nu"},
-        "2027_01":         {"bruto_jaar": 0, "label": "Vanaf jan 2027"},
-        "2027_01_met_cao": {"bruto_jaar": 0, "label": "Met cao-verhoging"}
+        "nu":          {"bruto_jaar": 0, "label": "Nu"},
+        "later":       {"bruto_jaar": 0, "datum": "JJJJ-MM-DD", "label": "Later"},
+        "later_extra": {"bruto_jaar": 0, "datum": "JJJJ-MM-DD", "label": "Met bonus",
+                        "voorwaardelijk": true}
       },                                 bruto_jaar = toetsinkomen; een kaal getal mag ook.
-                                         Optioneel per scenario: "datum" (anders uit de id:
-                                         2027_01 = 1 januari 2027, nu = vandaag) en "eigen_geld".
+                                         Optioneel per scenario: "datum" (anders uit het id:
+                                         JJJJ_MM = de eerste van die maand, anders vandaag),
+                                         "eigen_geld" en "voorwaardelijk" (true = nog onzeker:
+                                         tekst "Past alleen ...", op dezelfde datum na het
+                                         gewone scenario).
+                                         Zonder label: "Nu", "Vanaf <maand jaar>" of het id.
       "studieschuld": {"maandlast": 0},  werkelijke maandlast DUO
       "bkr": [{"limiet": 0, "opgezegd": true}],   doorlopend krediet; aflopend: {"maandlast": 0}
       "eigen_geld": {"nu": 0, "datum": "JJJJ-MM-DD", "per_maand": 0, "buffer": 0},
@@ -605,13 +613,32 @@ def _scenario_datum(sid: str, vandaag: date) -> date:
 
 
 def _scenario_label(sid: str) -> str:
+    """Label als de config er geen geeft: "nu" wordt "Nu", een id JJJJ_MM wordt "Vanaf <maand jaar>"
+    (wat erna in het id staat komt er met spaties achter), anders het id met spaties.
+
+    De rest van het id blijft bewust staan: zonder die rest krijgen twee scenario's in dezelfde maand
+    (een gewoon en een voorwaardelijk) hetzelfde label, ook in de budgettabel van het rapport. Het is
+    tekst uit de config, geen naam in de code."""
     if sid == "nu":
         return "Nu"
-    m = re.match(r"^(\d{4})[_-](\d{1,2})", sid)
+    m = re.match(r"^(\d{4})[_-](\d{1,2})(?:[_-](.*))?$", sid)
     if m and 1 <= int(m.group(2)) <= 12:
         tekst = f"Vanaf {_MAANDEN_KORT[int(m.group(2)) - 1]} {m.group(1)}"
-        return tekst + (" met cao" if "cao" in sid else "")
-    return sid.replace("_", " ")
+        return tekst + (" " + m.group(3).replace("_", " ") if m.group(3) else "")
+    tekst = sid.replace("_", " ")
+    return tekst[:1].upper() + tekst[1:]
+
+
+def _standaard_planning(lijst: list[dict]) -> str:
+    """Zonder (geldige) planning: het eerste scenario na "nu" op datum, of het enige.
+
+    Een voorwaardelijk scenario alleen als er geen gewoon scenario na "nu" is: de poort rust niet op een
+    onzeker scenario zolang er een zeker is (zo deed de vaste standaard het ook: het gewone scenario, niet
+    het voorwaardelijke). Het verschil met "het eerste op datum" telt alleen als het voorwaardelijke eerder
+    valt. lijst staat al op datum."""
+    na_nu = [s for s in lijst if s["id"] != "nu"]
+    gewoon = [s for s in na_nu if not s.get("voorwaardelijk")]
+    return (gewoon or na_nu or lijst)[0]["id"]
 
 
 def _maanden_tussen(a: date, b: date) -> int:
@@ -632,7 +659,8 @@ def financien_invoer(cfg: dict, profiel: dict | None, vandaag=None) -> dict:
             "starter_tot": _datum(f_cfg.get("starter_tot")),
             "leeftijd": leeftijd,
             "scenarios": [{"id": "profiel", "label": "Profiel", "bruto_jaar": float(profiel.get("bruto_jaar") or 0),
-                           "datum": vandaag, "eigen_geld": float(profiel.get("eigen_inleg") or 0)}],
+                           "datum": vandaag, "eigen_geld": float(profiel.get("eigen_inleg") or 0),
+                           "voorwaardelijk": False}],
             "planning": "profiel",
             "studieschuld_maand": float(profiel.get("duo_maandlast") or 0),
             "bkr_maand": 0.0,
@@ -663,17 +691,16 @@ def financien_invoer(cfg: dict, profiel: dict | None, vandaag=None) -> dict:
         lijst.append({"id": sid, "label": str(v.get("label") or _scenario_label(sid)),
                       "bruto_jaar": float(ink), "datum": max(datum, vandaag),
                       "eigen_geld": float(v["eigen_geld"]) if v.get("eigen_geld") is not None else None,
-                      "_cao": "cao" in sid})
-    lijst.sort(key=lambda s: (s["datum"], s["_cao"]))
-    for s in lijst:
-        s.pop("_cao", None)
+                      "voorwaardelijk": v.get("voorwaardelijk") is True})
+    # Op datum; op dezelfde datum een voorwaardelijk scenario na het gewone (sort is stabiel).
+    lijst.sort(key=lambda s: (s["datum"], s["voorwaardelijk"]))
     if not lijst:
         lijst = [{"id": "profiel", "label": "Profiel", "bruto_jaar": float(profiel.get("bruto_jaar") or 0),
-                  "datum": vandaag, "eigen_geld": None}]
+                  "datum": vandaag, "eigen_geld": None, "voorwaardelijk": False}]
     ids = [s["id"] for s in lijst]
     planning = raw.get("planning")
     if planning not in ids:
-        planning = "2027_01" if "2027_01" in ids else ids[0]
+        planning = _standaard_planning(lijst)
 
     # verplichtingen
     st = raw.get("studieschuld")
@@ -770,16 +797,14 @@ def scenario_overzicht(cfg: dict, profiel: dict | None, rente: dict | None = Non
 
 
 def _scenario_tekst(scenarios: list[dict]) -> str:
-    """Korte zin zonder bedragen: het eerste scenario (op datum) waarin de woning past."""
-    eerste_cao = next((s["id"] for s in scenarios if "cao" in s["id"]), None)
+    """Korte zin zonder bedragen: het eerste scenario (op datum) waarin de woning past.
+
+    "Past " + het label met een kleine eerste letter ("Past nu"); bij een voorwaardelijk scenario
+    "Past alleen " + het label. Past hij nergens: "Past in geen scenario"."""
     for s in scenarios:
         if s["past"]:
-            if s["id"] == "nu":
-                return "Past nu"
-            if s["id"] == eerste_cao:
-                return "Alleen met cao-verhoging"
-            lab = s["label"]
-            return "Past " + (lab[:1].lower() + lab[1:] if lab else s["id"])
+            lab = s["label"] or s["id"]
+            return ("Past alleen " if s.get("_voorwaardelijk") else "Past ") + lab[:1].lower() + lab[1:]
     return "Past in geen scenario"
 
 
@@ -834,7 +859,8 @@ def financiering(woning: dict, cfg: dict, profiel: dict | None, rente: dict | No
         tekort = int(round(kk + koop - hyp - r["eigen_geld"]))
         rij = {"id": s["id"], "label": s["label"], "max_hypotheek": max_hyp, "max_koopsom": r["max_koopsom"],
                "past": tekort <= f["kk_onzekerheid"],
-               "_hyp": hyp, "_kk": kk, "_kk_soort": kk_soort, "_tekort": tekort, "_bruto_jaar": s["bruto_jaar"]}
+               "_hyp": hyp, "_kk": kk, "_kk_soort": kk_soort, "_tekort": tekort, "_bruto_jaar": s["bruto_jaar"],
+               "_voorwaardelijk": s["voorwaardelijk"]}
         scenarios.append(rij)
         if s["id"] == inv["planning"]:
             plan = rij
@@ -884,7 +910,7 @@ def financiering(woning: dict, cfg: dict, profiel: dict | None, rente: dict | No
         "rente": frac, "rente_datum": rente.get("datum"), "rente_bron": rente.get("bron"),
         "rentevast_jaren": rentevast,
         "scenarios": uit_sc, "planning": planning,
-        "scenario_tekst": _scenario_tekst(uit_sc) if uit_sc else None,
+        "scenario_tekst": _scenario_tekst(scenarios) if met_scenarios else None,
         "poort": status, "redenen": redenen,
     }
 
