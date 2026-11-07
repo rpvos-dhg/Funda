@@ -1,5 +1,5 @@
-// Funda PWA service worker
-const CACHE = 'funda-shortlist-v4';
+// Woningrapport: service worker (network-first, cache als terugval)
+const CACHE = 'funda-shortlist-v5';
 const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png'];
 self.addEventListener('install', e => {
   self.skipWaiting();
@@ -26,11 +26,11 @@ self.addEventListener('fetch', e => {
 self.addEventListener('push', e => {
   let data = {};
   try { data = e.data ? e.data.json() : {}; } catch(_) {
-    data = { title: 'Nieuwe Funda woningen', body: e.data ? e.data.text() : '' };
+    data = { title: 'Nieuwe woningen', body: e.data ? e.data.text() : '' };
   }
-  const title = data.title || 'Nieuwe Funda woningen';
+  const title = data.title || 'Nieuwe woningen';
   const options = {
-    body: data.body || 'Open de shortlist voor de nieuwste matches.',
+    body: data.body || 'Open het rapport voor de nieuwste woningen.',
     icon: 'icon-512.png',
     badge: 'apple-touch-icon.png',
     data: { url: data.url || './' },
