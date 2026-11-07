@@ -13,7 +13,8 @@ Volgorde, de eerste die lukt:
 3. DNB: het maandcijfer "rente op nieuwe hypotheken" naar rentevastklasse. De eigen
    DNB-API vraagt een abonnementssleutel; hetzelfde DNB-cijfer staat open in het ECB
    Data Portal (dataset MIR, Nederland, bron NL2 = DNB). Eén CSV-verzoek, vier klassen.
-4. standaard: 4,11% (laagste NHG 30 jaar vast, 6 juli 2026, uit de audit), met melding.
+4. standaard: funda_beoordeling.STANDAARD_RENTE (één bron; nu 4,11%, laagste NHG 30 jaar vast,
+   6 juli 2026, uit de audit), met melding.
 
 Hooguit één poging per dag (cache-sectie "rente" in funda_enrichment_cache.json). Een
 ASN-blad of DNB-cijfer van een eerdere dag blijft bruikbaar; de nieuwste datum wint.
@@ -34,6 +35,7 @@ import re
 import time
 from datetime import date
 
+from funda_beoordeling import STANDAARD_RENTE
 from funda_verrijking import BronFout, GeenBudget, Sessie, _datum
 
 ASN_ARCHIEF = "https://www.asnbank.nl/hypotheek/hypotheekrentes/hypotheekrente-archief.html"
@@ -44,8 +46,6 @@ ECB_MIR_NL = ("https://data-api.ecb.europa.eu/service/data/MIR/M.NL.B.A2C.F+I+O+
 DNB_KLASSEN = (("F", 1, "tot 1 jaar"), ("I", 5, "1 tot 5 jaar"), ("O", 10, "5 tot 10 jaar"),
                ("P", 99, "langer dan 10 jaar"))
 
-STANDAARD_PCT = 4.11
-STANDAARD_DATUM = "2026-07-06"
 OUD_NA_DAGEN = 30
 MAANDEN = {"januari": 1, "februari": 2, "maart": 3, "april": 4, "mei": 5, "juni": 6, "juli": 7, "augustus": 8,
            "september": 9, "oktober": 10, "november": 11, "december": 12}
@@ -58,12 +58,9 @@ STANDAARD = {"pct": None, "datum": None, "rentevast_jaren": 10, "nhg": True, "lt
 
 
 def instellingen(cfg: dict | None) -> dict:
-    """financien.rente uit de config, aangevuld met de standaard."""
-    cfg = cfg or {}
-    fin = cfg.get("financien")
-    if not isinstance(fin, dict) and isinstance(cfg.get("beoordeling"), dict):
-        fin = cfg["beoordeling"].get("financien")
-    r = (fin or {}).get("rente") if isinstance(fin, dict) else None
+    """financien.rente uit de config (de enige plek), aangevuld met de standaard."""
+    fin = (cfg or {}).get("financien")
+    r = fin.get("rente") if isinstance(fin, dict) else None
     uit = dict(STANDAARD)
     if isinstance(r, dict):
         uit.update({k: r[k] for k in STANDAARD if k in r})
@@ -324,9 +321,10 @@ def huidige_rente(cfg: dict | None, cache: dict, vandaag, http=None, ua: str | N
         uit = _uitkomst(pct, naam, datum, dag, max_dagen, list(meldingen))
     else:
         redenen = "; ".join(f"{k.upper()}: {v}" for k, v in sorted(fouten.items()))
-        uit = _uitkomst(STANDAARD_PCT, "standaard", STANDAARD_DATUM, dag, max_dagen,
+        pct, datum = STANDAARD_RENTE["pct"], STANDAARD_RENTE["datum"]
+        uit = _uitkomst(pct, "standaard", datum, dag, max_dagen,
                         [f"Geen actuele rente gevonden{' (' + redenen + ')' if redenen else ''}. "
-                         f"Gerekend met {_nl(STANDAARD_PCT)}% van {datum_nl(STANDAARD_DATUM)}; "
+                         f"Gerekend met {_nl(pct)}% van {datum_nl(datum)}; "
                          "zet financien.rente.pct in je config."])
     log(f"[rente] bron {uit['bron']}, {_nl(uit['pct'])}%, peildatum {uit['datum']}" + (", oud" if uit["oud"] else ""))
     return uit

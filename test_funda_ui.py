@@ -113,8 +113,7 @@ def testrijen() -> tuple[list[dict], dict]:
     for w in td["woningen"]:
         d = copy.deepcopy(w["listing"])
         hist = w.get("price_history") if isinstance(w.get("price_history"), list) else []   # w04: foutobject
-        wozen = [p for p in hist if p.get("status") == "woz"]
-        d["_enrichment"] = {"price_history": {"latest_woz": wozen[0] if wozen else None}}
+        d["_enrichment"] = {"price_history": {"changes": hist}}
         lat, lon = d.get("latitude"), d.get("longitude")
         routes = ([{"postcode": x["postcode"], "label": x["label"], "soort": "weg",
                     "km": round(_haversine(lat, lon, x["lat"], x["lon"]) * factor, 2)} for x in werk] if lat else [])
@@ -300,25 +299,28 @@ def test_ids_en_attributen() -> bool:
 
 
 def test_statusregels() -> bool:
-    print("statusregel per poort")
-    sr = funda_ui.status_tekst
+    """De statusregel komt uit funda_beoordeling.status_kort() (daar getest); de UI rekent hem niet zelf uit."""
+    print("statusregel uit de beoordeling, niet zelf berekend")
+
+    def status(beoordeling, prijs=250000):
+        body = funda_ui.render_report_body([{"d": {"global_id": 1, "price": prijs, "title": "Teststraat 1"},
+                                             "beoordeling": beoordeling}], {})
+        return re.search(r'<strong>[^<]*</strong>[^<]*', _kaart(body, "1")).group(0)
+
+    # Een fin die met de oude eigen regel in de UI een andere tekst gaf: de UI volgt het model.
+    b = {"poort": "KRAP", "status_kort": "Krap · € 3.200 eigen geld te weinig",
+         "financiering": {"netto": 1474, "grens": 1450, "tekort": 3200}}
     return all([
-        check("Past", sr("PAST", {"netto": 1254, "grens": 1450, "tekort": -20}) == "Past · € 196 onder je grens"),
-        check("Krap boven je grens", sr("KRAP", {"netto": 1474, "grens": 1450, "tekort": 8}) == "Krap · € 24 boven je grens"),
-        check("Krap eigen geld", sr("KRAP", {"netto": 1400, "grens": 1450, "tekort": 3200}) == "Krap · € 3.200 eigen geld te weinig"),
-        check("Krap eigen geld binnen de marge = grens", sr("KRAP", {"netto": 1474, "grens": 1450, "tekort": 1500})
-              == "Krap · € 24 boven je grens"),
-        check("Past niet eigen geld", sr("PAST NIET", {"netto": 1476, "grens": 1450, "tekort": 16565})
-              == "Past niet · € 16.565 eigen geld te weinig"),
-        check("Past niet boven je grens", sr("PAST NIET", {"netto": 1614, "grens": 1450, "tekort": -60})
-              == "Past niet · € 164 boven je grens"),
-        check("Prijs onbekend", sr("PRIJS ONBEKEND", {}) == "Prijs onbekend · geen vraagprijs, dus geen leentoets"),
-        check("precies op de grens: geen '€ 0'", sr("PAST", {"netto": 1450, "grens": 1450, "tekort": 0})
-              == "Past · precies op je grens"),
-        check("bruto norm", sr("KRAP", {"netto": 1300, "bruto": 1750, "grens": 1705, "tekort": 0, "grens_soort": "bruto norm"})
-              == "Krap · € 45 boven de norm (bruto)"),
-        check("drempels uit meta", funda_ui.status_reden("KRAP", {"netto": 1400, "grens": 1450, "tekort": 1200},
-                                                         {"kk_onzekerheid": 1000}) == "€ 1.200 eigen geld te weinig"),
+        check("status_kort uit de beoordeling, letterlijk", status(b) == "<strong>Krap</strong> · €\u00a03.200 eigen geld te weinig",
+              status(b)),
+        check("beoordeling zonder status_kort: alleen het poortwoord", status({"poort": "PAST"}) == "<strong>Past</strong>",
+              status({"poort": "PAST"})),
+        check("zonder beoordeling: ga het zelf na", status(None) == "<strong>Krap</strong> · geen beoordeling, ga het zelf na"
+              and status(None, prijs=None) == "<strong>Prijs onbekend</strong> · geen beoordeling, ga het zelf na",
+              status(None) + " / " + status(None, prijs=None)),
+        check("geen eigen statusberekening meer in funda_ui",
+              not any(hasattr(funda_ui, n) for n in ("status_reden", "status_tekst", "TEKORT_PAST_NIET"))
+              and "eigen_geld_tekort_past_niet" not in Path(funda_ui.__file__).read_text(encoding="utf-8")),
     ])
 
 
@@ -515,7 +517,13 @@ def test_meta_en_randgevallen() -> bool:
     push = _body({"push_beschikbaar": True})
     push_al = _body({"push_beschikbaar": True, "push_ingesteld": True})
     kaal = funda_ui.render_report_body([{"d": {"global_id": 1, "title": "Kale woning", "price": 250000}}], {})
+    # FICTIEF: twee WOZ-regels, de oudste eerst. Kaart en model tonen allebei de nieuwste (prijshistorie()).
+    wozen = [{"price": 230000, "status": "woz", "date": "1 jan, 2025"}, {"price": 240000, "status": "woz", "date": "1 jan, 2026"}]
+    met_woz = funda_ui.render_report_body([{"d": {"global_id": 2, "title": "Woning met WOZ", "price": 250000,
+                                                  "_enrichment": {"price_history": {"changes": wozen}}}}], {})
     return all([
+        check("WOZ in de kaart: de nieuwste, met peildatum", "€\u00a0240.000 (peildatum 1 januari 2026)" in met_woz
+              and "230.000" not in met_woz),
         check("lege lijst rendert", '<div id="app"' in leeg and _woning_data(leeg) == {"woningen": []}),
         check("zonder meta: geen runknop, wel lijst", "Nieuwe run starten" not in zonder and zonder.count("<article") == 13),
         check("met actions_url een runknop", "Nieuwe run starten" in _body()),
@@ -650,8 +658,7 @@ def test_fixronde_ui() -> bool:
         check("WOZ-peildatum lang geschreven", "(peildatum 1 januari 2026)" in body and "jan, 2026" not in body),
         check("euroteken met harde spatie in de HTML (de JSON-data rendert app.js via esc())",
               "€ " not in body.split('id="woning-data"')[0] and "€\u00a0" in body),
-        check("eur_tekst houdt een gewone spatie (statusregel, markdown, push)", funda_ui.eur_tekst(1250) == "€ 1.250"
-              and funda_ui.status_tekst("PAST", {"netto": 1254, "grens": 1450, "tekort": 0}) == "Past · € 196 onder je grens"),
+        check("eur_tekst houdt een gewone spatie (markdown, push)", funda_ui.eur_tekst(1250) == "€ 1.250"),
         check("eur_vast is weg (eur heeft al een harde spatie)", not hasattr(funda_ui, "eur_vast")),
         check("scorebalk: −0,5 en −0,5 (afgerond) even breed, half naar boven",
               len(balk) == 3 and balk[1] == balk[2] == "3" and balk[0] == "3", str(balk)),

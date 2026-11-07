@@ -28,12 +28,11 @@ import time
 from typing import Any, Callable, Iterable
 from urllib.parse import quote
 
-ZOEK_URL = "https://www.funda.nl/zoeken/koop"
+# Eén vast profiel en één user-agent voor www.funda.nl, uit één bron: dezelfde als de sitemapzoeker.
+# Geeft funda een 403 of een bot-controle, dan faalt de run luid; er wordt nooit een ander profiel geprobeerd.
+from funda_sitemap_zoek import IMPERSONATE, UA
 
-UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
-    "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
-)
+ZOEK_URL = "https://www.funda.nl/zoeken/koop"
 
 # Vue/Nuxt rendert elke woningkaart in een container met deze klasse.
 KAART_SPLITS = '<div class="@container'
@@ -234,7 +233,7 @@ class HtmlZoeker:
         if self._sessie is None:
             from curl_cffi import requests as curl_requests  # lokaal: alleen hier nodig
 
-            self._sessie = curl_requests.Session(impersonate="safari15_5")
+            self._sessie = curl_requests.Session(impersonate=IMPERSONATE)
         resp = self._sessie.get(
             url,
             headers={"user-agent": UA, "accept-language": "nl-NL,nl;q=0.9"},

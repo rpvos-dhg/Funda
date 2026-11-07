@@ -314,24 +314,50 @@ def test_scenarios() -> bool:
     ok &= check("zonder financien: lege lijst, planning None", zonder["scenarios"] == [] and zonder["planning"] is None
                 and zonder["scenario_tekst"] is None and zonder["max_hypotheek"] > 0)
 
-    # Aliassen (zoals de eigenaar zijn cijfers bijhoudt) geven hetzelfde als de gedocumenteerde vorm.
+    # Oude aliassen worden niet meer gelezen (besluit nov 2026: de secret gebruikt alleen de gedocumenteerde
+    # sleutels). Ze vallen dus terug op de standaard, en oude_sleutels() noemt ze (alleen namen) voor een waarschuwing.
     alias = {
         "alleenstaand": True, "startersvrijstelling_tot": "2030-01-01",
         "toetsinkomen": {"nu": 52000, "2027_01": 56000, "2027_01_met_cao": 61000},
         "verplichtingen_maand": {"duo": 40}, "bkr_limieten": 0,
-        "eigen_geld": {"nu": 10000, "per_maand": 300, "datum": "2026-11-06"}, "buffer": 1500,
+        "eigen_geld": {"nu": 10000, "per_maand": 300, "datum": "2026-11-06", "2027_01": 20000}, "buffer": 1500,
         "kosten_koper": {"vast": 5000, "nhg_pct": 0.4},
         "rente": {"handmatig": 4.2, "datum": "2026-11-01", "rentevast_jaar": 10},
     }
-    cfg_alias = fb.laad_config({"leeftijd": 30, "financien": alias})
-    a1 = [(s["id"], s["max_hypotheek"], s["max_koopsom"]) for s in fb.scenario_overzicht(cfg_alias, {}, rente, VANDAAG)]
-    a2 = [(s["id"], s["max_hypotheek"], s["max_koopsom"]) for s in overzicht]
-    ok &= check("aliassen (toetsinkomen, verplichtingen_maand, buffer, ...) geven hetzelfde", a1 == a2, f"{a1} {a2}")
-    ok &= check("rente uit financien.rente (handmatig)", fb.rente_uit_config(cfg_alias, VANDAAG)["pct"] == 4.2
-                and fb.rente_uit_config(cfg_alias, VANDAAG)["bron"] == "handmatig")
-    vast = dict(alias, eigen_geld={"nu": 10000, "2027_01": 20000})
-    inv2 = fb.financien_invoer(fb.laad_config({"financien": vast}), {}, VANDAAG)
-    ok &= check("vaste waarde eigen geld per scenario gaat voor",
+    cfg_alias = fb.laad_config({"leeftijd": 30, "bruto_jaar": 1, "financien": alias})
+    inv_alias = fb.financien_invoer(cfg_alias, {"leeftijd": 30, "bruto_jaar": 1}, VANDAAG)
+    ok &= check("aliassen niet meer gelezen: geen scenario's uit toetsinkomen, geen buffer of duo uit oude plekken",
+                [s["id"] for s in inv_alias["scenarios"]] == ["profiel"] and inv_alias["buffer"] == 0
+                and inv_alias["studieschuld_maand"] == 0 and inv_alias["starter_tot"] is None, str(inv_alias["scenarios"]))
+    ok &= check("rente.handmatig niet meer gelezen: standaardrente", fb.rente_uit_config(cfg_alias, VANDAAG)["bron"] == "standaard")
+    oud = fb.oude_sleutels({"financien": dict(alias, scenarios={"nu": {"toetsinkomen": 1}}),
+                            "beoordeling": {"financien": {}, "financiering": {"max_woonlasten_netto": 1, "rente": 0.04,
+                                                                              "kk_onzekerheid": 1500}}})
+    ok &= check("oude_sleutels noemt elke oude sleutel, met naam en zonder waarde",
+                sorted(oud) == sorted(["beoordeling.financien", "beoordeling.financiering.max_woonlasten_netto",
+                                       "beoordeling.financiering.rente", "financien.toetsinkomen",
+                                       "financien.startersvrijstelling_tot", "financien.verplichtingen_maand",
+                                       "financien.bkr_limieten", "financien.buffer", "financien.rente.handmatig",
+                                       "financien.rente.rentevast_jaar", "financien.eigen_geld.<scenario>",
+                                       "financien.scenarios.<scenario>.toetsinkomen"]), str(oud))
+    # FICTIEF: zelfgekozen scenario-id's komen nooit in de uitvoer (die staat in de publieke Actions-log),
+    # en elk pad staat er hooguit een keer, hoeveel scenario's er ook zijn.
+    eigen_ids = ("scenario_testid_a", "scenario_testid_b")
+    oud_ids = fb.oude_sleutels({"financien": {"scenarios": {i: {"toetsinkomen": 1} for i in eigen_ids},
+                                              "eigen_geld": dict({i: 5 for i in eigen_ids}, nu=1, _uitleg="x")}})
+    ok &= check("oude_sleutels: geen zelfgekozen scenario-id, elk pad een keer",
+                oud_ids == ["financien.eigen_geld.<scenario>", "financien.scenarios.<scenario>.toetsinkomen"]
+                and not any(i in "".join(oud_ids) for i in eigen_ids), str(oud_ids))
+    ok &= check("de gedocumenteerde vorm geeft geen waarschuwing",
+                fb.oude_sleutels({"leeftijd": 30, "financien": FINANCIEN_FICTIEF,
+                                  "beoordeling": {"max_woonlasten_netto": 1450, "krap_marge": 150,
+                                                  "financiering": {"alleenstaand": True, "kk_onzekerheid": 1500}}}) == []
+                and fb.oude_sleutels(json.loads((HIER / "funda_personal.example.json").read_text(encoding="utf-8"))) == []
+                and fb.oude_sleutels(None) == [])
+    per_sc = dict(FINANCIEN_FICTIEF, scenarios=dict(FINANCIEN_FICTIEF["scenarios"],
+                                                    **{"2027_01": {"bruto_jaar": 56000, "eigen_geld": 20000}}))
+    inv2 = fb.financien_invoer(fb.laad_config({"financien": per_sc}), {}, VANDAAG)
+    ok &= check("vaste waarde eigen geld per scenario (scenarios.<id>.eigen_geld) gaat voor",
                 {s["id"]: fb._eigen_geld_op(inv2, s) for s in inv2["scenarios"]}["2027_01"] == 20000)
     bkr_open = fb.financien_invoer(fb.laad_config({"financien": dict(FINANCIEN_FICTIEF, bkr=[{"limiet": 2500}])}), {}, VANDAAG)
     ok &= check("niet opgezegde limiet: 2% per maand", bkr_open["bkr_maand"] == 50)
@@ -355,10 +381,18 @@ def test_rente() -> bool:
     ok &= check("rente-parameter gaat voor (pct in procenten)", f2["rente"] == 0.0425 and f2["rente_datum"] == "2026-11-05"
                 and f2["rente_bron"] == "ASN")
     ok &= check("hogere rente: hogere bruto maandlast", f2["opbouw"]["bruto_hyp"] > f1["opbouw"]["bruto_hyp"])
-    cfg_h = fb.laad_config(dict(p, beoordeling={"financiering": {"rente": 0.039, "rente_datum": "2026-10-30"}}))
+    cfg_h = fb.laad_config(dict(p, financien={"rente": {"pct": 0.039, "datum": "2026-10-30"}}))
     rh = fb.rente_uit_config(cfg_h, VANDAAG)
-    ok &= check("handmatige rente in beoordeling.financiering (fractie)", rh["pct"] == 3.9 and rh["bron"] == "handmatig"
+    ok &= check("handmatige rente in financien.rente (fractie)", rh["pct"] == 3.9 and rh["bron"] == "handmatig"
                 and rh["oud"] is False and rh["melding"] is None)
+    cfg_oud = fb.laad_config(dict(p, beoordeling={"financiering": {"rente": 0.039, "rente_datum": "2026-10-30",
+                                                                   "rentevast_jaren": 5}}))
+    ok &= check("oude plek beoordeling.financiering.rente niet meer gelezen", fb.rente_uit_config(cfg_oud, VANDAAG)["bron"]
+                == "standaard" and fb._rentevast(None, cfg_oud) == 30
+                and "rente" not in fb.laad_config({})["financiering"])
+    ok &= check("rentevast alleen uit financien.rente.rentevast_jaren",
+                fb._rentevast(None, fb.laad_config({"financien": {"rente": {"rentevast_jaren": 5}}})) == 5
+                and fb._rentevast(None, fb.laad_config({"financien": {"rente": {"rentevast_jaar": 5}}})) == 30)
     return ok
 
 
@@ -373,7 +407,10 @@ def test_poort() -> bool:
     cfg_m = fb.laad_config({"beoordeling": {"krap_marge": 50}})
     ok &= check("krap_marge instelbaar", fb.poort_financieel(0, 51, cfg_m) == "PAST NIET" and fb.poort_financieel(0, 50, cfg_m) == "KRAP")
     cfg_oud = fb.laad_config({"beoordeling": {"financiering": {"woonlasten_marge_past_niet": 80, "max_woonlasten_netto": 1300}}})
-    ok &= check("oude sleutels werken nog", cfg_oud["krap_marge"] == 80 and cfg_oud["max_woonlasten_netto"] == 1300)
+    ok &= check("oude plekken van grens en marge niet meer gelezen: de standaard",
+                cfg_oud["krap_marge"] == 150 and cfg_oud["max_woonlasten_netto"] is None)
+    ok &= check("beoordeling.financien niet meer gelezen", fb.laad_config({"beoordeling": {"financien": FINANCIEN_FICTIEF}})
+                ["financien"] is None)
 
     profiel = {"bruto_jaar": 62000, "eigen_inleg": 10000, "duo_maandlast": 0, "leeftijd": 30}
     for prijs in (None, 0):
@@ -630,7 +667,14 @@ def test_parsers() -> bool:
     ])
     ok &= check("piek uit een eerdere verkoopperiode telt niet", hist["hoogste"] == 275000, str(hist["hoogste"]))
     ok &= check("vraagprijzen op tijd gesorteerd", [v["prijs"] for v in hist["vraagprijzen"]] == [275000, 260000])
-    ok &= check("nieuwste WOZ met jaar", hist["woz"] == {"bedrag": 240000, "jaar": 2026})
+    ok &= check("nieuwste WOZ met jaar en datum", hist["woz"] == {"bedrag": 240000, "jaar": 2026, "datum": "2026-01-01"},
+                str(hist["woz"]))
+    regels = [{"price": 1, "status": "woz"}]
+    ok &= check("prijswijzigingen: changes, kale lijst, foutobject en niets",
+                fb.prijswijzigingen({"_enrichment": {"price_history": {"changes": regels}}}) == regels
+                and fb.prijswijzigingen({"_enrichment": {"price_history": regels}}) == regels
+                and fb.prijswijzigingen({"_enrichment": {"price_history": {"_error": "x"}}}) == []
+                and fb.prijswijzigingen({}) == [] and fb.prijswijzigingen(None) == [])
     return ok
 
 
