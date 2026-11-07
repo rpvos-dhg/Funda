@@ -1,0 +1,46 @@
+{
+ "_doc": "B2a: eenmalige meting van laag- en veldnamen, 7 nov 2026, vanaf een sandbox met de eerlijke user-agent. Gemeten op openbare plekken: het Plein (52.07945, 4.31330) en het stadhuis van Den Haag (BAG-adres van een kantoorgebouw). Nooit een woonadres. De bestanden hiernaast zijn ingekorte antwoorden; de PDOK-buurt heeft 244 velden, waarvan hier zes verboden velden met waarde -1 staan om de allowlist te testen.",
+ "robots": {
+  "api.pdok.nl": "200: Allow /, Disallow /bzk/locatieserver/*",
+  "data.rivm.nl": "404 (geen robots.txt)",
+  "cas.cloud.sogelink.com": "404 (geen robots.txt)",
+  "geo.leefbaarometer.nl": "200, leeg",
+  "dataderden.cbs.nl": "404 (geen robots.txt)"
+ },
+ "bronnen": {
+  "bag": {
+   "collecties": "adres, ligplaats, pand, standplaats, verblijfsobject, woonplaats",
+   "queryables_verblijfsobject": "gebruiksdoel, geometry, hoofdadres_identificatie, huisnummer, identificatie, openbare_ruimte_identificatie, openbare_ruimte_naam, oppervlakte, postcode, provincie_naam, status, woonplaats_identificatie, woonplaats_naam",
+   "queryables_pand": "aantal_verblijfsobjecten, bouwjaar, documentdatum, documentnummer, gebruiksdoel, geometry, identificatie, status",
+   "gebruikt": "verblijfsobject?bbox=<lon,lat rond het punt>&limit=200, lokaal filteren op postcode, huisnummer, huisletter + toevoeging; dan pand.href. Filteren op postcode en huisnummer in de API duurde 21 s en langer dan 30 s; de bbox 0,4 s.",
+   "velden": "verblijfsobject: postcode, huisnummer, huisletter, toevoeging, gebruiksdoel, pand.href; pand: bouwjaar, aantal_verblijfsobjecten, gebruiksdoel"
+  },
+  "fundering": {
+   "wms": "https://cas.cloud.sogelink.com/public/data/org/gws/YWFMLMWERURF/kea_public/wms",
+   "lagen": "risicoverschilzetting_2050hoog, risicopaalrot_2050hoog (ook _2050laag, _huidig)",
+   "velden": "sterke_c_1 (verschilzetting), sterke_c_2 (paalrot), plus buurtcode en buurtnaam (indeling van de kaart)",
+   "klassen": "uit GetLegendGraphic format=application/json, zie kea_legenda_*.json"
+  },
+  "geluid": {
+   "wms": "https://data.rivm.nl/geo/alo/wms",
+   "lagen": "rivm_20250101_Geluid_lden_wegverkeer_2022, rivm_20250101_Geluid_lnight_wegverkeer_2022, rivm_20250101_Geluid_lden_treinverkeer_2023, rivm_20250101_Geluid_lnight_treinverkeer_2023",
+   "velden": "GRAY_INDEX per laag, features zonder id in de volgorde van query_layers"
+  },
+  "buurtcode": {
+   "api": "https://api.pdok.nl/cbs/wijken-en-buurten-2024/ogc/v1/collections/buurten/items?bbox=...",
+   "let_op": "een bbox zonder oppervlak geeft 400 'bbox has no surface area'",
+   "velden": "buurtcode, buurtnaam, gemeentenaam (allowlist; het antwoord heeft 244 velden)"
+  },
+  "leefbaarometer": {
+   "wfs": "https://geo.leefbaarometer.nl/lbm3/ows, typeNames=lbm3:buurtscore24, propertyName zonder geometrie, cql_filter gemeente='''s-Gravenhage'",
+   "velden": "id (buurtcode), gemeente, year, lbm, afw, fys, onv, soc, vrz, won, kscore (ook kafw, kfys, konv, ksoc, kvrz, kwon)",
+   "aantal": "110 buurten voor 's-Gravenhage, 43 kB"
+  },
+  "tevredenheid": {
+   "api": "https://dataderden.cbs.nl/ODataApi/odata/50150NED/TypedDataSet",
+   "dimensies": "Leeftijd 20300 = 18 jaar of ouder; Marges MW00000 waarde, MOG0095 en MBG0095 de 95%-grenzen; Perioden 2024JJ00",
+   "velden": "TevredenMetDeWoonomgeving_57, TevredenMetDeWoning_56"
+  }
+ },
+ "verzoeken": "52 bij de meting (verrijking en rente samen) plus 1 controle met curl; daarna 21 bij de live-controle van de modules"
+}

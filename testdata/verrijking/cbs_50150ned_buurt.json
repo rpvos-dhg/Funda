@@ -1,0 +1,29 @@
+{
+ "odata.metadata": "https://dataderden.cbs.nl/ODataApi/OData/50150NED/$metadata#Cbs.OData.WebAPI.TypedDataSet&$select=Marges,WijkenEnBuurten,Perioden,Leeftijd,TevredenMetDeWoning_56,TevredenMetDeWoonomgeving_57",
+ "value": [
+  {
+   "Marges": "MW00000",
+   "WijkenEnBuurten": "BU05182812",
+   "Perioden": "2024JJ00",
+   "Leeftijd": "20300",
+   "TevredenMetDeWoning_56": 86.0,
+   "TevredenMetDeWoonomgeving_57": 87.1
+  },
+  {
+   "Marges": "MOG0095",
+   "WijkenEnBuurten": "BU05182812",
+   "Perioden": "2024JJ00",
+   "Leeftijd": "20300",
+   "TevredenMetDeWoning_56": 82.3,
+   "TevredenMetDeWoonomgeving_57": 83.8
+  },
+  {
+   "Marges": "MBG0095",
+   "WijkenEnBuurten": "BU05182812",
+   "Perioden": "2024JJ00",
+   "Leeftijd": "20300",
+   "TevredenMetDeWoning_56": 87.4,
+   "TevredenMetDeWoonomgeving_57": 91.6
+  }
+ ]
+}

@@ -1,0 +1,23 @@
+{
+ "odata.metadata": "https://dataderden.cbs.nl/ODataApi/OData/50150NED/$metadata#Cbs.OData.WebAPI.Leeftijd",
+ "value": [
+  {
+   "Key": "20300",
+   "Title": "18 jaar of ouder",
+   "Description": "",
+   "CategoryGroupID": null
+  },
+  {
+   "Key": "53115",
+   "Title": "18 tot 65 jaar",
+   "Description": "",
+   "CategoryGroupID": null
+  },
+  {
+   "Key": "80200",
+   "Title": "65 jaar of ouder",
+   "Description": "",
+   "CategoryGroupID": null
+  }
+ ]
+}

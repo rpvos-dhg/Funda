@@ -1,0 +1,41 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": "",
+   "geometry": null,
+   "properties": {
+    "GRAY_INDEX": 44
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "",
+   "geometry": null,
+   "properties": {
+    "GRAY_INDEX": 36
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "",
+   "geometry": null,
+   "properties": {
+    "GRAY_INDEX": 34
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "",
+   "geometry": null,
+   "properties": {
+    "GRAY_INDEX": 22
+   }
+  }
+ ],
+ "totalFeatures": "unknown",
+ "numberReturned": 4,
+ "timeStamp": "2026-11-07T00:17:12.688Z",
+ "crs": null
+}

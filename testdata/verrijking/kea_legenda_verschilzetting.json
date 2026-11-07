@@ -1,0 +1,30 @@
+{
+ "Legend": [
+  {
+   "layerName": "risicoverschilzetting_2050hoog",
+   "title": "risicoverschilzetting_2050hoog",
+   "rules": [
+    {
+     "name": "Zeer laag",
+     "filter": "[sterke_c_1 >= '0' AND sterke_c_1 <= '1']"
+    },
+    {
+     "name": "Laag",
+     "filter": "[sterke_c_1 > '1' AND sterke_c_1 <= '5']"
+    },
+    {
+     "name": "Matig",
+     "filter": "[sterke_c_1 > '5' AND sterke_c_1 <= '10']"
+    },
+    {
+     "name": "Hoog",
+     "filter": "[sterke_c_1 > '10' AND sterke_c_1 <= '25']"
+    },
+    {
+     "name": "Zeer hoog",
+     "filter": "[sterke_c_1 > '25' AND sterke_c_1 <= '98.46720707439999387']"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,54 @@
+{
+ "type": "Feature",
+ "properties": {
+  "aantal_verblijfsobjecten": 16,
+  "bouwjaar": 1995,
+  "documentdatum": "2010-12-20",
+  "documentnummer": "FV20101220-04",
+  "gebruiksdoel": "bijeenkomstfunctie,industriefunctie,kantoorfunctie,winkelfunctie",
+  "geconstateerd": "N",
+  "identificatie": "0518100000275247",
+  "rdf_seealso": "http://bag.basisregistraties.overheid.nl/bag/id/pand/0518100000275247",
+  "status": "Pand in gebruik",
+  "verblijfsobject.href": [
+   "https://api.pdok.nl/kadaster/bag/ogc/v2/collections/verblijfsobject/items/b91354b7-1d10-5314-a5cf-e4934c77bdb0",
+   "https://api.pdok.nl/kadaster/bag/ogc/v2/collections/verblijfsobject/items/33918d01-7c8e-5932-963a-36d3083da259"
+  ]
+ },
+ "geometry": {
+  "type": "Polygon",
+  "coordinates": [
+   [
+    [
+     4.317998620178186,
+     52.07785079040303
+    ],
+    [
+     4.317970407000338,
+     52.07787272753005
+    ],
+    [
+     4.31806496286258,
+     52.07790350901308
+    ],
+    [
+     4.31808121171128,
+     52.077890802582814
+    ],
+    [
+     4.318174011644664,
+     52.077935851121
+    ]
+   ]
+  ]
+ },
+ "id": "a04ea5fb-563d-5407-a667-a82899887d19",
+ "links": [
+  {
+   "rel": "self",
+   "title": "This document as GeoJSON",
+   "type": "application/geo+json",
+   "href": "https://api.pdok.nl/kadaster/bag/ogc/v2/collections/pand/items/a04ea5fb-563d-5407-a667-a82899887d19?f=json"
+  }
+ ]
+}
