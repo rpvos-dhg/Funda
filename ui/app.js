@@ -151,7 +151,9 @@ function toepassen(){
     bakken[doel].appendChild(kaartEl);
     var bw = $('.w-bewaar', kaartEl);
     bw.setAttribute('aria-pressed', opslag.bewaard.indexOf(w.id) >= 0 ? 'true' : 'false');
-    kaartEl.classList.toggle('is-verborgen', opslag.verborgen.indexOf(w.id) >= 0);
+    var vb = opslag.verborgen.indexOf(w.id) >= 0, vk = $('[data-actie="verberg"]', kaartEl);
+    kaartEl.classList.toggle('is-verborgen', vb);
+    if(vk){ vk.title = vb ? 'Zet terug' : 'Verberg'; vk.setAttribute('aria-label', (vb ? 'Zet terug: ' : 'Verberg ') + w.titel); }
   });
   // nieuw-sectie: blijft staan met een regel als hij leeg is (zonder filters)
   var nieuw = $('#nieuw');
@@ -245,6 +247,10 @@ function koppel(){
       var i = opslag.bewaard.indexOf(id);
       if(i >= 0) opslag.bewaard.splice(i, 1); else opslag.bewaard.push(id);
       schrijf(opslag); toepassen();
+    }
+    else if(el.matches('[data-actie="verberg"]') && opslag.verborgen.indexOf(id) >= 0){
+      opslag.verborgen.splice(opslag.verborgen.indexOf(id), 1); schrijf(opslag); toepassen();
+      toast('Teruggezet: ' + woningVan(id).titel + '.');
     }
     else if(el.matches('[data-actie="verberg"]')){
       var volgende = kaartEl.nextElementSibling;
