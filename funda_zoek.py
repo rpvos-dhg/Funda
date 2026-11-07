@@ -1485,11 +1485,19 @@ def main() -> None:
     zoek_ok = 0
     zoek_fout = 0
     zoek_fout_redenen: Counter[str] = Counter()
-    for band_nr, (band_min, band_max) in enumerate(banden, 1):
+    # Op Actions geen regel per prijsband: de grenzen komen uit het profiel, het
+    # aantal banden geeft (maal de bandstap) de breedte van het budget en de
+    # aantallen per band waar in die breedte het aanbod valt. Om dezelfde reden
+    # daar geen aantallen zoek-calls (banden maal sorteringen) en elke zoekfout
+    # één keer. Lokaal blijft alles staan, voor de diagnose.
+    publiek = publieke_log()
+
+    def aantal(n: int) -> str:
+        return "" if publiek else f" {n}"
+
+    for band_min, band_max in banden:
         band_n = 0
-        # Op Actions zonder bedragen: de prijsgrenzen komen uit het profiel.
-        band_label = (f"{band_nr}/{len(banden)}" if publieke_log()
-                      else f"€ {band_min:,}-{band_max:,}")
+        band_label = f"€ {band_min:,}-{band_max:,}"
         for sort in ZOEK_SORTS:
             sort_n = 0
             sort_label = sort or "standaard"
@@ -1509,8 +1517,12 @@ def main() -> None:
                     )
                 except Exception as exc:
                     zoek_fout += 1
-                    zoek_fout_redenen[str(exc)[:80]] += 1
-                    log(f"Fout band {band_label} sort {sort_label} pagina {pagina}: {exc}")
+                    reden = str(exc)[:80]
+                    if not publiek:
+                        log(f"Fout band {band_label} sort {sort_label} pagina {pagina}: {exc}")
+                    elif reden not in zoek_fout_redenen:
+                        log(f"Zoekfout: {exc}")
+                    zoek_fout_redenen[reden] += 1
                     break
                 zoek_ok += 1
                 if not results:
@@ -1525,8 +1537,10 @@ def main() -> None:
                     sort_n += 1
                     band_n += 1
                 time.sleep(0.4)
-            log(f"Band {band_label} ({sort_label}): {sort_n} nieuw.")
-        log(f"Band {band_label}: {band_n} uniek na alle sorteringen.")
+            if not publiek:
+                log(f"Band {band_label} ({sort_label}): {sort_n} nieuw.")
+        if not publiek:
+            log(f"Band {band_label}: {band_n} uniek na alle sorteringen.")
 
     log(f"Totaal opgehaald (na dedup): {len(rauwe)} (via {zoek_methode}).")
 
@@ -1535,9 +1549,10 @@ def main() -> None:
     # vorige (gevulde) rapport staan en kleurt de Action rood in plaats van dat
     # het probleem onopgemerkt doorsijpelt als "0 woningen".
     if zoek_ok == 0 and zoek_fout:
-        top = ", ".join(f"{reden} ({n}x)" for reden, n in zoek_fout_redenen.most_common(3))
+        top = ", ".join(reden + ("" if publiek else f" ({n}x)")
+                        for reden, n in zoek_fout_redenen.most_common(3))
         boodschap = (
-            f"Alle {zoek_fout} zoekopdrachten mislukt, geen enkele geslaagde call. "
+            f"Alle{aantal(zoek_fout)} zoekopdrachten mislukt, geen enkele geslaagde call. "
             f"Meest voorkomend: {top}. Rapport NIET bijgewerkt."
         )
         log(boodschap)
@@ -1552,7 +1567,7 @@ def main() -> None:
     # rapport en state met rust laten en de run rood laten worden.
     if not rauwe:
         boodschap = (
-            f"Nul woningen gevonden terwijl alle {zoek_ok} zoek-calls slaagden "
+            f"Nul woningen gevonden terwijl alle{aantal(zoek_ok)} zoek-calls slaagden "
             f"(methode: {zoek_methode}). Dat wijst op een stukke zoekmethode, niet "
             f"op een lege markt. Rapport NIET bijgewerkt."
         )
@@ -1561,8 +1576,9 @@ def main() -> None:
         raise SystemExit(2)
 
     if zoek_fout:
-        log(f"Let op: {zoek_fout} van {zoek_ok + zoek_fout} zoek-calls mislukt; "
-            f"resultaat kan onvolledig zijn.")
+        hoeveel = ("een deel van de zoek-calls" if publiek
+                   else f"{zoek_fout} van {zoek_ok + zoek_fout} zoek-calls")
+        log(f"Let op: {hoeveel} mislukt; resultaat kan onvolledig zijn.")
 
     # Eerder getoonde woningen die deze run niet binnenkwamen opnieuw controleren.
     # Pas ná de checks hierboven: een stukke zoekmethode moet nog steeds luid

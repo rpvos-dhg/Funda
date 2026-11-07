@@ -202,10 +202,13 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
     `toon_aantallen()`: nieuw, eerder gezien, afgewezen per reden (belegging,
     begane grond, blacklist) en met prijsdaling. De lijst staat in het
     versleutelde rapport. Lokaal blijft de volledige lijst, voor de diagnose.
-  - prijsbanden als volgnummer ("Band 2/5"), niet als bedrag; de zoek-URL van
-    de HTML-route zonder postcode, prijs en m2 (`(verborgen)`); een mislukte
-    detail-call als "een woning", zonder pad of nummer; `--debug-wijken` (buurten
-    met aantallen) alleen lokaal.
+  - geen regel per prijsband, alleen het totaal: de grenzen komen uit het
+    profiel, het aantal banden maal de bandstap geeft de breedte van het budget
+    en de aantallen per band waar het aanbod valt. Daarom ook geen aantallen
+    zoek-calls (banden maal sorteringen) en elke zoekfout één keer
+    ("Zoekfout: ..."). De zoek-URL van de HTML-route zonder postcode, prijs en
+    m2 (`(verborgen)`); een mislukte detail-call als "een woning", zonder pad of
+    nummer; `--debug-wijken` (buurten met aantallen) alleen lokaal.
   - Vangnet: `log()` en de `::error::`-regels in `funda_zoek.py`, de foutregels
     van de zoekers en de detailfout in `funda_rapport.py` gaan door
     `log_tekst()`, dat detailpaden, detail-URL's en woningnummers (7 of meer
@@ -215,8 +218,9 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   Vastgepind in `test_funda_zoek.py::test_publieke_log` (`main()` met
   `GITHUB_ACTIONS` op de stubs, ook de sitemaproute met een endpoint dat dicht
   gaat: geen "/detail/", postcode, "Wijk:", bedrag, titel of woningnummer;
-  lokaal wel de lijst). `test_funda_zoek.py` zet `GITHUB_ACTIONS` bovenaan uit,
-  zodat de tests in de job tests hetzelfde doen als lokaal.
+  zoeken dicht: geen band of aantal calls; lokaal wel de lijst en de banden).
+  `test_funda_zoek.py` zet `GITHUB_ACTIONS` bovenaan uit, zodat de tests in de
+  job tests hetzelfde doen als lokaal.
 - **Jaarwissel.** `test_funda_beoordeling.py` faalt op 1 januari zolang tabel 1
   niet van het lopende jaar is: dan `data/trhk_2026_tabel1.json` (tabel 1 en de
   labelbedragen), de NHG-grens en de startersgrens in `funda_beoordeling.py`

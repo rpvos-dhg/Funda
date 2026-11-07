@@ -1444,7 +1444,10 @@ def test_publieke_log() -> bool:
                 "NIEUW: 2    Eerder gezien: 1    Afgewezen: 2" in log)
     ok &= check("Actions: afgewezen per reden", "Afgewezen per reden: belegging 1, blacklist 1." in log)
     ok &= check("Actions: aantal met prijsdaling", "Met prijsdaling: 1 nieuw, 0 eerder gezien." in log)
-    ok &= check("Actions: prijsband als volgnummer", re.search(r"Band \d+/\d+: \d+ uniek", log) is not None)
+    # Het aantal banden maal de bandstap geeft de breedte van het budget, de aantallen per band
+    # waar het aanbod valt: op Actions daarom geen regel per band, alleen het totaal.
+    ok &= check("Actions: geen regel per prijsband", "Band " not in log and "band " not in log)
+    ok &= check("Actions: wel het totaal", "Totaal opgehaald (na dedup): " in log)
     ok &= check("Actions: mislukte detail-call zonder woning", "Detail fout voor een woning" in log)
 
     code, log = _publieke_run(actions=False)
@@ -1472,6 +1475,36 @@ def test_publieke_log() -> bool:
                     ", ".join(lekken))
     r = _sitemaprun(details, {}, faal_na=(1, 403), budget=200)
     ok &= check("sitemap 403 lokaal: detailpad blijft in de log", "/detail/koop/" in r["log"])
+
+    # Elke zoek-call faalt: het aantal mislukte calls is banden maal sorteringen, dus op Actions
+    # geen aantal en elke oorzaak één keer. Lokaal per band en met aantallen.
+    def dicht(_n):
+        raise RuntimeError("Search failed (status 401)")
+
+    for actions in (True, False):
+        fz = maak_stub_funda(dicht)
+        fz.PRIJS_MIN, fz.PRIJS_MAX, fz.PRIJS_BAND_STAP = 200_000, 300_000, 20_000
+        if actions:
+            os.environ["GITHUB_ACTIONS"] = "true"
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as uit:
+                code, _gedraaid = draai(fz)
+        finally:
+            os.environ.pop("GITHUB_ACTIONS", None)
+        log = uit.getvalue()
+        waar = "Actions" if actions else "lokaal"
+        aantal_calls = str(len(fz.maak_prijs_banden(200_000, 300_000, 20_000)) * len(fz.ZOEK_SORTS))
+        ok &= check(f"zoeken dicht {waar}: exit 2 met ::error::", code == 2 and "::error::" in log, str(code))
+        if actions:
+            ok &= check("zoeken dicht Actions: oorzaak één keer", log.count("Zoekfout: ") == 1,
+                        str(log.count("Zoekfout: ")))
+            ok &= check("zoeken dicht Actions: geen band, bedrag of aantal calls",
+                        "band " not in log.lower() and "€" not in log
+                        and "Alle zoekopdrachten mislukt" in log and "x)" not in log)
+        else:
+            ok &= check("zoeken dicht lokaal: per band en met aantal",
+                        "Fout band € 200,000-220,000" in log
+                        and f"Alle {aantal_calls} zoekopdrachten mislukt" in log)
     return ok
 
 
