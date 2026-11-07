@@ -1553,7 +1553,8 @@ def main() -> None:
     log(f"Totaal opgehaald (na dedup): {len(rauwe)} (via {zoek_methode}).")
 
     # Geen enkele geslaagde zoek-call = de API is stuk (bijv. 401), niet de markt.
-    # Hard stoppen: geen rapport schrijven, geen state bijwerken. Zo blijft het
+    # Hard stoppen: geen rapport schrijven, seen-ids en tracking niet bijwerken
+    # (alleen de caches met wat al is opgehaald, zie CLAUDE.md). Zo blijft het
     # vorige (gevulde) rapport staan en kleurt de Action rood in plaats van dat
     # het probleem onopgemerkt doorsijpelt als "0 woningen".
     if zoek_ok == 0 and zoek_fout:
@@ -1572,7 +1573,7 @@ def main() -> None:
     # 200 en de parser vindt simpelweg nul kaarten, zonder exception. Voor deze
     # zoekopdracht (hele regio, brede prijsband) is nul woningen in de praktijk
     # geen lege markt maar een stukke zoekmethode. Dus dezelfde behandeling:
-    # rapport en state met rust laten en de run rood laten worden.
+    # rapport, seen-ids en tracking met rust laten en de run rood laten worden.
     if not rauwe:
         boodschap = (
             f"Nul woningen gevonden terwijl alle{aantal(zoek_ok)} zoek-calls slaagden "

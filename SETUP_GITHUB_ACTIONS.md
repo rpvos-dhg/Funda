@@ -128,13 +128,22 @@ ook gebruikt, met een verzonnen woning (de bestanden hieronder staan in
 ```bash
 npm install --no-save --no-package-lock web-push@3
 echo '{"nieuw_count": 1, "nieuw": [{"title": "Teststraat 1", "city": "Teststad", "status_push": "Past", "score": 8.0}]}' > funda_run_summary.json
-WEB_PUSH_PUBLIC_KEY=... WEB_PUSH_PRIVATE_KEY=... WEB_PUSH_SUBSCRIPTION='<de JSON uit stap 4>' node scripts/send_web_push.cjs
+read -rsp "Publieke sleutel: " WEB_PUSH_PUBLIC_KEY; echo
+read -rsp "Privésleutel: " WEB_PUSH_PRIVATE_KEY; echo
+read -rsp "Abonnement (de JSON uit stap 4, op één regel): " WEB_PUSH_SUBSCRIPTION; echo
+export WEB_PUSH_PUBLIC_KEY WEB_PUSH_PRIVATE_KEY WEB_PUSH_SUBSCRIPTION
+node scripts/send_web_push.cjs
+unset WEB_PUSH_PUBLIC_KEY WEB_PUSH_PRIVATE_KEY WEB_PUSH_SUBSCRIPTION
 rm funda_run_summary.json
 ```
 
 Je krijgt dan de melding "1 nieuwe woning" met "Teststraat 1, Teststad · Past ·
-8,0". Gebruik dezelfde sleutels als in de secrets en zet ze nergens in een
-bestand in de repo.
+8,0". Gebruik dezelfde sleutels als in de secrets. Plak ze na de vraag van
+`read -s`, niet op de commandoregel zelf: wat je daar typt, komt in je
+shellgeschiedenis (`~/.bash_history`), en de sleutels horen nergens op schijf
+buiten GitHub Secrets. In PowerShell werkt hetzelfde met
+`$env:WEB_PUSH_PRIVATE_KEY = Read-Host "Privésleutel"` (en zo voor de andere
+twee); daarna `Remove-Item Env:WEB_PUSH_*`.
 
 ## Wat waar staat (privacy)
 - **Secrets (nooit publiek):** je `funda_personal.json` (inkomen, postcodes,

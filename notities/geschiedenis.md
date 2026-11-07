@@ -136,7 +136,8 @@ uitgesloten wijken terugkwamen.
 Gemeten op de postcode van het stadhuis (4 adressen): `limit=1` in 7,7 en 11,3 s,
 `limit=10` in 36,6 s, `limit=50` in 24 s. Met minder adressen dan de limit zoekt
 de server de hele postcode af. Daarom `limit=1`, time-out 60 s en één poging per
-postcode per run.
+postcode per run. OSRM (`router.project-osrm.org`) heeft geen robots.txt: op
+`/robots.txt` komt een JSON-fout terug.
 
 ## Actions-cache en publiceren (6 nov 2026)
 
