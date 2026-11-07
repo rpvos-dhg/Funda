@@ -74,6 +74,10 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   `status_push` (alleen het poortwoord: Past, Krap, Past niet of Prijs onbekend)
   en `score` in `funda_run_summary.json`; `scripts/send_web_push.cjs` toont dan
   "<adres>, <stad> · Past · 8,3", zonder beoordeling "<adres>, <stad> · 68 m2".
+  De push toont de eerste drie, en `vul_summary_aan()` zet de nieuwe woningen
+  daarvoor in de volgorde van "Aanbevolen" (`funda_beoordeling.sorteer`; zonder
+  beoordeling achteraan), niet die van `sort_key` in `main()` (console en
+  voorlopige samenvatting). Vastgepind in `test_funda_zoek.py::test_push_volgorde`.
   **Nooit een eurobedrag in de push** (eindreview PR #19): de statusregel
   ("€ 65 onder de norm (bruto)", "€ 26.610 eigen geld te weinig") geeft met de
   publieke code en de publieke woningdata het bruto inkomen of het eigen geld
@@ -91,18 +95,41 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   met cao. Zonder `financien` rekent het model met `bruto_jaar`, `eigen_inleg`,
   `duo_maandlast` en `leeftijd`, zonder scenario's. Inkomen komt nooit in het
   rapport, de log of de pushmelding.
+  **Welke sleutels gelden (sinds 7 nov 2026 alleen deze; de secret gebruikt ze
+  ook):**
+  - `beoordeling`: `score_basis`, `m2_wens`, `max_woonlaag_zonder_lift`,
+    `fiets_kmu`, `lang_op_funda_dagen`, `max_woonlasten_netto`, `krap_marge`,
+    `financiering` (`alleenstaand`, `overbod_pct`, `kk_onzekerheid`,
+    `eigen_geld_tekort_past_niet`, `starter_tot`), `harde_eisen`, `werk`,
+    `gewichten`, `drempels`, `verrijking`. `lang_op_funda_dagen` mag ook op het
+    hoogste niveau (die leest `funda_zoek` ook).
+  - `financien`: `alleenstaand`, `starter_tot`, `planning`, `scenarios` (per id
+    `bruto_jaar`, `label`, optioneel `datum` en `eigen_geld`; een kaal getal mag
+    ook), `studieschuld.maandlast`, `bkr` (`[{limiet, opgezegd}]` of
+    `[{maandlast}]`), `eigen_geld` (`nu`, `datum`, `per_maand`, `buffer`),
+    `kosten_koper` (`vast`, `nhg_pct`) en `rente` (`pct`, `datum`,
+    `rentevast_jaren`, `bron`, `nhg`, `ltv`, `max_dagen`).
+  - **Weg** (G5 van de opruimronde): `financien.toetsinkomen` (ook per
+    scenario), `startersvrijstelling_tot`, `verplichtingen_maand`,
+    `bkr_limieten`, `buffer` op het hoogste niveau, `eigen_geld.<scenario-id>`,
+    `rente.handmatig`, `rente.rentevast_jaar`, `beoordeling.financien` en in
+    `beoordeling.financiering`: `max_woonlasten_netto`,
+    `woonlasten_marge_past_niet`, `rente`, `rente_datum`, `rentevast_jaren`,
+    `rente_max_dagen`. Die worden niet meer gelezen. Staat er toch een in de
+    config, dan zet het rapport een `::warning::` met alleen de sleutelnamen
+    (`funda_beoordeling.oude_sleutels()`), nooit de waarden; anders rekent het
+    stil met de standaard.
 - **Rente (`funda_rente.py`).** Een handmatige rente gaat altijd voor
-  (`financien.rente.pct` met `datum`; ook `rente.handmatig` of de oude plek
-  `beoordeling.financiering.rente`). Rentevast staat ook daar
+  (`financien.rente.pct` met `datum`; de enige plek). Rentevast staat ook daar
   (`financien.rente.rentevast_jaren`, standaard 10; korter dan 10 jaar = toetsrente
-  5%). De oude sleutels `beoordeling.financiering.rentevast_jaren` en
-  `rente_max_dagen` hebben geen standaard meer en werken alleen als terugval als je
-  ze zelf zet (`funda_rapport._rente_cfg`). Nominatim en OSRM krijgen ook
+  5%). `funda_rente` leest `cfg["financien"]["rente"]` zelf; er is geen
+  vertaallaag meer. Nominatim en OSRM krijgen ook
   `EERLIJKE_UA`, zonder naam. Anders het nieuwste ASN-tariefblad (statische
   PDF's in het rentearchief op `www.asnbank.nl`; robots.txt verbiedt daar alleen
   `/web/contentViewCounter`), anders het DNB-cijfer "rente op nieuwe hypotheken"
   via het ECB Data Portal (`data-api.ecb.europa.eu`, `/service/data` toegestaan),
-  anders 4,11% van 6 juli 2026 met een melding. Hooguit één poging per dag. Bron
+  anders 4,11% van 6 juli 2026 met een melding (`funda_beoordeling.STANDAARD_RENTE`,
+  één bron voor model en `funda_rente`). Hooguit één poging per dag. Bron
   en peildatum staan in "Jouw budget"; ouder dan 30 dagen = melding bovenaan.
   **Bewust niet gebruikt:** de eigen API achter de rentepagina van ASN (vraagt een
   sleutel uit hun JavaScript-bundel) en de API van DNB (abonnementssleutel).
@@ -273,8 +300,10 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
     `DetailEndpointDicht` (run stopt, exit 2), 404/410 = `WoningNietGevonden`
     (woning weg, endpoint werkt), de rest blijft een gewone `LookupError` (telt
     als storing). Beide klassen staan in `funda_sitemap_zoek.py`.
-  - De sitemap- en HTML-zoeker gebruiken voor `www.funda.nl` elk één vast
-    curl_cffi-profiel (`safari15_5`, Safari-UA). Een 401, 403 of bot-controle =
+  - De sitemap- en HTML-zoeker gebruiken voor `www.funda.nl` hetzelfde vaste
+    curl_cffi-profiel (`safari15_5`, Safari-UA), uit één bron:
+    `funda_sitemap_zoek.UA` en `IMPERSONATE`; `funda_html_zoek` importeert ze
+    (`test_funda_html.py::test_profiel_www`). Een 401, 403 of bot-controle =
     luid falen. Hetzelfde profiel geldt voor `links.funda.nl` (de mailroute,
     alleen lokaal en alleen als je redirects laat volgen:
     `funda_mail_bron.TRACKER_IMPERSONATE`, ook in `funda_mail_imap_check.py`);
@@ -741,7 +770,9 @@ python funda_zoek.py --no-open  # zonder browser
   (twee runs door `main()`), vijf 404's bovenaan de pool, prijs op aanvraag
   door het echte `bouw_rij`, een volledige run door `genereer_rapport()` op de
   13 fictieve woningen (versleuteld, ontsleuteld in Python, volgorde gelijk aan
-  `sorteer()`, rente en verrijking die falen), `_twijfel`, `vul_summary_aan` en
+  `sorteer()`, rente en verrijking die falen), `_twijfel`, `vul_summary_aan`, de
+  pushvolgorde (gelijk aan `sorteer()`), `_enrichment` met alleen ruwe velden en de
+  cachesleutel van `price_history`, de waarschuwing bij oude configsleutels en
   de pushtekst (met node, anders overgeslagen; nooit een €-teken, ook niet bij een oude samenvatting), `_sitemap_overslaan` met straal, de workflow-input
   en de eerlijke client met statuscodes (in een subproces tegen het echte
   pyfunda, met een nep-sessie, zonder netwerk).
@@ -773,24 +804,28 @@ python funda_zoek.py --no-open  # zonder browser
   mislukte zoekopdracht, een onophaalbare mail en een fout bij afsluiten. Draait
   op een stub-mailbox, dus geen mailaccount nodig.
 - `python test_funda_html.py` - offline tests voor de HTML-zoekfallback
-  (URL-opbouw, kaart-parser, drop-in-gedrag, dedup). Draait op een fixture die is
+  (URL-opbouw, kaart-parser, drop-in-gedrag, dedup, één profiel en UA met de
+  sitemapzoeker). Draait op een fixture die is
   nagebouwd op echte markup, dus geen netwerk nodig.
 - `python scripts/funda_html_validatie.py` - controleert diezelfde parser tegen
   de échte funda.nl. Dit is de test die afgaat als funda hun HTML verandert.
 - `python test_funda_beoordeling.py` - het model: leentoets 2026 (tabel 1,
   labelbedragen, alleenstaandenbedrag, studieschuld, BKR), scenario's, poort- en
   statusregels (ook "precies op je grens", nooit "€ 0"), harde eisen, score en
-  begrenzing, parsers (52 zinnen), sortering, contract, golden file
+  begrenzing, parsers (52 zinnen), sortering, contract, oude configsleutels (niet
+  gelezen, wel genoemd door `oude_sleutels()`), golden file
   `testdata/beoordeling_verwacht.json` (bijwerken: `--schrijf-verwacht`) en de
   jaartest (faalt op 1 januari, bewust).
 - `python test_funda_ui.py` - de UI op `testdata/beoordeling_v3.json`: id's en
-  data-attributen die `ui/app.js` gebruikt, statusregels, prijs onbekend,
+  data-attributen die `ui/app.js` gebruikt, statusregel uit de beoordeling (de UI
+  rekent hem niet zelf), WOZ uit `prijshistorie()`, prijs onbekend,
   geldige `#woning-data`, contrast van 51 tokenparen, hex alleen in de
   tokenblokken, geen verboden merk- of fontnamen, groottes en het slotscherm.
 - `python test_funda_verrijking.py` en `python test_funda_rente.py` - de open
   bronnen en de rente met een nep-HTTP-functie en ingekorte echte antwoorden
   (`testdata/verrijking/`, `testdata/rente/`): fail-soft, robots, weigering stopt
-  een host, cache en budget, allowlist, één poging per dag.
+  een host, cache en budget, allowlist, één poging per dag, de standaardrente uit
+  `funda_beoordeling.STANDAARD_RENTE`.
 - `python test_funda_pwa.py` - gzip vóór AES en terug (in Python), fout
   wachtwoord, placeholders, geen onversleuteld rapport in CI, service worker v5,
   manifest, slotscherm, iconen in het palet.

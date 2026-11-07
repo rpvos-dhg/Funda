@@ -9,6 +9,7 @@ Draaien: python test_funda_html.py
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from funda_html_zoek import HtmlZoeker, bouw_zoek_url, parse_kaarten, snap_straal
 
@@ -306,8 +307,51 @@ def test_botmuur() -> bool:
     return check("RuntimeError bij bot-muur", False, "geen exception")
 
 
+def test_profiel_www() -> bool:
+    """HtmlZoeker en SitemapZoeker gebruiken voor www.funda.nl hetzelfde vaste profiel en dezelfde user-agent,
+    uit één bron (funda_sitemap_zoek). Een nep-sessie, dus geen netwerk."""
+    print("test: één profiel en user-agent voor www.funda.nl")
+    import funda_html_zoek
+    import funda_sitemap_zoek
+    from curl_cffi import requests as curl_requests
+
+    gezien = []
+
+    class Resp:
+        status_code = 200
+        text = "<html></html>"
+        content = b"<urlset></urlset>"
+        headers = {}
+
+    class NepSessie:
+        def __init__(self, impersonate=None, **_k):
+            self.impersonate = impersonate
+
+        def get(self, url, headers=None, **_k):
+            gezien.append((self.impersonate, (headers or {}).get("user-agent")))
+            return Resp()
+
+    echt = curl_requests.Session
+    curl_requests.Session = NepSessie
+    try:
+        HtmlZoeker(StubClient())._haal("https://www.funda.nl/zoeken/koop")
+        funda_sitemap_zoek.SitemapZoeker(StubClient())._haal_http("https://www.funda.nl/sitemap_index.xml/")
+    finally:
+        curl_requests.Session = echt
+    bron = (Path(funda_html_zoek.__file__)).read_text(encoding="utf-8")
+    return all([
+        check("beide zoekers: zelfde profiel en UA", len(gezien) == 2 and gezien[0] == gezien[1]
+              == (funda_sitemap_zoek.IMPERSONATE, funda_sitemap_zoek.UA), str(gezien)),
+        check("profiel is safari15_5 met een Safari-UA", funda_sitemap_zoek.IMPERSONATE == "safari15_5"
+              and "Safari/" in funda_sitemap_zoek.UA),
+        check("funda_html_zoek heeft geen eigen kopie", funda_html_zoek.UA is funda_sitemap_zoek.UA
+              and "safari15_5" not in bron and "Version/17.0" not in bron),
+    ])
+
+
 def main() -> int:
-    resultaten = [test_url(), test_straal(), test_parse(), test_zoeker(), test_dedup(), test_delegatie(), test_botmuur()]
+    resultaten = [test_url(), test_straal(), test_parse(), test_zoeker(), test_dedup(), test_delegatie(), test_botmuur(),
+                  test_profiel_www()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

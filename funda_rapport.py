@@ -24,7 +24,6 @@ from __future__ import annotations
 import json
 import math
 import os
-import re
 import sys
 import time
 import urllib.parse
@@ -181,15 +180,10 @@ def afstand_km(lat1: float, lon1: float, lat2: float, lon2: float) -> tuple[floa
 
 # === Verrijking via extra pyfunda endpoints ===
 
-def woning_sleutel(d: dict) -> str:
-    return str(d.get("global_id") or d.get("listing_id") or d.get("detail_url") or d.get("title") or "")
-
-
-def funda_url(d: dict) -> str:
-    url = d.get("detail_url") or d.get("url") or ""
-    if url and not url.startswith("http"):
-        url = f"https://www.funda.nl{url}"
-    return url
+# Sleutel en link van een woning komen uit funda_ui (één bron). woning_sleutel is ook de cachesleutel van
+# price_history: verander hem niet, anders haalt de volgende run alle prijshistorie opnieuw op.
+woning_sleutel = funda_ui.woning_sleutel
+funda_url = funda_ui.funda_url
 
 
 def _schoon_markt_cache(cache: dict) -> dict:
@@ -253,81 +247,6 @@ def _slug_key(*parts: str | None) -> str:
     return "|".join((p or "").strip().lower() for p in parts)
 
 
-def _parse_history_price(change: dict) -> int | None:
-    value = change.get("price")
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if value is None:
-        return None
-    digits = re.sub(r"[^\d]", "", str(value))
-    return int(digits) if digits else None
-
-
-def analyse_price_history(changes: list[dict], current_price: int) -> dict:
-    asking = []
-    woz = []
-    sold = []
-    for change in changes or []:
-        if not isinstance(change, dict):
-            continue
-        status = str(change.get("status") or "").lower()
-        price = _parse_history_price(change)
-        item = {
-            "price": price,
-            "date": change.get("date") or change.get("timestamp"),
-            "timestamp": change.get("timestamp"),   # ISO, voor de peildatum in het rapport
-            "source": change.get("source"),
-            "status": status,
-            "human_price": change.get("human_price"),
-        }
-        if status == "asking_price":
-            asking.append(item)
-        elif status == "woz":
-            woz.append(item)
-        elif status == "sold":
-            sold.append(item)
-
-    asking_prices = [x["price"] for x in asking if x.get("price")]
-    highest = max(asking_prices) if asking_prices else None
-    lowest = min(asking_prices) if asking_prices else None
-    drop = max(0, highest - current_price) if highest and current_price else 0
-    drop_pct = round(drop / highest * 100, 1) if drop and highest else 0.0
-    latest_woz = next((x for x in woz if x.get("price")), None)
-    latest_sold = next((x for x in sold if x.get("price")), None)
-
-    return {
-        "asking_count": len(asking),
-        "highest_asking": highest,
-        "lowest_asking": lowest,
-        "drop_from_high": drop,
-        "drop_pct": drop_pct,
-        "latest_woz": latest_woz,
-        "latest_sold": latest_sold,
-        "changes": changes or [],
-    }
-
-
-def analyse_market(d: dict, insights: dict | None) -> dict:
-    """Vraagprijs per m² tegenover het buurtgemiddelde van funda (voor het onderdeel markt)."""
-    price = d.get("price") or 0
-    m2 = d.get("living_area") or 0
-    ppm = int(price / m2) if price and m2 else 0
-    avg = None
-    if isinstance(insights, dict):
-        try:
-            avg = int(insights.get("avg_asking_price_per_m2") or 0) or None
-        except (TypeError, ValueError):
-            avg = None
-    diff_pct = round((ppm - avg) / avg * 100, 1) if ppm and avg else None
-    return {
-        "price_per_m2": ppm,
-        "avg_asking_price_per_m2": avg,
-        "diff_pct": diff_pct,
-    }
-
-
 # Van funda's buurtcijfers alleen de gemiddelde vraagprijs per m². Inwoners, gezinnen met
 # kinderen en andere bevolkingskenmerken worden niet bewaard of getoond (CLAUDE.md, "Verrijking").
 MARKT_VELDEN = ("avg_asking_price_per_m2",)
@@ -339,30 +258,6 @@ def _markt_allowlist(insights) -> dict | None:
     if insights.get("_error"):
         return {"_error": str(insights["_error"])}
     return {k: insights[k] for k in MARKT_VELDEN if k in insights}
-
-
-def analyse_broker(info: dict | None, reviews: dict | None) -> dict:
-    average = reviews.get("average") if isinstance(reviews, dict) else None
-    review_count = reviews.get("number_of_reviews") if isinstance(reviews, dict) else None
-    try:
-        average = float(average) if average is not None else None
-    except (TypeError, ValueError):
-        average = None
-    try:
-        review_count = int(review_count) if review_count is not None else None
-    except (TypeError, ValueError):
-        review_count = None
-    return {
-        "name": (info or {}).get("name"),
-        "affiliation": (info or {}).get("affiliation"),
-        "phone": (info or {}).get("phone"),
-        "email": (info or {}).get("email"),
-        "website": (info or {}).get("website"),
-        "review_average": average,
-        "review_count": review_count,
-        "info": info or {},
-        "reviews": reviews or {},
-    }
 
 
 def fetch_with_cache(cache: dict, section: str, key: str, max_age_days: int, fetcher):
@@ -380,7 +275,6 @@ def fetch_with_cache(cache: dict, section: str, key: str, max_age_days: int, fet
 def verrijk_woning(f, d: dict, listing_obj, cache: dict) -> dict:
     """Haal extra data op uit pyfunda v2.9 endpoints. Alle failures zijn non-fatal."""
     sleutel = woning_sleutel(d)
-    price = d.get("price") or 0
     city = d.get("city") or ""
     neighbourhood = d.get("neighbourhood") or ""
     listing_data = getattr(listing_obj, "data", None)
@@ -449,13 +343,17 @@ def verrijk_woning(f, d: dict, listing_obj, cache: dict) -> dict:
         if not isinstance(broker_raw, dict):
             broker_raw = {"info": None, "reviews": None}
 
+    # Alleen de ruwe velden die funda_beoordeling en funda_ui lezen; het model rekent zelf
+    # (prijshistorie(), de markt en de makelaar in beoordeel()).
+    info, reviews = ({} if not isinstance(x, dict) or x.get("_error") else x
+                     for x in (broker_raw.get("info"), broker_raw.get("reviews")))
+    gem_m2 = _getal((market_raw or {}).get("avg_asking_price_per_m2"))
+    n_reviews = _getal(reviews.get("number_of_reviews"))
     return {
-        "price_history": analyse_price_history(price_history_raw if isinstance(price_history_raw, list) else [], price),
-        "market": analyse_market(d, market_raw if isinstance(market_raw, dict) else None),
-        "broker": analyse_broker(
-            broker_raw.get("info") if isinstance(broker_raw.get("info"), dict) and not broker_raw.get("info", {}).get("_error") else None,
-            broker_raw.get("reviews") if isinstance(broker_raw.get("reviews"), dict) and not broker_raw.get("reviews", {}).get("_error") else None,
-        ),
+        "price_history": {"changes": price_history_raw if isinstance(price_history_raw, list) else []},
+        "market": {"avg_asking_price_per_m2": int(gem_m2) if gem_m2 else None},
+        "broker": {"name": info.get("name"), "review_average": _getal(reviews.get("average")),
+                   "review_count": int(n_reviews) if n_reviews is not None else None},
     }
 
 
@@ -467,7 +365,14 @@ DETAIL_PAUZE_S = 0.5
 
 
 def laad_config() -> dict:
-    """De beoordelingsconfig: standaardwaarden plus de sleutels beoordeling en financien uit de config."""
+    """De beoordelingsconfig: standaardwaarden plus de sleutels beoordeling en financien uit de config.
+
+    Staan er nog oude aliassen in (die niet meer gelezen worden), dan een waarschuwing met alleen de
+    sleutelnamen, nooit de waarden: anders rekent het rapport stil met de standaard."""
+    oud = funda_beoordeling.oude_sleutels(_PERSONAL)
+    if oud:
+        print(f"::warning::Config: {len(oud)} oude sleutel(s) worden niet meer gelezen, zet ze op de plek uit "
+              f"CLAUDE.md (Config): {', '.join(oud)}")
     return funda_beoordeling.laad_config(_PERSONAL)
 
 
@@ -563,46 +468,19 @@ def _eerlijke_ua() -> str | None:
         return None
 
 
-def _rente_cfg(cfg: dict) -> dict:
-    """financien.rente zoals funda_rente hem leest, met de aliassen die funda_beoordeling ook kent.
-
-    rente.handmatig = rente.pct, rente.rentevast_jaar = rente.rentevast_jaren, rente.max_dagen, en
-    als terugval de oude plek beoordeling.financiering (rente met rente_datum, rentevast_jaren,
-    rente_max_dagen). Die oude sleutels hebben geen standaardwaarde, dus staan ze er alleen als je
-    ze zelf zet. Een handmatige rente gaat altijd voor."""
-    fin = dict(cfg.get("financien") or {}) if isinstance(cfg.get("financien"), dict) else {}
-    r = dict(fin.get("rente")) if isinstance(fin.get("rente"), dict) else {}
-    if r.get("pct") is None and r.get("handmatig") is not None:
-        r["pct"] = r["handmatig"]
-    if r.get("rentevast_jaren") is None and r.get("rentevast_jaar") is not None:
-        r["rentevast_jaren"] = r["rentevast_jaar"]
-    oud = cfg.get("financiering") or {}
-    if r.get("pct") is None and oud.get("rente") is not None:
-        r["pct"] = oud["rente"]
-        if r.get("datum") is None:   # ook als financien.rente.datum expliciet null is
-            r["datum"] = oud.get("rente_datum")
-    if r.get("rentevast_jaren") is None and oud.get("rentevast_jaren") is not None:
-        r["rentevast_jaren"] = oud["rentevast_jaren"]
-    if r.get("max_dagen") is None and oud.get("rente_max_dagen") is not None:
-        r["max_dagen"] = oud["rente_max_dagen"]
-    fin["rente"] = r
-    return {"financien": fin}
-
-
 def haal_rente(cfg: dict, cache: dict, vandaag, http=None, ua: str | None = None) -> dict:
     """De rente voor de beoordeling en de UI: {"pct", "bron", "datum", "oud", "melding", "rentevast_jaren"}.
 
     Gooit nooit: lukt funda_rente niet, dan de rente uit de config (of de standaard uit het model)."""
-    rcfg = _rente_cfg(cfg)
     try:
-        r = funda_rente.huidige_rente(rcfg, cache, vandaag, http=http, ua=ua)
+        r = funda_rente.huidige_rente(cfg, cache, vandaag, http=http, ua=ua)   # leest cfg["financien"]["rente"]
         if not (isinstance(r, dict) and _getal(r.get("pct"))):
             raise ValueError("geen rente")
         r = dict(r)
         if r.get("bron") == "standaard":
             r.setdefault("rentevast_jaren", funda_beoordeling.STANDAARD_RENTE["rentevast_jaren"])
         else:
-            r.setdefault("rentevast_jaren", funda_rente.instellingen(rcfg).get("rentevast_jaren"))
+            r.setdefault("rentevast_jaren", funda_rente.instellingen(cfg).get("rentevast_jaren"))
         return r
     except Exception as exc:  # noqa: BLE001  de rente mag een run nooit laten falen
         print(f"[rapport] Rente niet opgehaald ({type(exc).__name__}); gerekend met de rente uit de config.")
@@ -648,7 +526,6 @@ def rapport_meta(cfg: dict, rente: dict, nu: datetime, rijen: list[dict] | None 
         "rente": rente,
         "fiets_kmu": cfg.get("fiets_kmu"),
         "kk_onzekerheid": fin.get("kk_onzekerheid"),
-        "eigen_geld_tekort_past_niet": fin.get("eigen_geld_tekort_past_niet"),
         "lang_op_funda_dagen": cfg.get("lang_op_funda_dagen"),
     }
     try:

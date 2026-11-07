@@ -463,8 +463,9 @@ def test_rapport_testdata() -> bool:
 
 
 def test_rapport_rente_cache_ua() -> bool:
-    """Fixronde: rentevast en leeftijdsgrens als terugval uit beoordeling.financiering, de allowlist op de
-    hele buurtcijfercache, en de eerlijke user-agent voor Nominatim en OSRM. Geen netwerk."""
+    """Rentevast alleen uit financien.rente (de oude plek beoordeling.financiering is weg, en een oude sleutel
+    geeft een waarschuwing met alleen de naam), de allowlist op de hele buurtcijfercache, en de eerlijke
+    user-agent voor Nominatim en OSRM. Geen netwerk."""
     print("test: rente-instellingen, buurtcijfercache en user-agent van funda_rapport")
     import funda_beoordeling as fb
     import funda_rapport as fr
@@ -472,32 +473,44 @@ def test_rapport_rente_cache_ua() -> bool:
     import urllib.request
 
     ok = True
-    cfg = fb.laad_config({"beoordeling": {"financiering": {"rentevast_jaren": 5, "rente_max_dagen": 45}}})
-    r = fr._rente_cfg(cfg)["financien"]["rente"]
-    ok &= check("beoordeling.financiering.rentevast_jaren als terugval", r.get("rentevast_jaren") == 5, str(r))
-    ok &= check("beoordeling.financiering.rente_max_dagen als terugval", r.get("max_dagen") == 45, str(r))
-    cfg2 = fb.laad_config({"beoordeling": {"financiering": {"rentevast_jaren": 5}},
-                           "financien": {"rente": {"rentevast_jaren": 20}}})
-    ok &= check("financien.rente gaat voor", fr._rente_cfg(cfg2)["financien"]["rente"]["rentevast_jaren"] == 20)
-    cfg3 = fb.laad_config({"beoordeling": {"financiering": {"rente": 0.039, "rente_datum": "2026-10-30"}},
-                           "financien": {"rente": {"pct": None, "datum": None}}})
-    r3 = fr._rente_cfg(cfg3)["financien"]["rente"]
-    ok &= check("rente_datum ook als financien.rente.datum null is", r3.get("datum") == "2026-10-30", str(r3))
-    ok &= check("zonder eigen sleutels geen rentevast uit de standaard", "rentevast_jaren" not in
-                fr._rente_cfg(fb.laad_config({}))["financien"]["rente"])
+    ok &= check("_rente_cfg is weg: funda_rente leest cfg['financien']['rente'] zelf", not hasattr(fr, "_rente_cfg"))
+    cfg = fb.laad_config({"financien": {"rente": {"rentevast_jaren": 5}}})
+    cfg_oud = fb.laad_config({"beoordeling": {"financiering": {"rentevast_jaren": 5, "rente_max_dagen": 45}}})
 
     oud_rente = funda_rente.huidige_rente
     funda_rente.huidige_rente = lambda *a, **k: {"pct": 3.9, "bron": "ASN", "datum": "2026-11-06", "oud": False,
                                                  "melding": None}
     try:
         rente = fr.haal_rente(cfg, {}, datetime(2026, 11, 7).date())
-        ok &= check("haal_rente: rentevast 5 jaar uit de terugval", rente.get("rentevast_jaren") == 5, str(rente))
+        ok &= check("haal_rente: rentevast 5 jaar uit financien.rente", rente.get("rentevast_jaren") == 5, str(rente))
         ok &= check("toets rekent met 5 jaar vast, dus de AFM-toetsrente", fb._rentevast(rente, cfg) == 5
                     and fb.toetsrente(0.039, 5) == 0.05)
         standaard = fr.haal_rente(fb.laad_config({}), {}, datetime(2026, 11, 7).date())
         ok &= check("zonder instelling: 10 jaar vast (funda_rente)", standaard.get("rentevast_jaren") == 10, str(standaard))
+        oud = fr.haal_rente(cfg_oud, {}, datetime(2026, 11, 7).date())
+        ok &= check("oude plek beoordeling.financiering.rentevast_jaren niet meer gelezen", oud.get("rentevast_jaren") == 10,
+                    str(oud))
     finally:
         funda_rente.huidige_rente = oud_rente
+
+    # FICTIEF: een config met oude sleutels geeft een ::warning:: met alleen de namen, nooit de waarden.
+    oud_personal = fr._PERSONAL
+    fr._PERSONAL = {"beoordeling": {"financiering": {"max_woonlasten_netto": 1234}},
+                    "financien": {"rente": {"handmatig": 4.56}}}
+    uit = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(uit):
+            fr.laad_config()
+    finally:
+        fr._PERSONAL = oud_personal
+    ok &= check("waarschuwing bij oude sleutels, met naam en zonder waarde",
+                "::warning::" in uit.getvalue() and "beoordeling.financiering.max_woonlasten_netto" in uit.getvalue()
+                and "financien.rente.handmatig" in uit.getvalue() and "1234" not in uit.getvalue()
+                and "4.56" not in uit.getvalue(), uit.getvalue().strip())
+    uit = io.StringIO()
+    with contextlib.redirect_stdout(uit):
+        fr.laad_config()
+    ok &= check("geen waarschuwing zonder oude sleutels", "::warning::" not in uit.getvalue(), uit.getvalue().strip())
 
     oud_cache = fr.ENRICHMENT_CACHE
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -578,6 +591,66 @@ def test_rapport_rente_cache_ua() -> bool:
     ok &= check("Nominatim en OSRM krijgen de eerlijke user-agent met repo-link",
                 len(gezien) == 2 and all(ua == fr._eerlijke_ua() and "github.com/rpvos-dhg/Funda" in ua for ua in gezien),
                 str(gezien))
+    return ok
+
+
+def test_verrijking_ruwe_velden() -> bool:
+    """_enrichment houdt alleen de ruwe velden die het model en de UI lezen, en de cachesleutel van
+    price_history blijft exact funda_ui.woning_sleutel (anders is de cache in een klap koud). Geen netwerk."""
+    print("test: _enrichment met ruwe velden, cachesleutel price_history ongewijzigd")
+    import funda_rapport as fr
+    import funda_ui
+
+    ok = True
+    # De sleutel zoals hij in bestaande caches staat: global_id, anders listing_id, detail_url, title.
+    gevallen = [({"global_id": 7990101, "listing_id": 5, "detail_url": "/x/"}, "7990101"),
+                ({"listing_id": 5, "detail_url": "/x/"}, "5"),
+                ({"detail_url": "/detail/koop/teststad/appartement-x/1/", "title": "T"}, "/detail/koop/teststad/appartement-x/1/"),
+                ({"title": "Teststraat 1"}, "Teststraat 1"), ({}, "")]
+    ok &= check("woning_sleutel: een bron (funda_ui) en dezelfde formule",
+                fr.woning_sleutel is funda_ui.woning_sleutel and fr.funda_url is funda_ui.funda_url
+                and all(fr.woning_sleutel(d) == k for d, k in gevallen))
+    ok &= check("funda_url maakt van een pad een volledige link",
+                fr.funda_url({"detail_url": "/detail/koop/x/1/"}) == "https://www.funda.nl/detail/koop/x/1/"
+                and fr.funda_url({"url": "https://www.funda.nl/a/"}) == "https://www.funda.nl/a/" and fr.funda_url({}) == "")
+
+    # FICTIEF: funda geeft getallen soms als tekst.
+    wijzigingen = [{"price": 250000, "status": "asking_price", "timestamp": "2026-10-01T00:00:00"},
+                   {"price": 240000, "status": "woz", "date": "1 jan, 2026"}]
+
+    class Client:
+        def get_price_history(self, listing):
+            return wijzigingen
+
+        def get_market_insights(self, stad, buurt):
+            return {"avg_asking_price_per_m2": "4800", "inhabitants": 9}
+
+        def get_broker_info(self, bid):
+            return {"name": "Testmakelaar", "phone": "x"}
+
+        def get_broker_reviews(self, bid):
+            return {"average": "8.6", "number_of_reviews": "12"}
+
+    cache = {}
+    oud_slaap = fr.time.sleep
+    fr.time.sleep = lambda _s: None
+    try:
+        d = {"global_id": 7990101, "city": "Teststad", "neighbourhood": "Testbuurt", "broker_id": 900009}
+        enr = fr.verrijk_woning(Client(), d, object(), cache)
+        fout = fr.verrijk_woning(type("Kapot", (), {"get_price_history": lambda self, x: 1 / 0})(),
+                                 {"global_id": 2}, object(), {})
+    finally:
+        fr.time.sleep = oud_slaap
+    ok &= check("price_history: alleen de ruwe changes", enr["price_history"] == {"changes": wijzigingen}, str(enr["price_history"]))
+    ok &= check("market: alleen avg_asking_price_per_m2, als getal", enr["market"] == {"avg_asking_price_per_m2": 4800},
+                str(enr["market"]))
+    ok &= check("broker: naam, gemiddelde en aantal reviews",
+                enr["broker"] == {"name": "Testmakelaar", "review_average": 8.6, "review_count": 12}, str(enr["broker"]))
+    ok &= check("cache price_history onder exact de oude sleutel", list(cache.get("price_history", {})) == ["7990101"],
+                str(list(cache.get("price_history", {}))))
+    ok &= check("fout in de prijsbron: lege changes, geen markt of makelaar",
+                fout == {"price_history": {"changes": []}, "market": {"avg_asking_price_per_m2": None},
+                         "broker": {"name": None, "review_average": None, "review_count": None}}, str(fout))
     return ok
 
 
@@ -662,6 +735,59 @@ def test_vul_summary_aan() -> bool:
                 not any(k in tekst for k in ("bruto", "inkomen", "eigen_inleg", "eigen geld", "norm", "grens")))
     fz.SUMMARY_FILE.unlink()
     ok &= check("zonder bestand: geen fout", fz.vul_summary_aan([a]) == 0 and not fz.SUMMARY_FILE.exists())
+    return ok
+
+
+def test_push_volgorde() -> bool:
+    """G7: de push toont de eerste drie nieuwe woningen, in de volgorde van "Aanbevolen"
+    (funda_beoordeling.sorteer), niet in die van sort_key (prijsdaling, lang op funda, prijs)."""
+    print("test: push in de volgorde van funda_beoordeling.sorteer()")
+    import funda_beoordeling as fb
+    fz = maak_stub_funda(lambda _n: [])
+    basis = {"city": "Den Haag", "neighbourhood": "Testbuurt", "living_area": 60, "energy_label": "C"}
+
+    def woning(gid, prijs, b=None, **extra):
+        d = {**basis, "global_id": gid, "title": f"Teststraat {gid}", "price": prijs, **extra}
+        if b is not None:
+            d["_beoordeling"] = b
+        return d
+
+    # FICTIEF. In de volgorde van sort_key: de prijsdaler (Past niet) eerst, prijs onbekend en geen beoordeling ertussen.
+    woningen = [
+        woning(21, 240000, {"poort": "PAST NIET", "score": 9.0, "twijfel": []}, _track={"gedaald": True}),
+        woning(26, 245000),   # geen beoordeling (bijv. een detail-fout in het rapport)
+        woning(25, None, {"poort": "PRIJS ONBEKEND", "score": 9.5, "twijfel": []}),
+        woning(22, 250000, {"poort": "KRAP", "score": 6.0, "twijfel": []}),
+        woning(23, 255000, {"poort": "PAST", "score": 7.0, "twijfel": ["Twijfelbuurt Testbuurt (jouw lijst)."]}),
+        woning(24, 260000, {"poort": "PAST", "score": 8.0, "twijfel": []}),
+    ]
+    fz.schrijf_run_summary(woningen, [], [])
+    n = fz.vul_summary_aan(woningen)
+    data = json.loads(fz.SUMMARY_FILE.read_text(encoding="utf-8"))
+    ids = [x["id"] for x in data["nieuw"]]
+    rijen = [{"id": str(d["global_id"]), "beoordeling": d["_beoordeling"], "prijs_onbekend": fz.prijs_onbekend(d)}
+             for d in woningen if "_beoordeling" in d]
+    verwacht = [r["id"] for r in fb.sorteer(rijen)] + ["26"]
+    ok = check("vijf aangevuld", n == 5, str(n))
+    ok &= check("volgorde = funda_beoordeling.sorteer(), zonder beoordeling achteraan", ids == verwacht,
+                f"{ids} tegen {verwacht}")
+    ok &= check("dus: Past, Past met twijfel, Krap, Past niet, prijs onbekend", ids == ["24", "23", "22", "21", "25", "26"],
+                str(ids))
+    ok &= check("aantal en de rest van de samenvatting blijven", data["nieuw_count"] == 6 and len(ids) == 6)
+
+    node = shutil.which("node")
+    if node:
+        script = Path(__file__).parent / "scripts" / "send_web_push.cjs"
+        code = (f"const p = require({json.dumps(str(script))});"
+                f"console.log(JSON.stringify(p.payloadVoor({fz.SUMMARY_FILE.read_text(encoding='utf-8')})));")
+        uit = subprocess.run([node, "-e", code], capture_output=True, text=True, timeout=30)
+        body = json.loads(uit.stdout)["body"] if uit.returncode == 0 else uit.stderr[-300:]
+        ok &= check("pushtekst: de eerste drie van Aanbevolen", body == "\n".join([
+            "Teststraat 24, Den Haag · Past · 8,0", "Teststraat 23, Den Haag · Past · 7,0",
+            "Teststraat 22, Den Haag · Krap · 6,0"]), body)
+    else:
+        print("  (node niet gevonden; pushtekst overgeslagen)")
+    fz.SUMMARY_FILE.unlink()
     return ok
 
 
@@ -1812,8 +1938,8 @@ def test_pool_in_run() -> bool:
 
 def main() -> int:
     resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(), test_prijs_onbekend(),
-                  test_prijs_onbekend_rapport(), test_rapport_testdata(), test_rapport_rente_cache_ua(), test_twijfel_naar_rapport(), test_vul_summary_aan(),
-                  test_pushtekst(), test_auto_keten(), test_buurtfilter(), test_stadfilter(),
+                  test_prijs_onbekend_rapport(), test_rapport_testdata(), test_rapport_rente_cache_ua(), test_verrijking_ruwe_velden(), test_twijfel_naar_rapport(), test_vul_summary_aan(),
+                  test_push_volgorde(), test_pushtekst(), test_auto_keten(), test_buurtfilter(), test_stadfilter(),
                   test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),
                   test_geen_dubbele_detail_calls(), test_pool_404_bovenaan(), test_pool_404_beeindigt_reeks(),

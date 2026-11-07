@@ -17,6 +17,8 @@ Publieke functies
 laad_config(personal) -> dict
     Standaardwaarden (STANDAARD) samengevoegd met personal["beoordeling"]; het blok
     personal["financien"] komt ongewijzigd mee als cfg["financien"].
+oude_sleutels(personal) -> list[str]
+    Namen van oude aliassen in de config die niet meer gelezen worden (voor een waarschuwing).
 beoordeel(d, details, routes, twijfel, profiel, config, verrijking=None, *, rente=None, vandaag=None) -> dict
     De beoordeling van één woning volgens het datacontract (zie "Uitvoer" hieronder).
 poort(woning, cfg, fin) -> dict
@@ -46,6 +48,7 @@ scenario_overzicht(cfg, profiel, rente=None, vandaag=None, label=None, canon_jaa
     Max. hypotheek en max. koopsom per scenario zonder een specifieke woning (voor de voet).
 POORT_RANG, sorteer_sleutel(rij), sorteer(rijen) -> rijen
 log_kenmerk_labels(details_lijst) -> dict[str, int]
+prijswijzigingen(d) -> list                    de ruwe prijshistorie uit d["_enrichment"]
 Parsers (kenmerken eerst, tekst als terugval): energielabel, vve_maand, stookkosten_in_vve,
 erfpacht, buitenruimte, woonlaag, vve_status, lees_advertentie, prijshistorie.
 
@@ -65,8 +68,7 @@ funda_zoek (bijv. "Twijfelbuurt Leyenburg (jouw lijst)."). verrijking: per bron
 {"status": "ok"|"onbekend"|"budget"|"uit"|"niet_nodig", "data": {...}, "reden": str}
 of direct de data (kaal, zonder status). rente: dict uit
 funda_rente.huidige_rente(): {"pct", "bron", "datum", "oud", "melding"}. Zonder rente:
-de rente uit de config (financien.rente, dan beoordeling.financiering.rente), anders
-STANDAARD_RENTE (4,11%, 6 juli 2026).
+financien.rente.pct uit de config, anders STANDAARD_RENTE (4,11%, 6 juli 2026).
 
 Uitvoer (het datacontract)
 ==========================
@@ -129,14 +131,15 @@ alleen in de secret, nooit in de repo):
                                          maanden sinds "datum" (leeg = vandaag); buffer gaat eraf
       "kosten_koper": {"vast": 6000, "nhg_pct": 0.4},   vaste posten in euro; NHG in procent
       "rente": {"pct": 4.11, "datum": "JJJJ-MM-DD", "rentevast_jaren": 10}
-    }
+    }                                    rente: de enige plek voor rente en rentevast; funda_rente
+                                         leest daar ook "bron", "nhg", "ltv" en "max_dagen"
 
-Ook geaccepteerd (zelfde betekenis): "toetsinkomen": {id: bedrag} in plaats van
-"scenarios", "startersvrijstelling_tot", "verplichtingen_maand": {"duo": x},
-"bkr_limieten": x (som van niet opgezegde limieten), "buffer" op het hoogste niveau,
-"eigen_geld": {id: bedrag} als vaste waarde per scenario, "rente": {"handmatig": x,
-"rentevast_jaar": n}. Als terugval, alleen als je ze zelf zet: beoordeling.financiering.rente,
-rente_datum, rentevast_jaren en rente_max_dagen (financien.rente gaat voor).
+Alleen deze sleutels gelden. De oude aliassen en plekken (financien.toetsinkomen, ook per
+scenario, startersvrijstelling_tot, verplichtingen_maand, bkr_limieten, buffer op het hoogste niveau,
+eigen_geld per scenario-id, rente.handmatig en rente.rentevast_jaar; beoordeling.financien;
+beoordeling.financiering.max_woonlasten_netto, woonlasten_marge_past_niet, rente, rente_datum,
+rentevast_jaren en rente_max_dagen) worden sinds nov 2026 niet meer gelezen. oude_sleutels()
+noemt ze, zodat funda_rapport waarschuwt in plaats van stil de standaard te nemen.
 
 Zonder "financien" valt alles terug op de bestaande sleutels van het profiel:
 bruto_jaar, eigen_inleg, duo_maandlast en leeftijd. Dan zijn er geen scenario's
@@ -211,10 +214,7 @@ STANDAARD: dict = {
     "krap_marge": 150,
     "financiering": {
         "alleenstaand": True,
-        # Rente, rentevast en de leeftijdsgrens staan in financien.rente (één plek). De oude sleutels
-        # rente, rente_datum, rentevast_jaren en rente_max_dagen hier werken nog als terugval
-        # (funda_rapport._rente_cfg), maar alleen als je ze zelf zet; daarom geen standaardwaarde.
-        "rente": None,
+        # Rente, rentevast en de leeftijdsgrens staan in financien.rente (één plek).
         "overbod_pct": 0.0,
         "kk_onzekerheid": 1500,
         "eigen_geld_tekort_past_niet": 5000,
@@ -298,25 +298,50 @@ def _merge(basis: dict, extra: dict) -> dict:
 def laad_config(personal: dict | None) -> dict:
     """personal["beoordeling"] over STANDAARD heen; ontbrekend = standaard.
 
-    Oude plekken werken ook: financiering.max_woonlasten_netto
-    en financiering.woonlasten_marge_past_niet. De nieuwe plek gaat voor. Het blok
-    personal["financien"] komt mee als cfg["financien"] (of None).
+    lang_op_funda_dagen op het hoogste niveau (die leest funda_zoek ook) geldt als
+    beoordeling.lang_op_funda_dagen ontbreekt. Het blok personal["financien"] komt mee als
+    cfg["financien"] (of None). Oude aliassen worden niet gelezen (zie oude_sleutels()).
     """
     personal = personal if isinstance(personal, dict) else {}
     eigen = personal.get("beoordeling") if isinstance(personal.get("beoordeling"), dict) else {}
     cfg = _merge(STANDAARD, eigen)
-    fin_eigen = eigen.get("financiering") if isinstance(eigen.get("financiering"), dict) else {}
-    if eigen.get("max_woonlasten_netto") is None and fin_eigen.get("max_woonlasten_netto") is not None:
-        cfg["max_woonlasten_netto"] = fin_eigen["max_woonlasten_netto"]
-    if "krap_marge" not in eigen and fin_eigen.get("woonlasten_marge_past_niet") is not None:
-        cfg["krap_marge"] = fin_eigen["woonlasten_marge_past_niet"]
     if "lang_op_funda_dagen" not in eigen and personal.get("lang_op_funda_dagen") is not None:
         cfg["lang_op_funda_dagen"] = personal["lang_op_funda_dagen"]
     fin = personal.get("financien")
-    if not isinstance(fin, dict):
-        fin = eigen.get("financien") if isinstance(eigen.get("financien"), dict) else None
-    cfg["financien"] = copy.deepcopy(fin)
+    cfg["financien"] = copy.deepcopy(fin) if isinstance(fin, dict) else None
     return cfg
+
+
+# Sleutels die tot nov 2026 als alias golden en nu niet meer gelezen worden (CLAUDE.md, "Config").
+OUDE_SLEUTELS = {
+    "beoordeling": ("financien",),
+    "beoordeling.financiering": ("max_woonlasten_netto", "woonlasten_marge_past_niet", "rente", "rente_datum",
+                                 "rentevast_jaren", "rente_max_dagen"),
+    "financien": ("toetsinkomen", "startersvrijstelling_tot", "verplichtingen_maand", "bkr_limieten", "buffer"),
+    "financien.rente": ("handmatig", "rentevast_jaar"),
+}
+EIGEN_GELD_SLEUTELS = ("nu", "datum", "per_maand", "buffer")
+
+
+def oude_sleutels(personal: dict | None) -> list[str]:
+    """Namen (nooit waarden) van oude aliassen in de config, bijv. "financien.toetsinkomen".
+    Die worden niet meer gelezen; funda_rapport waarschuwt ermee in plaats van stil de standaard te nemen."""
+    personal = personal if isinstance(personal, dict) else {}
+    uit = []
+    for pad, namen in OUDE_SLEUTELS.items():
+        blok = personal
+        for deel in pad.split("."):
+            blok = blok.get(deel) if isinstance(blok, dict) else None
+        if isinstance(blok, dict):
+            uit += [f"{pad}.{n}" for n in namen if n in blok]
+    fin = personal.get("financien") if isinstance(personal.get("financien"), dict) else {}
+    eg = fin.get("eigen_geld")
+    if isinstance(eg, dict):
+        uit += [f"financien.eigen_geld.{k}" for k in eg if k not in EIGEN_GELD_SLEUTELS and not str(k).startswith("_")]
+    sc = fin.get("scenarios")
+    if isinstance(sc, dict):
+        uit += [f"financien.scenarios.{k}.toetsinkomen" for k, v in sc.items() if isinstance(v, dict) and "toetsinkomen" in v]
+    return uit
 
 
 # ---------------------------------------------------------------------------------------
@@ -535,21 +560,17 @@ def max_koopsom(max_hyp: float, eigen_geld: float, starter: bool = True, kk_vast
 def rente_uit_config(cfg: dict, vandaag=None) -> dict:
     """Rente-dict in de vorm van funda_rente.huidige_rente(), zonder netwerk.
 
-    Volgorde: financien.rente, dan beoordeling.financiering.rente, dan STANDAARD_RENTE."""
+    Volgorde: financien.rente.pct (met financien.rente.datum), dan STANDAARD_RENTE."""
     vandaag = _datum(vandaag, date.today())
     fin = (cfg or {}).get("financien") or {}
     r = fin.get("rente") if isinstance(fin.get("rente"), dict) else {}
-    f = (cfg or {}).get("financiering") or {}
-    pct = r.get("pct") if r.get("pct") is not None else r.get("handmatig")
-    if pct is not None:
-        bron, datum = "handmatig", r.get("datum")
-    elif f.get("rente") is not None:
-        pct, bron, datum = f["rente"], "handmatig", f.get("rente_datum")
+    if r.get("pct") is not None:
+        pct, bron, datum = r["pct"], "handmatig", r.get("datum")
     else:
         pct, bron, datum = STANDAARD_RENTE["pct"], "standaard", STANDAARD_RENTE["datum"]
     frac = _als_fractie(pct, 0.2)
     d = _datum(datum)
-    max_dagen = int(r.get("max_dagen") or f.get("rente_max_dagen") or 30)   # zelfde grens als funda_rente
+    max_dagen = int(r.get("max_dagen") or 30)   # zelfde grens als funda_rente
     dagen = (vandaag - d).days if d else None
     oud = dagen is None or dagen > max_dagen
     melding = None
@@ -562,12 +583,9 @@ def rente_uit_config(cfg: dict, vandaag=None) -> dict:
 
 def _rentevast(rente: dict | None, cfg: dict) -> int:
     for bron in ((rente or {}), ((cfg.get("financien") or {}).get("rente") or {})):
-        for k in ("rentevast_jaren", "rentevast_jaar"):
-            if isinstance(bron, dict) and bron.get(k) is not None:
-                return int(bron[k])
-    if (rente or {}).get("bron") == "standaard":
-        return STANDAARD_RENTE["rentevast_jaren"]
-    return int((cfg.get("financiering") or {}).get("rentevast_jaren") or 30)
+        if isinstance(bron, dict) and bron.get("rentevast_jaren") is not None:
+            return int(bron["rentevast_jaren"])
+    return STANDAARD_RENTE["rentevast_jaren"]   # niets ingesteld: 30 jaar, zoals tot nu toe
 
 
 # ---------------------------------------------------------------------------------------
@@ -615,7 +633,7 @@ def financien_invoer(cfg: dict, profiel: dict | None, vandaag=None) -> dict:
             "planning": "profiel",
             "studieschuld_maand": float(profiel.get("duo_maandlast") or 0),
             "bkr_maand": 0.0,
-            "eigen_geld": {"nu": float(profiel.get("eigen_inleg") or 0), "datum": vandaag, "per_maand": 0.0, "vast": {}},
+            "eigen_geld": {"nu": float(profiel.get("eigen_inleg") or 0), "datum": vandaag, "per_maand": 0.0},
             "buffer": 0.0,
             "kk_vast": float(KK_VAST_STANDAARD),
             "nhg_pct": NHG_PREMIE,
@@ -623,8 +641,6 @@ def financien_invoer(cfg: dict, profiel: dict | None, vandaag=None) -> dict:
 
     # scenario's
     sc_raw = raw.get("scenarios")
-    if sc_raw is None and isinstance(raw.get("toetsinkomen"), dict):
-        sc_raw = raw["toetsinkomen"]
     lijst = []
     if isinstance(sc_raw, dict):
         items = list(sc_raw.items())
@@ -637,7 +653,7 @@ def financien_invoer(cfg: dict, profiel: dict | None, vandaag=None) -> dict:
             continue
         sid = str(sid)
         v = v if isinstance(v, dict) else {"bruto_jaar": v}
-        ink = v.get("bruto_jaar", v.get("toetsinkomen"))
+        ink = v.get("bruto_jaar")
         if ink is None:
             continue
         datum = _datum(v.get("datum")) or _scenario_datum(sid, vandaag)
@@ -662,11 +678,9 @@ def financien_invoer(cfg: dict, profiel: dict | None, vandaag=None) -> dict:
         studie = st.get("maandlast", 0)
     elif isinstance(st, (int, float)):
         studie = st
-    elif isinstance(raw.get("verplichtingen_maand"), dict):
-        studie = raw["verplichtingen_maand"].get("duo", raw["verplichtingen_maand"].get("studieschuld", 0))
     else:
         studie = profiel.get("duo_maandlast", 0)
-    bkr = raw.get("bkr", raw.get("bkr_limieten"))
+    bkr = raw.get("bkr")
     bkr_maand = 0.0
     if isinstance(bkr, (int, float)):
         bkr_maand = BKR_PCT_LIMIET * float(bkr)
@@ -685,10 +699,9 @@ def financien_invoer(cfg: dict, profiel: dict | None, vandaag=None) -> dict:
         eg = {"nu": eg}
     eg = eg if isinstance(eg, dict) else {}
     nu = eg.get("nu", profiel.get("eigen_inleg", 0))
-    vast_per_id = {k: float(v) for k, v in eg.items() if k in ids and k != "nu" and isinstance(v, (int, float))}
-    buffer = eg.get("buffer", raw.get("buffer", 0))
+    buffer = eg.get("buffer", 0)
     kk = raw.get("kosten_koper") if isinstance(raw.get("kosten_koper"), dict) else {}
-    starter_tot = _datum(raw.get("starter_tot", raw.get("startersvrijstelling_tot"))) or _datum(f_cfg.get("starter_tot"))
+    starter_tot = _datum(raw.get("starter_tot")) or _datum(f_cfg.get("starter_tot"))
     return {
         "bron": "financien",
         "alleenstaand": bool(raw.get("alleenstaand", f_cfg.get("alleenstaand", True))),
@@ -699,7 +712,7 @@ def financien_invoer(cfg: dict, profiel: dict | None, vandaag=None) -> dict:
         "studieschuld_maand": float(studie or 0),
         "bkr_maand": bkr_maand,
         "eigen_geld": {"nu": float(nu or 0), "datum": _datum(eg.get("datum"), vandaag),
-                       "per_maand": float(eg.get("per_maand") or 0), "vast": vast_per_id},
+                       "per_maand": float(eg.get("per_maand") or 0)},
         "buffer": float(buffer or 0),
         "kk_vast": float(kk.get("vast", KK_VAST_STANDAARD)),
         "nhg_pct": _als_fractie(kk.get("nhg_pct", NHG_PREMIE * 100), 0.05),
@@ -711,8 +724,6 @@ def _eigen_geld_op(inv: dict, scenario: dict) -> float:
     if scenario.get("eigen_geld") is not None:
         return float(scenario["eigen_geld"])
     eg = inv["eigen_geld"]
-    if scenario["id"] in eg["vast"]:
-        return eg["vast"][scenario["id"]]
     return eg["nu"] + eg["per_maand"] * _maanden_tussen(eg["datum"], scenario["datum"])
 
 
@@ -1246,10 +1257,19 @@ def _prijs_van(change: dict) -> int | None:
     return int(digits) if digits else None
 
 
+def prijswijzigingen(d: dict | None) -> list:
+    """De ruwe prijshistorie uit d["_enrichment"]["price_history"]: {"changes": [...]} of een kale lijst."""
+    enr = (d or {}).get("_enrichment") if isinstance((d or {}).get("_enrichment"), dict) else {}
+    ph = enr.get("price_history")
+    changes = ph.get("changes") if isinstance(ph, dict) else ph
+    return changes if isinstance(changes, list) else []
+
+
 def prijshistorie(changes) -> dict:
     """Vraagprijzen na de laatste verkoop (op tijd gesorteerd), de hoogste daarvan en de nieuwste WOZ.
 
-    Een piek uit een eerdere verkoopperiode telt niet als prijsdaling."""
+    Een piek uit een eerdere verkoopperiode telt niet als prijsdaling. De WOZ is
+    {"bedrag", "jaar", "datum"} (datum ISO uit de regel, of None), of None."""
     rijen = [c for c in (changes or []) if isinstance(c, dict)]
     rijen.sort(key=_tijd)
     verkocht = [c for c in rijen if str(c.get("status") or "").lower() == "sold"]
@@ -1260,7 +1280,8 @@ def prijshistorie(changes) -> dict:
     return {
         "vraagprijzen": [{"prijs": _prijs_van(c), "datum": _tijd(c)} for c in vraag],
         "hoogste": max((_prijs_van(c) for c in vraag), default=None),
-        "woz": {"bedrag": _prijs_van(w), "jaar": int(_tijd(w)[:4]) if _tijd(w) else None} if w else None,
+        "woz": {"bedrag": _prijs_van(w), "jaar": int(_tijd(w)[:4]) if _tijd(w) else None,
+                "datum": _tijd(w) or None} if w else None,
     }
 
 
@@ -1373,9 +1394,7 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
     vve, vve_bron = vve_maand(ch, tekst)
     stook = stookkosten_in_vve(ch, tekst)
     energie = ENERGIE_PER_LABEL.get(label, ENERGIE_ONBEKEND) * max(m2, 40) / 75 * (STOOK_IN_VVE_FACTOR if stook else 1)
-    ph_raw = enr.get("price_history")
-    changes = ph_raw.get("changes") if isinstance(ph_raw, dict) else ph_raw if isinstance(ph_raw, list) else []
-    hist = prijshistorie(changes)
+    hist = prijshistorie(prijswijzigingen(d))
     prijs = w.get("price") if isinstance(w.get("price"), (int, float)) and w.get("price") > 0 else None
     fin = financiering({"prijs": prijs, "label": None if label == "?" else label, "canon_jaar": erf["canon_jaar"],
                         "vve": vve, "vve_bron": vve_bron, "energie": energie, "stook_in_vve": stook,

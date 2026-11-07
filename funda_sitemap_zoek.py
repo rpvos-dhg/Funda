@@ -79,9 +79,9 @@ ROBOTS_URL = "https://www.funda.nl/robots.txt"
 # komt elke run uit robots.txt, zodat een verhuizing vanzelf wordt opgepikt.
 SITEMAP_INDEX_URL = "https://www.funda.nl/sitemap_index.xml/"
 
-# Zelfde client-instellingen als HtmlZoeker. Bewust één vast profiel: geeft funda
-# een 403 of een bot-controle, dan faalt de run luid in plaats van dat er een
-# ander profiel geprobeerd wordt.
+# De client-instellingen voor www.funda.nl; HtmlZoeker importeert ze hiervandaan (één bron).
+# Bewust één vast profiel: geeft funda een 403 of een bot-controle, dan faalt de run
+# luid in plaats van dat er een ander profiel geprobeerd wordt.
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
     "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"

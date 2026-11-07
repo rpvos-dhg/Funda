@@ -133,7 +133,10 @@ def test_handmatig() -> bool:
     ok &= check("zonder datum: datum None, oud, vraag om datum",
                 uit["datum"] is None and uit["oud"] is True and "financien.rente.datum" in uit["melding"])
     uit = rente({"beoordeling": {"financien": {"rente": {"pct": 4.2, "datum": VANDAAG}}}}, {}, NepWeb())
-    ok &= check("ook onder beoordeling.financien", uit["bron"] == "handmatig" and uit["pct"] == 4.2)
+    ok &= check("oude plek beoordeling.financien niet meer gelezen", uit["bron"] != "handmatig", uit["bron"])
+    ok &= check("instellingen alleen uit financien.rente",
+                r.instellingen({"beoordeling": {"financien": {"rente": {"pct": 4.2}}}})["pct"] is None
+                and r.instellingen({"financien": {"rente": {"pct": 4.2}}})["pct"] == 4.2 and r.instellingen(None) == r.STANDAARD)
     return ok
 
 
@@ -192,6 +195,11 @@ def test_terugval() -> bool:
     ok &= check("alles kapot: standaard 4,11% met melding", uit2["bron"] == "standaard" and uit2["pct"] == 4.11
                 and uit2["datum"] == "2026-07-06" and uit2["oud"] is True and "financien.rente.pct" in uit2["melding"])
     ok &= check("contract ook dan", set(uit2) == CONTRACT)
+    import funda_beoordeling as fb
+    bron = (HIER / "funda_rente.py").read_text(encoding="utf-8")
+    ok &= check("standaardrente uit één bron: funda_beoordeling.STANDAARD_RENTE",
+                (uit2["pct"], uit2["datum"]) == (fb.STANDAARD_RENTE["pct"], fb.STANDAARD_RENTE["datum"])
+                and "4.11" not in bron and "2026-07-06" not in bron and not hasattr(r, "STANDAARD_PCT"))
     # Gisteren ASN gelukt, vandaag niet: het blad van gisteren wint van het oudere DNB-cijfer.
     cache3: dict = {}
     rente({}, cache3, NepWeb(), vandaag="2026-11-07")

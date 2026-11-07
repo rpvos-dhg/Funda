@@ -485,12 +485,20 @@ def vul_summary_aan(woningen: list[dict]) -> int:
     eigen geld te weinig' het eigen geld), en een melding staat leesbaar op het vergrendelscherm.
     De bedragen blijven in het versleutelde rapport. Zonder beoordeling of zonder bestand verandert
     er niets. Geeft het aantal aangevulde woningen.
+
+    De nieuwe woningen komen daarna in de volgorde van "Aanbevolen" (funda_beoordeling.sorteer:
+    geen vraagprijs, poort, twijfel, -score), want de push toont de eerste drie. Woningen zonder
+    beoordeling gaan achteraan, in hun oude volgorde.
     """
-    beoordeling = {}
+    from funda_beoordeling import sorteer_sleutel
+    beoordeling, volgorde = {}, {}
     for d in woningen:
         b = d.get("_beoordeling")
         if isinstance(b, dict) and _poortwoord(b):
-            beoordeling[str(d.get("global_id") or d.get("listing_id") or d.get("detail_url") or "")] = b
+            lid = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url") or "")
+            beoordeling[lid] = b
+            # Zelfde rij-vorm als funda_rapport.bouw_rij, zodat de sleutel gelijk is aan die van het rapport.
+            volgorde[lid] = sorteer_sleutel({"beoordeling": b, "prijs_onbekend": prijs_onbekend(d)})
     if not beoordeling:
         return 0
     try:
@@ -508,6 +516,11 @@ def vul_summary_aan(woningen: list[dict]) -> int:
             item["score"] = round(float(b["score"]), 1)
         n += 1
     if n:
+        def plek(item: dict) -> tuple:
+            lid = str(item.get("id") or "")
+            return (0, volgorde[lid]) if lid in volgorde else (1,)   # zonder beoordeling achteraan (stabiel)
+
+        payload["nieuw"].sort(key=plek)
         SUMMARY_FILE.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return n
 
@@ -1722,6 +1735,8 @@ def main() -> None:
 
     # Sorteer: prijsdalers eerst, dan lang-op-funda (onderhandelkansen),
     # twijfelbuurten en woningen zonder vraagprijs naar onderen, daarna op prijs.
+    # Dit is de volgorde van de console en de voorlopige samenvatting; na het rapport
+    # zet vul_summary_aan() de push in de volgorde van "Aanbevolen" (funda_beoordeling.sorteer).
     def sort_key(d: dict):
         buurt = (d.get("neighbourhood") or "")
         twijfel = (is_twijfelbuurt(buurt) is not None

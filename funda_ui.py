@@ -1,6 +1,7 @@
 """Woningrapport: de UI (lijst, woningkaarten, sheets, kaart en voet) uit het beoordelingscontract.
 
-Geen netwerk en geen import van funda_rapport (geen kringimport); constanten komen via `meta`.
+Geen netwerk en geen import van funda_rapport (geen kringimport); constanten komen via `meta`. Wel
+funda_beoordeling (pure functies): de WOZ komt uit prijshistorie(), zodat kaart en model dezelfde tonen.
 CSS, JS en het slotscherm staan als gewone bestanden in ui/, zodat ze geen Python-escapes nodig
 hebben (in een gewone Python-string wordt content:"\\2212" een octale escape).
 
@@ -12,11 +13,13 @@ Publieke API
   render_report_body(rijen, meta) -> str
                                de body: sprite, topbalk, lijst, voet, kaart, sheets en #woning-data
   vul_slot(waarden) -> str     ui/slot.html met alle placeholders vervangen (waarden per placeholdernaam)
+  woning_sleutel(d), funda_url(d)
+                               sleutel en link van een woning; funda_rapport gebruikt dezelfde
 
 Rij (per woning, zoals funda_rapport.bouw_rij hem maakt):
   beoordeling   contract uit de docstring van funda_beoordeling.py ("Uitvoer"), met financiering.scenarios/planning/scenario_tekst
   d             zoekresultaat: global_id, title, neighbourhood, city, price, living_area, rooms, energy_label,
-                url of detail_url, en _enrichment.price_history.latest_woz (WOZ met datum)
+                url of detail_url, en _enrichment.price_history.changes (funda's ruwe prijshistorie)
   details       detail-antwoord: characteristics, photo_urls, construction_year, offered_since (valt terug op d)
   routes        [{"label", "km"}] per werkadres; lat, lon; foto_url; is_nieuw; track (gedaald, eerdere_prijs, dagen)
 
@@ -28,7 +31,7 @@ Meta (alles optioneel):
   push_beschikbaar  er is een Web Push-sleutel: toon "Meldingen op deze iPhone"
   push_ingesteld    er is al een abonnement: verberg dat blok
   scenarios         [{"id", "label", "max_koopsom"}] voor "Jouw budget"; anders afgeleid uit de rijen
-  kk_onzekerheid, eigen_geld_tekort_past_niet, lang_op_funda_dagen, run_cron_utc, leentoets_jaar
+  kk_onzekerheid, lang_op_funda_dagen, run_cron_utc, leentoets_jaar
 """
 from __future__ import annotations
 
@@ -38,6 +41,8 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+import funda_beoordeling
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 UI_CSS = (UI_DIR / "app.css").read_text(encoding="utf-8")
@@ -55,7 +60,6 @@ AMS = ZoneInfo("Europe/Amsterdam")
 RUN_CRON_UTC = [(8, 30), (16, 30)]   # .github/workflows/funda-daily.yml
 FIETS_KMU = 15
 KK_ONZEKERHEID = 1500
-TEKORT_PAST_NIET = 5000
 LANG_OP_FUNDA_DAGEN = 90
 MAX_FOTOS = 6
 
@@ -148,7 +152,8 @@ SPRITE = """<svg class="sprite" aria-hidden="true" focusable="false">
 
 # ── data ─────────────────────────────────────────────────────────────────────
 def woning_sleutel(d: dict) -> str:
-    """Zelfde sleutel als funda_rapport.woning_sleutel (global_id eerst), zonder die module te importeren."""
+    """Sleutel van een woning: global_id, anders listing_id, detail_url of title. funda_rapport gebruikt deze ook,
+    als cachesleutel van price_history in funda_enrichment_cache.json: niet veranderen, anders is die cache koud."""
     return str(d.get("global_id") or d.get("listing_id") or d.get("detail_url") or d.get("title") or "")
 
 
@@ -156,7 +161,8 @@ def card_id(sleutel: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]+", "-", sleutel).strip("-") or "woning"
 
 
-def _url(d: dict) -> str:
+def funda_url(d: dict) -> str:
+    """Volledige funda-link uit detail_url of url (een pad krijgt https://www.funda.nl ervoor)."""
     url = d.get("detail_url") or d.get("url") or ""
     if url and not url.startswith("http"):
         url = "https://www.funda.nl" + url
@@ -208,12 +214,12 @@ def _woning(rij: dict, meta: dict) -> dict:
         lang = {"label": "Lang te koop", "waarde": f"{track['dagen']} dagen"}
     poort = b.get("poort") if b.get("poort") in POORT_RANG else ("PRIJS ONBEKEND" if prijs is None else "KRAP")
     sleutel = woning_sleutel(d)
-    hist = ((d.get("_enrichment") or {}).get("price_history") or {})
+    woz = funda_beoordeling.prijshistorie(funda_beoordeling.prijswijzigingen(d))["woz"]   # dezelfde als het model
     w = {
         "id": sleutel, "titel": d.get("title") or det.get("title") or "Woning", "buurt": d.get("neighbourhood") or "",
         "stad": d.get("city") or "", "prijs": prijs, "m2": _getal(d.get("living_area")) or _getal(det.get("living_area")),
         "kamers": d.get("rooms") or det.get("rooms"), "label": label,
-        "bouwjaar": det.get("construction_year") or d.get("construction_year"), "url": _url(d) or _url(det),
+        "bouwjaar": det.get("construction_year") or d.get("construction_year"), "url": funda_url(d) or funda_url(det),
         "nieuw_run": bool(rij.get("is_nieuw")), "gedaald": bool(track.get("gedaald")),
         "eerdere_prijs": _getal(track.get("eerdere_prijs")), "dagen": _getal(track.get("dagen")), "lang": lang,
         "poort": poort, "twijfel": [_zin(t) for t in (b.get("twijfel") or []) if str(t).strip()],
@@ -221,42 +227,15 @@ def _woning(rij: dict, meta: dict) -> dict:
         "let_op": b.get("let_op") or [], "plus": b.get("pluspunten") or [], "onbekend": b.get("onbekend") or [],
         "kansen": kansen, "zelf": (b.get("zelf_nagaan") or [])[:6], "fin": f, "routes": routes,
         "foto": rij.get("foto_url"), "fotos": fotos, "lat": _getal(rij.get("lat")), "lon": _getal(rij.get("lon")),
-        "ch": ch, "woz": hist.get("latest_woz"), "aangeboden": det.get("offered_since") or d.get("offered_since"),
+        "ch": ch, "woz": woz, "aangeboden": det.get("offered_since") or d.get("offered_since"),
         "scenario_tekst": f.get("scenario_tekst"), "beoordeeld": bool(b),
     }
-    kort = b.get("status_kort")
-    if not kort:
-        kort = f"{POORT_NAAM[poort]} · " + (status_reden(poort, f, meta) if b else "geen beoordeling, ga het zelf na")
+    # De statusregel komt uit funda_beoordeling.status_kort() (beoordeel() zet hem altijd).
+    kort = b.get("status_kort") or (POORT_NAAM[poort] if b else f"{POORT_NAAM[poort]} · geen beoordeling, ga het zelf na")
     naam, _, reden = kort.partition(" · ")
     w["status_kort"] = kort
     w["status_html"] = f"<strong>{h(naam)}</strong>" + (f" · {h(reden)}" if reden else "")
     return w
-
-
-def status_reden(poort: str, fin: dict, meta: dict | None = None) -> str:
-    """Eén reden met het bedrag dat de poort bepaalt. Eigen geld gaat voor als dat de poort zet."""
-    meta = meta or {}
-    kk = meta.get("kk_onzekerheid", KK_ONZEKERHEID)
-    te_weinig = meta.get("eigen_geld_tekort_past_niet", TEKORT_PAST_NIET)
-    if poort == "PRIJS ONBEKEND":
-        return "geen vraagprijs, dus geen leentoets"
-    bruto_norm = fin.get("grens_soort") == "bruto norm"
-    lasten = fin.get("bruto") if bruto_norm else fin.get("netto")
-    grens, tekort = fin.get("grens"), fin.get("tekort") or 0
-    if lasten is None or grens is None:
-        return f"{eur_tekst(tekort)} eigen geld te weinig" if tekort > 0 else "woonlasten onbekend"
-    if (poort == "PAST NIET" and tekort > te_weinig) or (poort == "KRAP" and tekort > kk and lasten <= grens):
-        return f"{eur_tekst(tekort)} eigen geld te weinig"
-    if lasten == grens:   # geen "€ 0 onder je grens"
-        return "precies op " + ("de norm (bruto)" if bruto_norm else "je grens")
-    if lasten < grens:
-        return f"{eur_tekst(grens - lasten)} onder " + ("de norm (bruto)" if bruto_norm else "je grens")
-    return f"{eur_tekst(lasten - grens)} boven " + ("de norm (bruto)" if bruto_norm else "je grens")
-
-
-def status_tekst(poort: str, fin: dict, meta: dict | None = None) -> str:
-    """De korte statusregel zoals markdown, push, kaartpopup en vergelijking hem tonen."""
-    return f"{POORT_NAAM[poort]} · {status_reden(poort, fin, meta)}"
 
 
 def kort_tekst(naam, v) -> str:
@@ -401,9 +380,9 @@ def kenmerken(w) -> str:
     if w["gedaald"] and w["eerdere_prijs"] and w["prijs"]:
         rijen.append(("Prijsverloop", f"was {eur(w['eerdere_prijs'])}, nu {eur(w['prijs'])}"))
     woz = w["woz"] or {}
-    if _getal(woz.get("price")):
-        peil = _iso_datum(woz.get("timestamp")) or _iso_datum(woz.get("date"))   # anders geen datum
-        rijen.append(("WOZ", eur(woz["price"]) + (f" (peildatum {datum_lang(peil)})" if peil else "")))
+    if _getal(woz.get("bedrag")):
+        peil = _iso_datum(woz.get("datum"))   # anders geen datum
+        rijen.append(("WOZ", eur(woz["bedrag"]) + (f" (peildatum {datum_lang(peil)})" if peil else "")))
     a = w["aangeboden"]
     if a:
         rijen.append(("Op funda", "sinds vandaag" if str(a).lower() == "vandaag" else f"sinds {a}"))
