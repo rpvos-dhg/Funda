@@ -26,7 +26,6 @@ import math
 import os
 import sys
 import time
-import urllib.parse
 import urllib.request
 from collections import Counter
 from datetime import date, datetime
@@ -104,44 +103,70 @@ def _werk_postcodes() -> list[tuple[str, str]]:
 
 WERK_CACHE = Path(__file__).parent / "funda_werk_coords.json"
 ENRICHMENT_CACHE = Path(__file__).parent / "funda_enrichment_cache.json"
-# Nominatim en OSRM: dezelfde eerlijke user-agent als de rest (EERLIJKE_UA uit funda_zoek, met repo-link),
-# zonder naam. Op het moment van aanroepen gelezen, zodat er geen kringimport ontstaat.
+# PDOK (geocoding) en OSRM (routes): dezelfde eerlijke user-agent als de rest (EERLIJKE_UA uit funda_zoek,
+# met repo-link), zonder naam. Op het moment van aanroepen gelezen, zodat er geen kringimport ontstaat.
 USER_AGENT_TERUGVAL = "funda-dagelijkse-check/1.0 (+https://github.com/rpvos-dhg/Funda)"
 
 
 # === Geocoding en routing ===
 
-def lookup_postcode(postcode: str) -> tuple[float, float] | None:
-    """Nominatim lookup; geeft (lat, lon) of None terug."""
-    q = urllib.parse.quote(f"{postcode}, Nederland")
-    url = f"https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1&countrycodes=nl"
+# Eén Geocoder per run, gedeeld met funda_zoek.thuis_coords(): robots.txt één keer, één poging per
+# postcode. Tests zetten hier een Geocoder met een nep-HTTP-functie.
+GEOCODER: funda_verrijking.Geocoder | None = None
+
+
+def geocodeer_postcode(postcode: str) -> tuple[tuple[float, float] | None, str | None]:
+    """(lat, lon) van een postcode via de BAG op api.pdok.nl, of (None, reden). Gooit nooit.
+
+    Geen Nominatim: de robots.txt daar verbiedt /search."""
+    global GEOCODER
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": _eerlijke_ua() or USER_AGENT_TERUGVAL})
-        with urllib.request.urlopen(req, timeout=8) as r:
-            data = json.loads(r.read())
-        if data:
-            return (float(data[0]["lat"]), float(data[0]["lon"]))
-    except Exception:
-        return None
-    return None
+        if GEOCODER is None:
+            GEOCODER = funda_verrijking.Geocoder(ua=_eerlijke_ua() or USER_AGENT_TERUGVAL)
+        return GEOCODER.punt(postcode)
+    except Exception as exc:  # noqa: BLE001
+        return None, f"interne fout ({type(exc).__name__})"
 
 
 def get_werk_coords() -> dict[str, tuple[float, float]]:
-    """Lees gecachte coordinates of doe nieuwe lookups."""
-    if WERK_CACHE.exists():
-        try:
-            d = json.loads(WERK_CACHE.read_text())
-            return {k: tuple(v) for k, v in d.items()}
-        except Exception:
-            pass
+    """Punt per werkpostcode uit de config: {postcode: (lat, lon)}.
+
+    Per postcode: `werk_coords` in de config gaat voor, dan funda_werk_coords.json (zelfde vorm:
+    {postcode: [lat, lon]}), dan één poging via PDOK; een gevonden punt komt voorgoed in dat bestand.
+    Lukt het niet, dan een ::warning:: met alleen aantallen en geen route naar dat adres: de
+    reisafstand is dan onbekend (geen minpunt)."""
+    vast = _PERSONAL.get("werk_coords")
+    vast = vast if isinstance(vast, dict) else {}
+    try:
+        cache = json.loads(WERK_CACHE.read_text(encoding="utf-8")) if WERK_CACHE.exists() else {}
+    except Exception:  # noqa: BLE001
+        cache = {}
+    cache = cache if isinstance(cache, dict) else {}
+    postcodes = _werk_postcodes()
     coords: dict[str, tuple[float, float]] = {}
-    for pc, _ in _werk_postcodes():
-        c = lookup_postcode(pc)
-        if c:
-            coords[pc] = c
-        time.sleep(1.1)  # nominatim policy: max 1 req/s
-    if coords:
-        WERK_CACHE.write_text(json.dumps({k: list(v) for k, v in coords.items()}, indent=2))
+    redenen: Counter[str] = Counter()
+    nieuw = False
+    for pc, _ in postcodes:
+        punt = funda_verrijking.coord_paar(vast.get(pc)) or funda_verrijking.coord_paar(cache.get(pc))
+        if punt is None:
+            punt, reden = geocodeer_postcode(pc)
+            if punt:
+                cache[pc] = list(punt)
+                nieuw = True
+            else:
+                redenen[reden or "onbekend"] += 1
+        if punt:
+            coords[pc] = punt
+    if nieuw:
+        try:
+            WERK_CACHE.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[rapport] Werkcoördinaten niet bewaard ({type(exc).__name__}).")
+    if redenen:
+        waarom = "; ".join(f"{n}x {r}" for r, n in sorted(redenen.items()))
+        print(log_tekst(f"::warning::Reisafstand: {sum(redenen.values())} van {len(postcodes)} werkadressen niet "
+                        f"te geocoderen via PDOK ({waarom}). De reisafstand naar dat adres is onbekend; "
+                        "zet werk_coords in de config om dit over te slaan."))
     return coords
 
 

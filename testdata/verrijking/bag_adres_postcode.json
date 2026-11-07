@@ -1,0 +1,99 @@
+{
+ "type": "FeatureCollection",
+ "timeStamp": "2026-11-07T08:25:46Z",
+ "links": [
+  {
+   "rel": "self",
+   "title": "This document as GeoJSON",
+   "type": "application/geo+json",
+   "href": "https://api.pdok.nl/kadaster/bag/ogc/v2/collections/adres/items?f=json&limit=50&postcode=2511BT"
+  }
+ ],
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "adresseerbaar_object_type": "Verblijfsobject",
+    "huisletter": null,
+    "huisnummer": "114",
+    "openbare_ruimte_naam": "Spui",
+    "postcode": "2511BT",
+    "status": "Naamgeving ingetrokken",
+    "toevoeging": null,
+    "woonplaats_naam": "'s-Gravenhage"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4.317236193209832,
+     52.078037108816986
+    ]
+   },
+   "id": "793bd9b5-89c4-5f78-b1c3-e278415ff59d"
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "adresseerbaar_object_type": "Verblijfsobject",
+    "huisletter": null,
+    "huisnummer": "130",
+    "openbare_ruimte_naam": "Spui",
+    "postcode": "2511BT",
+    "status": "Naamgeving uitgegeven",
+    "toevoeging": null,
+    "woonplaats_naam": "'s-Gravenhage"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4.316652909308824,
+     52.077081621706185
+    ]
+   },
+   "id": "08725215-c7e5-507a-b6df-38501ad8ca12"
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "adresseerbaar_object_type": "Verblijfsobject",
+    "huisletter": null,
+    "huisnummer": "68",
+    "openbare_ruimte_naam": "Spui",
+    "postcode": "2511BT",
+    "status": "Naamgeving uitgegeven",
+    "toevoeging": null,
+    "woonplaats_naam": "'s-Gravenhage"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4.316076363892275,
+     52.077432811645096
+    ]
+   },
+   "id": "ac59e2f9-8c72-5371-821e-e0f3ad7cc961"
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "adresseerbaar_object_type": "Verblijfsobject",
+    "huisletter": null,
+    "huisnummer": "70",
+    "openbare_ruimte_naam": "Spui",
+    "postcode": "2511BT",
+    "status": "Naamgeving uitgegeven",
+    "toevoeging": null,
+    "woonplaats_naam": "'s-Gravenhage"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4.316639546892423,
+     52.07759119684573
+    ]
+   },
+   "id": "6df5f834-fd84-5f91-b11a-d73bdf78558b"
+  }
+ ],
+ "numberReturned": 4
+}

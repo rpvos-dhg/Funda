@@ -40,7 +40,14 @@
    "api": "https://dataderden.cbs.nl/ODataApi/odata/50150NED/TypedDataSet",
    "dimensies": "Leeftijd 20300 = 18 jaar of ouder; Marges MW00000 waarde, MOG0095 en MBG0095 de 95%-grenzen; Perioden 2024JJ00",
    "velden": "TevredenMetDeWoonomgeving_57, TevredenMetDeWoning_56"
+  },
+  "geocode": {
+   "api": "https://api.pdok.nl/kadaster/bag/ogc/v2/collections/adres/items?postcode=<PC>&limit=<n>&f=json",
+   "queryables_adres": "bronhouder_identificatie, geometry, huisnummer, identificatie, openbare_ruimte_identificatie, openbare_ruimte_naam, postcode, provincie_naam, status, woonplaats_identificatie, woonplaats_naam",
+   "gemeten": "7 nov 2026, postcode van het stadhuis van Den Haag (4 adressen, kantoorgebouwen): limit=1 in 7,7 s, limit=50 in 24,4 s. Met minder treffers dan de limit zoekt de server de hele postcode af. Geometrie Point in CRS84 (lon, lat).",
+   "velden": "postcode, status (Naamgeving uitgegeven of ingetrokken), geometry; zie bag_adres_postcode.json",
+   "niet": "de PDOK Locatieserver (robots.txt Disallow /bzk/locatieserver/*) en nominatim.openstreetmap.org (robots.txt Disallow /search)"
   }
  },
- "verzoeken": "52 bij de meting (verrijking en rente samen) plus 1 controle met curl; daarna 21 bij de live-controle van de modules"
+ "verzoeken": "52 bij de meting (verrijking en rente samen) plus 1 controle met curl; daarna 21 bij de live-controle van de modules; voor de geocoding op 7 nov 2026: robots.txt, de queryables van adres en 2 verzoeken op de postcode van het stadhuis"
 }

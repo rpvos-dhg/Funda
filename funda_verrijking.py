@@ -32,8 +32,11 @@ Regels (CLAUDE.md):
 - Logregels tonen alleen aantallen per bron en status, nooit adressen, postcodes of
   coördinaten.
 
-Niet gebruikt: het WOZ-waardeloket, de KOOP SRU-dienst (robots.txt Disallow) en de
-PDOK Locatieserver (robots.txt Disallow).
+Daarnaast de geocoding van postcodes (werkadressen en de zoekpostcode, `Geocoder`): de
+BAG-collectie adres op api.pdok.nl, met dezelfde Sessie (robots.txt, user-agent, weigering).
+
+Niet gebruikt: het WOZ-waardeloket, de KOOP SRU-dienst (robots.txt Disallow), de
+PDOK Locatieserver (robots.txt Disallow) en Nominatim (robots.txt Disallow /search).
 """
 
 from __future__ import annotations
@@ -54,6 +57,15 @@ from datetime import date, datetime
 
 BAG_BASIS = "https://api.pdok.nl/kadaster/bag/ogc/v2/collections"
 BAG_PAND_PREFIX = BAG_BASIS + "/pand/items/"
+# Geocoding van een postcode: de collectie adres met een filter op postcode. Gemeten op 7 nov 2026 op
+# de postcode van het stadhuis (testdata/verrijking/meting.json): limit=1 in 7,7 s, limit=50 in 24 s,
+# want met minder treffers dan de limit zoekt de server de hele postcode af. Daarom een ruime time-out,
+# één poging per postcode per run, en de aanroeper bewaart een gevonden punt voorgoed.
+BAG_ADRES = BAG_BASIS + "/adres/items"
+GEOCODE_LIMIET = 10
+GEOCODE_TIMEOUT_S = 60
+GEOCODE_MAX_VERZOEKEN = 10        # robots.txt plus een handvol postcodes
+NL_KADER = (50.7, 53.7, 3.2, 7.3)  # lat_min, lat_max, lon_min, lon_max: ruim om Nederland
 PDOK_BUURTEN = "https://api.pdok.nl/cbs/wijken-en-buurten-2024/ogc/v1/collections/buurten/items"
 
 KEA_WMS = "https://cas.cloud.sogelink.com/public/data/org/gws/YWFMLMWERURF/kea_public/wms"
@@ -1062,6 +1074,98 @@ def _verrijk_een(w: dict, sessie: Sessie, cache: dict, vcfg: dict, dr: dict) -> 
         res["buurt"] = {"status": status, "data": None, "reden": "; ".join(redenen) or None,
                         "uit_cache": False, "signalen": [], "twijfel": False, "delen": delen}
     return res
+
+
+# ---------------------------------------------------------------- geocoding van postcodes
+
+_POSTCODE = re.compile(r"^\s*(\d{4})\s*([A-Za-z]{2})\s*$")
+BAG_UITGEGEVEN = "Naamgeving uitgegeven"
+
+
+def postcode_norm(postcode) -> str | None:
+    """'1234 ab' -> '1234AB'; geen geldige Nederlandse postcode -> None."""
+    m = _POSTCODE.match(str(postcode or ""))
+    return m.group(1) + m.group(2).upper() if m else None
+
+
+def coord_paar(waarde) -> tuple[float, float] | None:
+    """[lat, lon] uit de config of een cachebestand als (lat, lon), anders None."""
+    if isinstance(waarde, (list, tuple)) and len(waarde) == 2:
+        try:
+            return float(waarde[0]), float(waarde[1])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def postcode_url(postcode: str) -> str:
+    return f"{BAG_ADRES}?postcode={postcode}&limit={GEOCODE_LIMIET}&f=json"
+
+
+def postcode_punt_parse(antwoord: dict, postcode: str) -> tuple[float, float] | None:
+    """(lat, lon) van een postcode uit een adres-antwoord: het gemiddelde van de adrespunten.
+
+    Alleen features met precies deze postcode en een punt in Nederland. Adressen met status
+    "Naamgeving uitgegeven" gaan voor; een ingetrokken adres telt alleen als er geen ander is."""
+    uitgegeven, alle = [], []
+    for f in (antwoord or {}).get("features") or []:
+        p = f.get("properties") or {}
+        if postcode_norm(p.get("postcode")) != postcode:
+            continue
+        g = f.get("geometry") or {}
+        c = g.get("coordinates")
+        if g.get("type") != "Point" or not isinstance(c, list) or len(c) < 2:
+            continue
+        try:
+            lon, lat = float(c[0]), float(c[1])           # GeoJSON: lon, lat (CRS84)
+        except (TypeError, ValueError):
+            continue
+        if not (NL_KADER[0] <= lat <= NL_KADER[1] and NL_KADER[2] <= lon <= NL_KADER[3]):
+            continue
+        alle.append((lat, lon))
+        if p.get("status") == BAG_UITGEGEVEN:
+            uitgegeven.append((lat, lon))
+    punten = uitgegeven or alle
+    if not punten:
+        return None
+    return (round(sum(la for la, _ in punten) / len(punten), 6),
+            round(sum(lo for _, lo in punten) / len(punten), 6))
+
+
+class Geocoder:
+    """Postcode naar punt via de BAG op api.pdok.nl (CLAUDE.md, "Geocoding en routes"). Eén per run.
+
+    Eén Sessie: robots.txt van api.pdok.nl eerst (één keer per run), de eerlijke user-agent, een
+    ruime time-out, en na een time-out, weigering of 5xx is de host deze run dicht
+    (fouten_op_rij_stop=1). Eén poging per postcode per run. De aanroeper bewaart een gevonden punt
+    voorgoed (funda_werk_coords.json, funda_thuis_coords.json), dus er gaat alleen een verzoek uit
+    bij een lege cache of een nieuwe postcode. punt() gooit nooit en de reden noemt nooit de postcode."""
+
+    def __init__(self, http=None, ua: str | None = None, timeout_s: float = GEOCODE_TIMEOUT_S,
+                 max_verzoeken: int = GEOCODE_MAX_VERZOEKEN, vandaag=None, slaap=time.sleep):
+        self.sessie = Sessie({}, vandaag or date.today(), http=http, ua=ua, max_verzoeken=max_verzoeken,
+                             timeout_s=timeout_s, fouten_op_rij_stop=1, slaap=slaap)
+        self.gedaan: dict[str, tuple] = {}
+
+    def punt(self, postcode) -> tuple[tuple[float, float] | None, str | None]:
+        """-> ((lat, lon), None) of (None, reden)."""
+        pc = postcode_norm(postcode)
+        if not pc:
+            return None, "geen geldige postcode"
+        if pc not in self.gedaan:
+            self.gedaan[pc] = self._zoek(pc)
+        return self.gedaan[pc]
+
+    def _zoek(self, pc: str) -> tuple[tuple[float, float] | None, str | None]:
+        try:
+            punt = postcode_punt_parse(self.sessie.haal_json(postcode_url(pc)), pc)
+        except GeenBudget:
+            return None, "budget voor deze run op"
+        except BronFout as exc:                           # ook HostGestopt
+            return None, str(exc)
+        except Exception as exc:  # noqa: BLE001  onverwacht antwoord: nooit de run laten vallen
+            return None, f"onverwacht antwoord ({type(exc).__name__})"
+        return (punt, None) if punt else (None, "postcode niet gevonden in de BAG")
 
 
 # ---------------------------------------------------------------- publiek
