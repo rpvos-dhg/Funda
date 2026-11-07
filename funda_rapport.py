@@ -1086,12 +1086,12 @@ def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None)
     sorteer_rijen(rijen)
 
     # Schrijf markdown (backwards compat)
-    pad_md = Path(__file__).parent / "funda_rapport.md"
+    pad_md = UITVOER_DIR / "funda_rapport.md"
     md = render_markdown(rijen)
     pad_md.write_text(md, encoding="utf-8")
 
     # Schrijf HTML
-    pad_html = Path(__file__).parent / "funda_rapport.html"
+    pad_html = UITVOER_DIR / "funda_rapport.html"
     html = render_html(rijen, werk_coords=werk_coords)
     pad_html.write_text(html, encoding="utf-8")
 
@@ -3215,6 +3215,8 @@ if ('serviceWorker' in navigator) {
 
 PWA_DIR_NAAM = "docs"  # GitHub Pages staat alleen / of /docs toe
 PWA_PASSWORD_FILE = Path(__file__).parent / "funda_pwa_password.txt"
+# Map voor funda_rapport.md, funda_rapport.html en docs/. Tests zetten hier een tijdelijke map.
+UITVOER_DIR = Path(__file__).parent
 
 PWA_MANIFEST = """{
   "name": "Funda Shortlist Remco",
@@ -3422,38 +3424,55 @@ def _write_png_icon(path: Path, size: int) -> None:
     path.write_bytes(png)
 
 
-def beveilig_html(html: str, password: str) -> str:
-    """Versleutel HTML body met AES-256-GCM en wikkel in een password-prompt template."""
+def beveilig_html(html: str, password: str, css: str | None = None, scripts: str | None = None,
+                  gz: bool = True) -> str:
+    """Versleutel de body en wikkel hem in het slotscherm.
+
+    Eerst gzip (niveau 9, mtime 0, dus reproduceerbaar), dan AES-256-GCM met een sleutel uit
+    PBKDF2-SHA256 (100.000 iteraties, 16 byte zout, 12 byte IV). Comprimeren moet vóór het
+    versleutelen: ciphertext comprimeert niet, dus Pages kan hem over de lijn niet kleiner maken.
+    `gz=False` is de terugval (de wrapper kent dan __GZ__ 0 en pakt niets uit).
+
+    css: CSS voor in de wrapper (standaard HTML_CSS). scripts: complete <script>-blokken die
+    buiten de versleuteling in de wrapper staan (standaard MAP_JS, CONTROLS_JS en pwa_push_js()),
+    want scripts in de via innerHTML gezette body draaien niet.
+    """
     import base64
+    import gzip
     import os
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+    css = HTML_CSS if css is None else css
+    scripts = (MAP_JS + CONTROLS_JS + pwa_push_js()) if scripts is None else scripts
+    data = html.encode("utf-8")
+    if gz:
+        data = gzip.compress(data, compresslevel=9, mtime=0)
 
     salt = os.urandom(16)
     iv = os.urandom(12)
     iters = 100_000  # snel genoeg op mobiel, sterk genoeg met goed wachtwoord
     kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=iters)
     key = kdf.derive(password.encode("utf-8"))
-    cipher = AESGCM(key)
-    ciphertext = cipher.encrypt(iv, html.encode("utf-8"), None)
+    ciphertext = AESGCM(key).encrypt(iv, data, None)
 
-    salt_b64 = base64.b64encode(salt).decode()
-    iv_b64 = base64.b64encode(iv).decode()
-    ct_b64 = base64.b64encode(ciphertext).decode()
-
-    return (
-        PWA_PASSWORD_WRAPPER
-        .replace("__APP_CSS__", HTML_CSS)
-        .replace("__MAP_HEAD__", MAP_HEAD)
-        .replace("__MAP_JS__", MAP_JS)
-        .replace("__CONTROLS_JS__", CONTROLS_JS)
-        .replace("__PWA_PUSH_JS__", pwa_push_js())
-        .replace("__SALT__", salt_b64)
-        .replace("__IV__", iv_b64)
-        .replace("__CT__", ct_b64)
-        .replace("__ITERS__", str(iters))
-    )
+    waarden = {
+        "__GZ__": "1" if gz else "0",
+        "__SALT__": base64.b64encode(salt).decode(),
+        "__IV__": base64.b64encode(iv).decode(),
+        "__CT__": base64.b64encode(ciphertext).decode(),
+        "__ITERS__": str(iters),
+        "__MAP_HEAD__": MAP_HEAD,
+        "__APP_SCRIPTS__": scripts,
+        "__APP_CSS__": css,
+    }
+    # Eerst de korte waarden, dan pas CSS en scripts: zo kan een placeholdernaam in de CSS of JS
+    # niets kapotmaken.
+    uit = PWA_PASSWORD_WRAPPER
+    for naam, waarde in waarden.items():
+        uit = uit.replace(naam, waarde, 1)
+    return uit
 
 
 PWA_PASSWORD_WRAPPER = """<!doctype html>
@@ -3491,9 +3510,7 @@ __APP_CSS__
 @keyframes s{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion: reduce){.spinner{animation-duration:1.5s}}
 </style>
-__MAP_JS__
-__CONTROLS_JS__
-__PWA_PUSH_JS__
+__APP_SCRIPTS__
 </head>
 <body>
 <div id="lock" class="lock">
@@ -3518,6 +3535,9 @@ const SALT = "__SALT__";
 const IV   = "__IV__";
 const CT   = "__CT__";
 const ITERS = __ITERS__;
+const GZ = __GZ__;   // 1 = body is vóór het versleutelen met gzip ingepakt
+const TE_OUD = "Deze browser kan het rapport niet openen. Werk je iPhone bij naar iOS 16.4 of nieuwer.";
+class TeOud extends Error {}
 const REMEMBER_KEY = "funda_pw_persist_v1";
 const REMEMBER_DAYS = 30;
 
@@ -3545,13 +3565,15 @@ function getRememberedPassword(){
 function b64ToBytes(s){const bin=atob(s);const a=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);return a;}
 
 async function decrypt(password){
+  if(GZ && typeof DecompressionStream === "undefined") throw new TeOud();
   const salt = b64ToBytes(SALT);
   const iv = b64ToBytes(IV);
   const ct = b64ToBytes(CT);
   const km = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), {name:"PBKDF2"}, false, ["deriveKey"]);
   const key = await crypto.subtle.deriveKey({name:"PBKDF2", salt, iterations: ITERS, hash:"SHA-256"}, km, {name:"AES-GCM", length:256}, false, ["decrypt"]);
   const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv}, key, ct);
-  return new TextDecoder().decode(pt);
+  if(!GZ) return new TextDecoder().decode(pt);
+  return await new Response(new Blob([pt]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
 }
 
 async function unlock(e){
@@ -3577,7 +3599,7 @@ async function unlock(e){
       saveRememberedPassword(pw);
     }
   } catch(ex){
-    err.textContent = "Fout wachtwoord";
+    err.textContent = (ex instanceof TeOud) ? TE_OUD : "Fout wachtwoord";
     btn.disabled = false;
     btn.textContent = "Ontgrendelen";
   }
@@ -3595,7 +3617,8 @@ async function unlock(e){
       c.innerHTML = html;
       document.getElementById("lock").style.display = "none";
       if(window.fundaAfterReportLoad) window.fundaAfterReportLoad();
-    }catch(_){
+    }catch(ex){
+      if(ex instanceof TeOud){ document.getElementById("err").textContent = TE_OUD; return; }
       sessionStorage.removeItem("funda_pw");
     }
   }
@@ -3609,13 +3632,29 @@ if ('serviceWorker' in navigator) {
 </html>"""
 
 
+def _pwa_wachtwoord() -> str:
+    """Het PWA-wachtwoord, of "" als er geen is."""
+    if PWA_PASSWORD_FILE.exists():
+        return PWA_PASSWORD_FILE.read_text(encoding="utf-8").strip()
+    return ""
+
+
 def schrijf_pwa_assets(
     rijen: list[dict],
     werk_coords: dict[str, tuple[float, float]] | None = None,
 ) -> Path:
-    """Genereer alle PWA bestanden in pwa/ subfolder."""
-    pwa_dir = Path(__file__).parent / PWA_DIR_NAAM
-    pwa_dir.mkdir(exist_ok=True)
+    """Genereer alle PWA bestanden in docs/ (onder UITVOER_DIR)."""
+    password = _pwa_wachtwoord()
+    # Vangrail: in CI (publieke repo) NOOIT onversleuteld publiceren. Vóór het schrijven, zodat
+    # er dan ook niets anders in docs/ verandert.
+    if not password and os.environ.get("FUNDA_REQUIRE_ENCRYPTION") == "1":
+        raise RuntimeError(
+            "FUNDA_REQUIRE_ENCRYPTION=1 maar geen wachtwoord gevonden; "
+            "weiger om een onversleuteld rapport te schrijven."
+        )
+
+    pwa_dir = UITVOER_DIR / PWA_DIR_NAAM
+    pwa_dir.mkdir(parents=True, exist_ok=True)
     (pwa_dir / "manifest.json").write_text(PWA_MANIFEST, encoding="utf-8")
     (pwa_dir / "service-worker.js").write_text(PWA_SERVICE_WORKER, encoding="utf-8")
     (pwa_dir / "icon.svg").write_text(PWA_ICON_SVG, encoding="utf-8")
@@ -3623,24 +3662,12 @@ def schrijf_pwa_assets(
     _write_png_icon(pwa_dir / "apple-touch-icon.png", 180)
     _write_png_icon(pwa_dir / "icon-512.png", 512)
 
-    # Lees password en versleutel als beschikbaar.
     inner_html = render_report_body(rijen, werk_coords=werk_coords)
-    if PWA_PASSWORD_FILE.exists():
-        password = PWA_PASSWORD_FILE.read_text(encoding="utf-8").strip()
-        if password:
-            beveiligd = beveilig_html(inner_html, password)
-            (pwa_dir / "index.html").write_text(beveiligd, encoding="utf-8")
-            return pwa_dir
+    if password:
+        (pwa_dir / "index.html").write_text(beveilig_html(inner_html, password), encoding="utf-8")
+        return pwa_dir
 
-    # Vangrail: in CI (publieke repo) NOOIT onversleuteld publiceren.
-    import os
-    if os.environ.get("FUNDA_REQUIRE_ENCRYPTION") == "1":
-        raise RuntimeError(
-            "FUNDA_REQUIRE_ENCRYPTION=1 maar geen wachtwoord gevonden; "
-            "weiger om een onversleuteld rapport te schrijven."
-        )
-
-    # Fallback (lokaal): onbeveiligd, zelfde tags als eerder.
+    # Terugval (lokaal): onbeveiligd, zelfde tags als eerder.
     print("[rapport] WAARSCHUWING: geen funda_pwa_password.txt gevonden, PWA wordt onversleuteld geschreven!")
     (pwa_dir / "index.html").write_text(
         render_html(rijen, is_pwa=True, werk_coords=werk_coords),
