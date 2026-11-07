@@ -116,9 +116,10 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
     `beoordeling.financiering`: `max_woonlasten_netto`,
     `woonlasten_marge_past_niet`, `rente`, `rente_datum`, `rentevast_jaren`,
     `rente_max_dagen`. Die worden niet meer gelezen. Staat er toch een in de
-    config, dan zet het rapport een `::warning::` met alleen de sleutelnamen
-    (`funda_beoordeling.oude_sleutels()`), nooit de waarden; anders rekent het
-    stil met de standaard.
+    config, dan zet het rapport een `::warning::` met alleen de vaste paden
+    (`funda_beoordeling.oude_sleutels()`), nooit de waarden en nooit een
+    scenario-id (die staat er als `<scenario>`: de log is publiek); anders
+    rekent het stil met de standaard.
 - **Rente (`funda_rente.py`).** Een handmatige rente gaat altijd voor
   (`financien.rente.pct` met `datum`; de enige plek). Rentevast staat ook daar
   (`financien.rente.rentevast_jaren`, standaard 10; korter dan 10 jaar = toetsrente

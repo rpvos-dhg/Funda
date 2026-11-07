@@ -377,14 +377,15 @@ def laad_config() -> dict:
 
 
 def _getal(x) -> float | None:
+    """Een eindig getal of None. NaN en oneindig (json.loads accepteert NaN en Infinity) worden None,
+    zodat int() verderop nooit gooit."""
     if isinstance(x, bool):
         return None
-    if isinstance(x, (int, float)):
-        return float(x)
     try:
-        return float(str(x).replace(",", "."))
-    except (TypeError, ValueError):
+        g = float(x) if isinstance(x, (int, float)) else float(str(x).replace(",", "."))
+    except (TypeError, ValueError, OverflowError):
         return None
+    return g if math.isfinite(g) else None
 
 
 def _coords(d: dict, details: dict | None) -> tuple[float | None, float | None]:

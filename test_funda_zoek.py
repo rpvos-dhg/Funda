@@ -496,7 +496,9 @@ def test_rapport_rente_cache_ua() -> bool:
     # FICTIEF: een config met oude sleutels geeft een ::warning:: met alleen de namen, nooit de waarden.
     oud_personal = fr._PERSONAL
     fr._PERSONAL = {"beoordeling": {"financiering": {"max_woonlasten_netto": 1234}},
-                    "financien": {"rente": {"handmatig": 4.56}}}
+                    "financien": {"rente": {"handmatig": 4.56},
+                                  "scenarios": {"scenario_testid_x": {"toetsinkomen": 99887}},
+                                  "eigen_geld": {"nu": 1, "scenario_testid_x": 77665}}}
     uit = io.StringIO()
     try:
         with contextlib.redirect_stdout(uit):
@@ -507,6 +509,10 @@ def test_rapport_rente_cache_ua() -> bool:
                 "::warning::" in uit.getvalue() and "beoordeling.financiering.max_woonlasten_netto" in uit.getvalue()
                 and "financien.rente.handmatig" in uit.getvalue() and "1234" not in uit.getvalue()
                 and "4.56" not in uit.getvalue(), uit.getvalue().strip())
+    ok &= check("waarschuwing zonder zelfgekozen scenario-id (de Actions-log is publiek)",
+                "financien.scenarios.<scenario>.toetsinkomen" in uit.getvalue()
+                and "financien.eigen_geld.<scenario>" in uit.getvalue() and "scenario_testid_x" not in uit.getvalue()
+                and "99887" not in uit.getvalue() and "77665" not in uit.getvalue(), uit.getvalue().strip())
     uit = io.StringIO()
     with contextlib.redirect_stdout(uit):
         fr.laad_config()
@@ -651,6 +657,34 @@ def test_verrijking_ruwe_velden() -> bool:
     ok &= check("fout in de prijsbron: lege changes, geen markt of makelaar",
                 fout == {"price_history": {"changes": []}, "market": {"avg_asking_price_per_m2": None},
                          "broker": {"name": None, "review_average": None, "review_count": None}}, str(fout))
+
+    # FICTIEF: json.loads accepteert NaN en Infinity; int() daarop mag het rapport niet laten vallen.
+    class NaNClient(Client):
+        def get_market_insights(self, stad, buurt):
+            return json.loads('{"avg_asking_price_per_m2": NaN}')
+
+        def get_broker_reviews(self, bid):
+            return json.loads('{"average": Infinity, "number_of_reviews": NaN}')
+
+    fr.time.sleep = lambda _s: None
+    try:
+        nan = fr.verrijk_woning(NaNClient(), dict(d), object(), {})
+        tekst = fr.verrijk_woning(type("Tekst", (NaNClient,), {
+            "get_market_insights": lambda self, s, b: {"avg_asking_price_per_m2": "nan"},
+            "get_broker_reviews": lambda self, b: {"average": "-inf", "number_of_reviews": "inf"}})(),
+            dict(d), object(), {})
+    except (ValueError, OverflowError) as exc:
+        nan = tekst = {"fout": repr(exc)}
+    finally:
+        fr.time.sleep = oud_slaap
+    leeg = {"avg_asking_price_per_m2": None}
+    ok &= check("NaN en oneindig van funda: geen crash, markt en reviews onbekend",
+                all(x.get("market") == leeg and x.get("broker") == {"name": "Testmakelaar", "review_average": None,
+                                                                    "review_count": None} for x in (nan, tekst)),
+                f"{nan} {tekst}")
+    ok &= check("_getal: NaN, oneindig en onzin geven None, gewone getallen blijven",
+                [fr._getal(x) for x in (float("nan"), float("inf"), "nan", "1e999", "abc", None, True, "4,5", 3)]
+                == [None, None, None, None, None, None, None, 4.5, 3.0])
     return ok
 
 

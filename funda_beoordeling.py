@@ -324,8 +324,11 @@ EIGEN_GELD_SLEUTELS = ("nu", "datum", "per_maand", "buffer")
 
 
 def oude_sleutels(personal: dict | None) -> list[str]:
-    """Namen (nooit waarden) van oude aliassen in de config, bijv. "financien.toetsinkomen".
-    Die worden niet meer gelezen; funda_rapport waarschuwt ermee in plaats van stil de standaard te nemen."""
+    """Vaste paden (nooit waarden) van oude aliassen in de config, bijv. "financien.toetsinkomen".
+    Die worden niet meer gelezen; funda_rapport waarschuwt ermee in plaats van stil de standaard te nemen.
+
+    De uitvoer komt in de publieke Actions-log, dus alleen namen uit de code: een scenario-id of een
+    andere sleutel die de gebruiker zelf koos wordt "<scenario>", en elk pad staat er hooguit één keer."""
     personal = personal if isinstance(personal, dict) else {}
     uit = []
     for pad, namen in OUDE_SLEUTELS.items():
@@ -336,11 +339,11 @@ def oude_sleutels(personal: dict | None) -> list[str]:
             uit += [f"{pad}.{n}" for n in namen if n in blok]
     fin = personal.get("financien") if isinstance(personal.get("financien"), dict) else {}
     eg = fin.get("eigen_geld")
-    if isinstance(eg, dict):
-        uit += [f"financien.eigen_geld.{k}" for k in eg if k not in EIGEN_GELD_SLEUTELS and not str(k).startswith("_")]
+    if isinstance(eg, dict) and any(k not in EIGEN_GELD_SLEUTELS and not str(k).startswith("_") for k in eg):
+        uit.append("financien.eigen_geld.<scenario>")
     sc = fin.get("scenarios")
-    if isinstance(sc, dict):
-        uit += [f"financien.scenarios.{k}.toetsinkomen" for k, v in sc.items() if isinstance(v, dict) and "toetsinkomen" in v]
+    if isinstance(sc, dict) and any(isinstance(v, dict) and "toetsinkomen" in v for v in sc.values()):
+        uit.append("financien.scenarios.<scenario>.toetsinkomen")
     return uit
 
 

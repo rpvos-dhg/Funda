@@ -338,8 +338,16 @@ def test_scenarios() -> bool:
                                        "beoordeling.financiering.rente", "financien.toetsinkomen",
                                        "financien.startersvrijstelling_tot", "financien.verplichtingen_maand",
                                        "financien.bkr_limieten", "financien.buffer", "financien.rente.handmatig",
-                                       "financien.rente.rentevast_jaar", "financien.eigen_geld.2027_01",
-                                       "financien.scenarios.nu.toetsinkomen"]), str(oud))
+                                       "financien.rente.rentevast_jaar", "financien.eigen_geld.<scenario>",
+                                       "financien.scenarios.<scenario>.toetsinkomen"]), str(oud))
+    # FICTIEF: zelfgekozen scenario-id's komen nooit in de uitvoer (die staat in de publieke Actions-log),
+    # en elk pad staat er hooguit een keer, hoeveel scenario's er ook zijn.
+    eigen_ids = ("scenario_testid_a", "scenario_testid_b")
+    oud_ids = fb.oude_sleutels({"financien": {"scenarios": {i: {"toetsinkomen": 1} for i in eigen_ids},
+                                              "eigen_geld": dict({i: 5 for i in eigen_ids}, nu=1, _uitleg="x")}})
+    ok &= check("oude_sleutels: geen zelfgekozen scenario-id, elk pad een keer",
+                oud_ids == ["financien.eigen_geld.<scenario>", "financien.scenarios.<scenario>.toetsinkomen"]
+                and not any(i in "".join(oud_ids) for i in eigen_ids), str(oud_ids))
     ok &= check("de gedocumenteerde vorm geeft geen waarschuwing",
                 fb.oude_sleutels({"leeftijd": 30, "financien": FINANCIEN_FICTIEF,
                                   "beoordeling": {"max_woonlasten_netto": 1450, "krap_marge": 150,
