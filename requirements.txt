@@ -1,5 +1,5 @@
 # Pin pyfunda op v2.9.0: v3+ heeft een andere API (geen search_listing/.data).
-# Zelfde versie als in .github/workflows/funda-daily.yml.
+# Dit is de enige plek: de workflows installeren dit bestand.
 pyfunda @ git+https://github.com/0xMH/pyfunda.git@v2.9.0
 cryptography>=42
 # Voor de HTML-zoekfallback (komt ook met pyfunda mee, hier expliciet).
