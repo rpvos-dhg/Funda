@@ -1,0 +1,4420 @@
+{
+ "_doc": "Uitvoer van funda_beoordeling.beoordeel() op testdata/woningen.json, in rapportvolgorde (sorteer()). FICTIEF: woningen, profiel en verrijking zijn verzonnen. Invoer: meta.profiel uit de fixture, beoordeling.max_woonlasten_netto = 1450 (fictief), rente = standaard (geen parameter), vandaag = 2026-11-06, verrijking = VERRIJKING_FICTIEF uit test_funda_beoordeling.py. Bijwerken: python test_funda_beoordeling.py --schrijf-verwacht",
+ "invoer": {
+  "vandaag": "2026-11-06",
+  "beoordeling": {
+   "max_woonlasten_netto": 1450
+  },
+  "rente": "standaard"
+ },
+ "rijen": [
+  {
+   "id": "w13",
+   "beoordeling": {
+    "poort": "PAST",
+    "poort_redenen": [],
+    "status_kort": "Past · € 196 onder je grens",
+    "twijfel": [],
+    "score": 8.3,
+    "onderdelen": {
+     "woonlasten": {
+      "punten": 1.5,
+      "kort": "woonlasten € 1.254"
+     },
+     "buitenruimte": {
+      "punten": 1.0,
+      "kort": "balkon 6 m² zuid"
+     },
+     "oppervlak": {
+      "punten": -0.2,
+      "kort": "66 m²"
+     },
+     "woonlaag_lift": {
+      "punten": -0.5,
+      "kort": "3e zonder lift"
+     },
+     "vve": {
+      "punten": 0.5,
+      "kort": "VvE op orde"
+     },
+     "buurt": {
+      "punten": 0.5,
+      "kort": "buurt uitstekend"
+     },
+     "markt": {
+      "punten": 0.5,
+      "kort": "m²-prijs 29% onder buurt"
+     }
+    },
+    "uitleg_regel": "8,3 · woonlasten € 1.254 +1,5 · balkon 6 m² zuid +1,0 · 3e zonder lift −0,5 · overig +1,3",
+    "let_op": [
+     {
+      "onderdeel": "woonlaag_lift",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Trappen",
+      "waarde": "3e woonlaag, geen lift",
+      "bron": "kenmerk 'Gelegen op'",
+      "punten": -0.5,
+      "kort": "3e zonder lift",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Werk vanaf 2027",
+      "waarde": "≈ 12,2 km",
+      "bron": "route",
+      "punten": -0.5,
+      "kort": "werk 12,2 km",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "woonlasten",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Woonlasten",
+      "waarde": "€ 1.254 netto per maand",
+      "bron": "berekening",
+      "punten": 1.5,
+      "kort": "woonlasten € 1.254",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     },
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Balkon",
+      "waarde": "6 m²",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": 0.5,
+      "kort": "balkon 6 m² zuid",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Zon op buitenruimte",
+      "waarde": "zuid",
+      "bron": "advertentietekst",
+      "punten": 0.5,
+      "kort": "zon zuid",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Werk huidig",
+      "waarde": "≈ 2,1 km",
+      "bron": "route",
+      "punten": 0.5,
+      "kort": "werk 2,1 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "VvE op orde",
+      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "bron": "kenmerken",
+      "punten": 0.5,
+      "kort": "VvE op orde",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Leefbaarometer",
+      "waarde": "uitstekend (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.5,
+      "kort": "buurt uitstekend",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "markt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Prijs per m²",
+      "waarde": "29% onder de buurt",
+      "bron": "funda-buurtcijfer",
+      "punten": 0.5,
+      "kort": "m²-prijs 29% onder buurt",
+      "vraag": null,
+      "uitleg": "Vergeleken met alle te koop staande woningen in de buurt."
+     },
+     {
+      "onderdeel": "energielabel",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Energielabel",
+      "waarde": "A",
+      "bron": "funda",
+      "punten": 0.0,
+      "kort": "label A",
+      "vraag": null,
+      "uitleg": "Lagere stookkosten en meer leenruimte; dat zit al in woonlasten en leentoets."
+     },
+     {
+      "onderdeel": "erfpacht",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Grond",
+      "waarde": "eigen grond",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": 0.0,
+      "kort": "eigen grond",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "fundering",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Funderingsrisico buurt",
+      "waarde": "zeer laag",
+      "bron": "Klimaateffectatlas, buurtniveau",
+      "punten": 0.0,
+      "kort": "fundering zeer laag",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "geluid",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Geluid aan de gevel",
+      "waarde": "rustig, 45 dB",
+      "bron": "RIVM 2022/2023",
+      "punten": 0.0,
+      "kort": "geluid 45 dB",
+      "vraag": null,
+      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Tevreden met buurt",
+      "waarde": "93% (2024)",
+      "bron": "RIVM-gezondheidsmonitor",
+      "punten": 0.0,
+      "kort": "tevreden 93%",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "onbekend": [],
+    "info": [
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Eigen geld",
+      "waarde": "genoeg, € 20 over",
+      "bron": "berekening, kosten koper ≈",
+      "punten": 0.0,
+      "kort": "eigen geld",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leenruimte",
+      "waarde": "€ 34.043 over",
+      "bron": "leentoets 2026",
+      "punten": 0.0,
+      "kort": "leenruimte",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "oppervlak",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonoppervlak",
+      "waarde": "66 m² (wens 70)",
+      "bron": "funda",
+      "punten": -0.2,
+      "kort": "66 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "VvE-bijdrage",
+      "waarde": "€ 110 p/m",
+      "bron": "kenmerk 'Bijdrage VvE'",
+      "punten": 0.0,
+      "kort": "VvE € 110",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Pand",
+      "waarde": "5 adressen",
+      "bron": "BAG",
+      "punten": 0.0,
+      "kort": "pand met 5 adressen",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "WOZ-waarde",
+      "waarde": "€ 233.000 (WOZ 2026)",
+      "bron": "funda prijshistorie",
+      "punten": 0.0,
+      "kort": "WOZ-waarde",
+      "vraag": null,
+      "uitleg": "Waardepeildatum 1 januari 2025: de WOZ loopt achter op de markt."
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Makelaar",
+      "waarde": "9,3 uit 214 reviews",
+      "bron": "funda, Duinrand Makelaars",
+      "punten": 0.0,
+      "kort": "makelaar",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "kansen": [],
+    "zelf_nagaan": [
+     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
+    ],
+    "financiering": {
+     "max_hypotheek": 279043,
+     "marge_lenen": 34043,
+     "kosten_koper": 6980,
+     "kk_soort": "startersvrijstelling",
+     "tekort": -20,
+     "netto": 1254,
+     "bruto": 1543,
+     "grens": 1450,
+     "grens_soort": "netto",
+     "opbouw": {
+      "bruto_hyp": 1185,
+      "belastingvoordeel": 290,
+      "vve": 110,
+      "vve_bron": "kenmerk 'Bijdrage VvE'",
+      "vve_geschat": false,
+      "energie": 88,
+      "stook_in_vve": false,
+      "overig": 160,
+      "canon_maand": 0,
+      "woz": 233000,
+      "woz_geschat": false
+     },
+     "koopsom": 245000,
+     "hypotheek": 245000,
+     "over": -196,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "ok",
+     "geluid": "ok",
+     "buurt": "ok"
+    }
+   }
+  },
+  {
+   "id": "w01",
+   "beoordeling": {
+    "poort": "PAST",
+    "poort_redenen": [],
+    "status_kort": "Past · € 28 onder je grens",
+    "twijfel": [],
+    "score": 7.2,
+    "onderdelen": {
+     "woonlasten": {
+      "punten": 0.28,
+      "kort": "woonlasten € 1.422"
+     },
+     "buitenruimte": {
+      "punten": 1.0,
+      "kort": "balkon 6 m² zuidwest"
+     },
+     "oppervlak": {
+      "punten": -0.1,
+      "kort": "68 m²"
+     },
+     "buurt": {
+      "punten": 0.5,
+      "kort": "buurt uitstekend"
+     },
+     "markt": {
+      "punten": 0.5,
+      "kort": "m²-prijs 16% onder buurt"
+     }
+    },
+    "uitleg_regel": "7,2 · balkon 6 m² zuidwest +1,0 · buurt uitstekend +0,5 · overig +0,7",
+    "let_op": [
+     {
+      "onderdeel": "reisafstand",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Werk vanaf 2027",
+      "waarde": "≈ 11,2 km",
+      "bron": "route",
+      "punten": -0.5,
+      "kort": "werk 11,2 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Kleine VvE",
+      "waarde": "3 adressen in het pand",
+      "bron": "BAG",
+      "punten": -0.5,
+      "kort": "VvE van 3",
+      "vraag": "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+      "uitleg": "Grote kosten (dak, fundering) deel je met weinig eigenaren."
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Balkon",
+      "waarde": "6 m²",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": 0.5,
+      "kort": "balkon 6 m² zuidwest",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Zon op buitenruimte",
+      "waarde": "zuidwest",
+      "bron": "advertentietekst",
+      "punten": 0.5,
+      "kort": "zon zuidwest",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Werk huidig",
+      "waarde": "≈ 3,2 km",
+      "bron": "route",
+      "punten": 0.5,
+      "kort": "werk 3,2 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "VvE op orde",
+      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "bron": "kenmerken",
+      "punten": 0.5,
+      "kort": "VvE op orde",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Leefbaarometer",
+      "waarde": "uitstekend (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.5,
+      "kort": "buurt uitstekend",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "markt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Prijs per m²",
+      "waarde": "16% onder de buurt",
+      "bron": "funda-buurtcijfer",
+      "punten": 0.5,
+      "kort": "m²-prijs 16% onder buurt",
+      "vraag": null,
+      "uitleg": "Vergeleken met alle te koop staande woningen in de buurt."
+     },
+     {
+      "onderdeel": "erfpacht",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Erfpacht",
+      "waarde": "eeuwigdurend afgekocht",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": 0.0,
+      "kort": "erfpacht afgekocht",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "fundering",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Funderingsrisico buurt",
+      "waarde": "zeer laag",
+      "bron": "Klimaateffectatlas, buurtniveau",
+      "punten": 0.0,
+      "kort": "fundering zeer laag",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "geluid",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Geluid aan de gevel",
+      "waarde": "rustig, 48 dB",
+      "bron": "RIVM 2022/2023",
+      "punten": 0.0,
+      "kort": "geluid 48 dB",
+      "vraag": null,
+      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Tevreden met buurt",
+      "waarde": "91% (2024)",
+      "bron": "RIVM-gezondheidsmonitor",
+      "punten": 0.0,
+      "kort": "tevreden 91%",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "onbekend": [],
+    "info": [
+     {
+      "onderdeel": "woonlasten",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonlasten",
+      "waarde": "€ 1.422 netto per maand",
+      "bron": "berekening",
+      "punten": 0.28,
+      "kort": "woonlasten € 1.422",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Eigen geld",
+      "waarde": "net genoeg (schatting)",
+      "bron": "berekening, kosten koper ≈",
+      "punten": 0.0,
+      "kort": "eigen geld",
+      "vraag": "Laat je kosten koper narekenen door een adviseur.",
+      "uitleg": "Tekort € 60 valt binnen de onzekerheid van de kosten koper."
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leenruimte",
+      "waarde": "€ 9.043 over",
+      "bron": "leentoets 2026",
+      "punten": 0.0,
+      "kort": "leenruimte",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "oppervlak",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonoppervlak",
+      "waarde": "68 m² (wens 70)",
+      "bron": "funda",
+      "punten": -0.1,
+      "kort": "68 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "VvE-bijdrage",
+      "waarde": "€ 140 p/m",
+      "bron": "kenmerk 'Bijdrage VvE'",
+      "punten": 0.0,
+      "kort": "VvE € 140",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "WOZ-waarde",
+      "waarde": "€ 241.000 (WOZ 2026)",
+      "bron": "funda prijshistorie",
+      "punten": 0.0,
+      "kort": "WOZ-waarde",
+      "vraag": null,
+      "uitleg": "Waardepeildatum 1 januari 2025: de WOZ loopt achter op de markt."
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Makelaar",
+      "waarde": "9,3 uit 214 reviews",
+      "bron": "funda, Duinrand Makelaars",
+      "punten": 0.0,
+      "kort": "makelaar",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Open huis",
+      "waarde": "gepland",
+      "bron": "funda",
+      "punten": 0.0,
+      "kort": "open huis",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "kansen": [],
+    "zelf_nagaan": [
+     "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+     "Laat je kosten koper narekenen door een adviseur.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
+    ],
+    "financiering": {
+     "max_hypotheek": 274043,
+     "marge_lenen": 9043,
+     "kosten_koper": 7060,
+     "kk_soort": "startersvrijstelling",
+     "tekort": 60,
+     "netto": 1422,
+     "bruto": 1736,
+     "grens": 1450,
+     "grens_soort": "netto",
+     "opbouw": {
+      "bruto_hyp": 1282,
+      "belastingvoordeel": 315,
+      "vve": 140,
+      "vve_bron": "kenmerk 'Bijdrage VvE'",
+      "vve_geschat": false,
+      "energie": 154,
+      "stook_in_vve": false,
+      "overig": 160,
+      "canon_maand": 0,
+      "woz": 241000,
+      "woz_geschat": false
+     },
+     "koopsom": 265000,
+     "hypotheek": 265000,
+     "over": -28,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "ok",
+     "geluid": "ok",
+     "buurt": "ok"
+    }
+   }
+  },
+  {
+   "id": "w07",
+   "beoordeling": {
+    "poort": "PAST",
+    "poort_redenen": [],
+    "status_kort": "Past · € 57 onder je grens",
+    "twijfel": [
+     "Stad onduidelijk: Leidschendam of Voorburg? Funda geeft alleen de gemeente."
+    ],
+    "score": 6.7,
+    "onderdelen": {
+     "woonlasten": {
+      "punten": 0.57,
+      "kort": "woonlasten € 1.393"
+     },
+     "buitenruimte": {
+      "punten": 1.0,
+      "kort": "balkon 7 m² west"
+     },
+     "reisafstand": {
+      "punten": 0.15,
+      "kort": "werk 4,3 km"
+     },
+     "vve": {
+      "punten": 0.5,
+      "kort": "VvE op orde"
+     },
+     "geluid": {
+      "punten": -0.5,
+      "kort": "geluid 58 dB"
+     }
+    },
+    "uitleg_regel": "6,7 · balkon 7 m² west +1,0 · woonlasten € 1.393 +0,6 · VvE op orde +0,5 · overig −0,3",
+    "let_op": [
+     {
+      "onderdeel": "geluid",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Geluid aan de gevel",
+      "waarde": "58 dB, nacht 50 dB (trein)",
+      "bron": "RIVM 2022/2023",
+      "punten": -0.5,
+      "kort": "geluid 58 dB",
+      "vraag": "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
+      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Stad onduidelijk",
+      "waarde": "Leidschendam of Voorburg?",
+      "bron": "funda",
+      "punten": 0.0,
+      "kort": "stad onduidelijk",
+      "vraag": "Controleer de plaats: Leidschendam staat op je uitsluitlijst.",
+      "uitleg": null
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Balkon",
+      "waarde": "7 m²",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": 0.5,
+      "kort": "balkon 7 m² west",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Zon op buitenruimte",
+      "waarde": "west",
+      "bron": "advertentietekst",
+      "punten": 0.5,
+      "kort": "zon west",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "VvE op orde",
+      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "bron": "kenmerken",
+      "punten": 0.5,
+      "kort": "VvE op orde",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "energielabel",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Energielabel",
+      "waarde": "B",
+      "bron": "funda",
+      "punten": 0.0,
+      "kort": "label B",
+      "vraag": null,
+      "uitleg": "Lagere stookkosten en meer leenruimte; dat zit al in woonlasten en leentoets."
+     },
+     {
+      "onderdeel": "erfpacht",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Grond",
+      "waarde": "eigen grond",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": 0.0,
+      "kort": "eigen grond",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "parkeren",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Parkeerplek",
+      "waarde": "eigen plek",
+      "bron": "funda",
+      "punten": 0.0,
+      "kort": "eigen parkeerplek",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "onbekend": [],
+    "info": [
+     {
+      "onderdeel": "woonlasten",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonlasten",
+      "waarde": "€ 1.393 netto per maand",
+      "bron": "berekening",
+      "punten": 0.57,
+      "kort": "woonlasten € 1.393",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Eigen geld",
+      "waarde": "net genoeg (schatting)",
+      "bron": "berekening, kosten koper ≈",
+      "punten": 0.0,
+      "kort": "eigen geld",
+      "vraag": "Laat je kosten koper narekenen door een adviseur.",
+      "uitleg": "Tekort € 36 valt binnen de onzekerheid van de kosten koper."
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leenruimte",
+      "waarde": "€ 20.043 over",
+      "bron": "leentoets 2026",
+      "punten": 0.0,
+      "kort": "leenruimte",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "oppervlak",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonoppervlak",
+      "waarde": "70 m² (wens 70)",
+      "bron": "funda",
+      "punten": 0.0,
+      "kort": "70 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Werk huidig",
+      "waarde": "≈ 4,3 km",
+      "bron": "route",
+      "punten": 0.45,
+      "kort": "werk 4,3 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Werk vanaf 2027",
+      "waarde": "≈ 8,8 km",
+      "bron": "route",
+      "punten": -0.3,
+      "kort": "werk 8,8 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "VvE-bijdrage",
+      "waarde": "€ 165 p/m",
+      "bron": "advertentietekst",
+      "punten": 0.0,
+      "kort": "VvE € 165",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Pand",
+      "waarde": "36 adressen",
+      "bron": "BAG",
+      "punten": 0.0,
+      "kort": "pand met 36 adressen",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "fundering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Fundering",
+      "waarde": "bouwjaar 1998, na 1970",
+      "bron": "BAG",
+      "punten": 0.0,
+      "kort": "fundering geen risico",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leefbaarometer",
+      "waarde": "ruim voldoende (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.0,
+      "kort": "buurt ruim voldoende",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "WOZ-waarde",
+      "waarde": "€ 244.000 (WOZ 2026)",
+      "bron": "funda prijshistorie",
+      "punten": 0.0,
+      "kort": "WOZ-waarde",
+      "vraag": null,
+      "uitleg": "Waardepeildatum 1 januari 2025: de WOZ loopt achter op de markt."
+     }
+    ],
+    "kansen": [],
+    "zelf_nagaan": [
+     "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
+     "Controleer de plaats: Leidschendam staat op je uitsluitlijst.",
+     "Laat je kosten koper narekenen door een adviseur.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
+    ],
+    "financiering": {
+     "max_hypotheek": 279043,
+     "marge_lenen": 20043,
+     "kosten_koper": 7036,
+     "kk_soort": "startersvrijstelling",
+     "tekort": 36,
+     "netto": 1393,
+     "bruto": 1699,
+     "grens": 1450,
+     "grens_soort": "netto",
+     "opbouw": {
+      "bruto_hyp": 1253,
+      "belastingvoordeel": 306,
+      "vve": 165,
+      "vve_bron": "advertentietekst",
+      "vve_geschat": false,
+      "energie": 121,
+      "stook_in_vve": false,
+      "overig": 160,
+      "canon_maand": 0,
+      "woz": 244000,
+      "woz_geschat": false
+     },
+     "koopsom": 259000,
+     "hypotheek": 259000,
+     "over": -57,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "niet_nodig",
+     "geluid": "ok",
+     "buurt": "ok"
+    }
+   }
+  },
+  {
+   "id": "w12",
+   "beoordeling": {
+    "poort": "KRAP",
+    "poort_redenen": [
+     "Woonlasten € 24 boven je grens."
+    ],
+    "status_kort": "Krap · € 24 boven je grens",
+    "twijfel": [],
+    "score": 6.5,
+    "onderdelen": {
+     "woonlasten": {
+      "punten": -0.24,
+      "kort": "woonlasten € 1.474"
+     },
+     "buitenruimte": {
+      "punten": 1.0,
+      "kort": "balkon 5 m² zuid"
+     },
+     "oppervlak": {
+      "punten": -0.3,
+      "kort": "64 m²"
+     },
+     "vve": {
+      "punten": 0.5,
+      "kort": "VvE op orde"
+     },
+     "buurt": {
+      "punten": 0.5,
+      "kort": "buurt goed"
+     }
+    },
+    "uitleg_regel": "6,5 · balkon 5 m² zuid +1,0 · VvE op orde +0,5 · buurt goed +0,5 · overig −0,5 · 1 onbekend",
+    "let_op": [
+     {
+      "onderdeel": "reisafstand",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Werk vanaf 2027",
+      "waarde": "≈ 10,7 km",
+      "bron": "schatting (hemelsbreed x 1,3)",
+      "punten": -0.5,
+      "kort": "werk 10,7 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "woonlasten",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Woonlasten",
+      "waarde": "€ 1.474 netto per maand",
+      "bron": "berekening",
+      "punten": -0.24,
+      "kort": "woonlasten € 1.474",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Balkon",
+      "waarde": "5 m²",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": 0.5,
+      "kort": "balkon 5 m² zuid",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Zon op buitenruimte",
+      "waarde": "zuid",
+      "bron": "advertentietekst",
+      "punten": 0.5,
+      "kort": "zon zuid",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Werk huidig",
+      "waarde": "≈ 2,5 km",
+      "bron": "schatting (hemelsbreed x 1,3)",
+      "punten": 0.5,
+      "kort": "werk 2,5 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "VvE op orde",
+      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "bron": "kenmerken",
+      "punten": 0.5,
+      "kort": "VvE op orde",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Leefbaarometer",
+      "waarde": "goed (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.5,
+      "kort": "buurt goed",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "erfpacht",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Grond",
+      "waarde": "eigen grond",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": 0.0,
+      "kort": "eigen grond",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "fundering",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Funderingsrisico buurt",
+      "waarde": "laag",
+      "bron": "Klimaateffectatlas, buurtniveau",
+      "punten": 0.0,
+      "kort": "fundering laag",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Tevreden met buurt",
+      "waarde": "90% (2024)",
+      "bron": "RIVM-gezondheidsmonitor",
+      "punten": 0.0,
+      "kort": "tevreden 90%",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "onbekend": [
+     {
+      "onderdeel": "energielabel",
+      "groep": "onbekend",
+      "oordeel": "onbekend",
+      "label": "Energielabel",
+      "waarde": "onbekend",
+      "bron": "niet vermeld",
+      "punten": 0.0,
+      "kort": "label onbekend",
+      "vraag": "Vraag het energielabel op.",
+      "uitleg": null
+     }
+    ],
+    "info": [
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Eigen geld",
+      "waarde": "net genoeg (schatting)",
+      "bron": "berekening, kosten koper ≈",
+      "punten": 0.0,
+      "kort": "eigen geld",
+      "vraag": "Laat je kosten koper narekenen door een adviseur.",
+      "uitleg": "Tekort € 8 valt binnen de onzekerheid van de kosten koper."
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leenruimte",
+      "waarde": "€ 17.043 over",
+      "bron": "leentoets 2026",
+      "punten": 0.0,
+      "kort": "leenruimte",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "oppervlak",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonoppervlak",
+      "waarde": "64 m² (wens 70)",
+      "bron": "funda",
+      "punten": -0.3,
+      "kort": "64 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "VvE-bijdrage",
+      "waarde": "€ 155 p/m",
+      "bron": "advertentietekst",
+      "punten": 0.0,
+      "kort": "VvE € 155",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Pand",
+      "waarde": "8 adressen",
+      "bron": "BAG",
+      "punten": 0.0,
+      "kort": "pand met 8 adressen",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "geluid",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Geluid aan de gevel",
+      "waarde": "53 dB, nacht 44 dB (weg)",
+      "bron": "RIVM 2022/2023",
+      "punten": 0.0,
+      "kort": "geluid 53 dB",
+      "vraag": null,
+      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "kansen": [
+     {
+      "onderdeel": "kans",
+      "groep": "kans",
+      "oordeel": "kans",
+      "label": "Lang te koop",
+      "waarde": "95 dagen",
+      "bron": "eigen tracking",
+      "punten": 0.0,
+      "kort": "lang te koop",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "zelf_nagaan": [
+     "Vraag het energielabel op.",
+     "Laat je kosten koper narekenen door een adviseur.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
+    ],
+    "financiering": {
+     "max_hypotheek": 269043,
+     "marge_lenen": 17043,
+     "kosten_koper": 7008,
+     "kk_soort": "startersvrijstelling",
+     "tekort": 8,
+     "netto": 1474,
+     "bruto": 1773,
+     "grens": 1450,
+     "grens_soort": "netto",
+     "opbouw": {
+      "bruto_hyp": 1219,
+      "belastingvoordeel": 299,
+      "vve": 155,
+      "vve_bron": "advertentietekst",
+      "vve_geschat": false,
+      "energie": 239,
+      "stook_in_vve": false,
+      "overig": 160,
+      "canon_maand": 0,
+      "woz": 226800,
+      "woz_geschat": true
+     },
+     "koopsom": 252000,
+     "hypotheek": 252000,
+     "over": 24,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "ok",
+     "geluid": "ok",
+     "buurt": "ok"
+    }
+   }
+  },
+  {
+   "id": "w06",
+   "beoordeling": {
+    "poort": "KRAP",
+    "poort_redenen": [
+     "Woonlasten € 109 boven je grens."
+    ],
+    "status_kort": "Krap · € 109 boven je grens",
+    "twijfel": [],
+    "score": 1.5,
+    "onderdelen": {
+     "woonlasten": {
+      "punten": -1.09,
+      "kort": "woonlasten € 1.559"
+     },
+     "buitenruimte": {
+      "punten": -1.0,
+      "kort": "alleen frans balkon"
+     },
+     "oppervlak": {
+      "punten": -0.2,
+      "kort": "66 m²"
+     },
+     "woonlaag_lift": {
+      "punten": -0.5,
+      "kort": "3e zonder lift"
+     },
+     "reisafstand": {
+      "punten": 0.28,
+      "kort": "werk 3,8 km"
+     },
+     "energielabel": {
+      "punten": -1.0,
+      "kort": "label F"
+     },
+     "vve": {
+      "punten": 0.5,
+      "kort": "VvE op orde"
+     },
+     "fundering": {
+      "punten": -1.0,
+      "kort": "fundering hoog"
+     },
+     "buurt": {
+      "punten": 0.5,
+      "kort": "buurt goed"
+     }
+    },
+    "uitleg_regel": "1,5 · woonlasten € 1.559 −1,1 · alleen frans balkon −1,0 · label F −1,0 · overig −0,4",
+    "let_op": [
+     {
+      "onderdeel": "fundering",
+      "groep": "let_op",
+      "oordeel": "sterk",
+      "label": "Funderingsrisico buurt",
+      "waarde": "verschilzetting hoog (2050)",
+      "bron": "Klimaateffectatlas, buurtniveau",
+      "punten": -1.0,
+      "kort": "fundering hoog",
+      "vraag": "Vraag de VvE naar funderingsonderzoek en of ze ervoor reserveert.",
+      "uitleg": "Pand uit 1958. Kaart op buurtniveau: geen oordeel over dit pand."
+     },
+     {
+      "onderdeel": "woonlasten",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Woonlasten",
+      "waarde": "€ 1.559 netto per maand",
+      "bron": "berekening",
+      "punten": -1.09,
+      "kort": "woonlasten € 1.559",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     },
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Buitenruimte",
+      "waarde": "alleen frans balkon",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": -1.0,
+      "kort": "alleen frans balkon",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "energielabel",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Energielabel",
+      "waarde": "F",
+      "bron": "funda",
+      "punten": -1.0,
+      "kort": "label F",
+      "vraag": "Vraag naar verduurzamingsplannen van de VvE.",
+      "uitleg": "Voor energiebesparende maatregelen mag je tot € 20.000 extra lenen."
+     },
+     {
+      "onderdeel": "woonlaag_lift",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Trappen",
+      "waarde": "3e woonlaag, geen lift",
+      "bron": "kenmerk 'Gelegen op'",
+      "punten": -0.5,
+      "kort": "3e zonder lift",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "reisafstand",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Werk huidig",
+      "waarde": "≈ 3,8 km",
+      "bron": "route",
+      "punten": 0.5,
+      "kort": "werk 3,8 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "VvE op orde",
+      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "bron": "kenmerken",
+      "punten": 0.5,
+      "kort": "VvE op orde",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Leefbaarometer",
+      "waarde": "goed (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.5,
+      "kort": "buurt goed",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "erfpacht",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Grond",
+      "waarde": "eigen grond",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": 0.0,
+      "kort": "eigen grond",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "geluid",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Geluid aan de gevel",
+      "waarde": "rustig, 47 dB",
+      "bron": "RIVM 2022/2023",
+      "punten": 0.0,
+      "kort": "geluid 47 dB",
+      "vraag": null,
+      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Tevreden met buurt",
+      "waarde": "92% (2024)",
+      "bron": "RIVM-gezondheidsmonitor",
+      "punten": 0.0,
+      "kort": "tevreden 92%",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "onbekend": [],
+    "info": [
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Eigen geld",
+      "waarde": "genoeg, € 4 over",
+      "bron": "berekening, kosten koper ≈",
+      "punten": 0.0,
+      "kort": "eigen geld",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leenruimte",
+      "waarde": "€ 20.043 over",
+      "bron": "leentoets 2026",
+      "punten": 0.0,
+      "kort": "leenruimte",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "oppervlak",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonoppervlak",
+      "waarde": "66 m² (wens 70)",
+      "bron": "funda",
+      "punten": -0.2,
+      "kort": "66 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Werk vanaf 2027",
+      "waarde": "≈ 8,3 km",
+      "bron": "route",
+      "punten": -0.22,
+      "kort": "werk 8,3 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "VvE-bijdrage",
+      "waarde": "€ 190 p/m",
+      "bron": "kenmerk 'Bijdrage VvE'",
+      "punten": 0.0,
+      "kort": "VvE € 190",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Pand",
+      "waarde": "48 adressen",
+      "bron": "BAG",
+      "punten": 0.0,
+      "kort": "pand met 48 adressen",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "WOZ-waarde",
+      "waarde": "€ 231.000 (WOZ 2026)",
+      "bron": "funda prijshistorie",
+      "punten": 0.0,
+      "kort": "WOZ-waarde",
+      "vraag": null,
+      "uitleg": "Waardepeildatum 1 januari 2025: de WOZ loopt achter op de markt."
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Makelaar",
+      "waarde": "8,0 uit 25 reviews",
+      "bron": "funda, Vliet & Veen Wonen",
+      "punten": 0.0,
+      "kort": "makelaar",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "kansen": [
+     {
+      "onderdeel": "kans",
+      "groep": "kans",
+      "oordeel": "kans",
+      "label": "Prijs verlaagd",
+      "waarde": "€ 16.000 lager",
+      "bron": "funda prijshistorie",
+      "punten": 0.0,
+      "kort": "prijs verlaagd",
+      "vraag": null,
+      "uitleg": "Hoogste vraagprijs sinds de laatste verkoop: € 265.000."
+     },
+     {
+      "onderdeel": "kans",
+      "groep": "kans",
+      "oordeel": "kans",
+      "label": "Lang te koop",
+      "waarde": "146 dagen",
+      "bron": "eigen tracking",
+      "punten": 0.0,
+      "kort": "lang te koop",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "zelf_nagaan": [
+     "Vraag de VvE naar funderingsonderzoek en of ze ervoor reserveert.",
+     "Vraag naar verduurzamingsplannen van de VvE.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
+    ],
+    "financiering": {
+     "max_hypotheek": 269043,
+     "marge_lenen": 20043,
+     "kosten_koper": 6996,
+     "kk_soort": "startersvrijstelling",
+     "tekort": -4,
+     "netto": 1559,
+     "bruto": 1854,
+     "grens": 1450,
+     "grens_soort": "netto",
+     "opbouw": {
+      "bruto_hyp": 1205,
+      "belastingvoordeel": 295,
+      "vve": 190,
+      "vve_bron": "kenmerk 'Bijdrage VvE'",
+      "vve_geschat": false,
+      "energie": 299,
+      "stook_in_vve": false,
+      "overig": 160,
+      "canon_maand": 0,
+      "woz": 231000,
+      "woz_geschat": false
+     },
+     "koopsom": 249000,
+     "hypotheek": 249000,
+     "over": 109,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "ok",
+     "geluid": "ok",
+     "buurt": "ok"
+    }
+   }
+  },
+  {
+   "id": "w10",
+   "beoordeling": {
+    "poort": "KRAP",
+    "poort_redenen": [
+     "Woonlasten € 14 boven je grens."
+    ],
+    "status_kort": "Krap · € 14 boven je grens",
+    "twijfel": [
+     "Twijfelbuurt Leyenburg (jouw lijst)."
+    ],
+    "score": 4.5,
+    "onderdelen": {
+     "woonlasten": {
+      "punten": -0.14,
+      "kort": "woonlasten € 1.464"
+     },
+     "buitenruimte": {
+      "punten": 0.5,
+      "kort": "balkon 6 m² oost"
+     },
+     "oppervlak": {
+      "punten": 0.6,
+      "kort": "82 m²"
+     },
+     "erfpacht": {
+      "punten": -2.0,
+      "kort": "afkoop tot 2032"
+     },
+     "vve": {
+      "punten": 0.5,
+      "kort": "VvE op orde"
+     },
+     "geluid": {
+      "punten": -0.5,
+      "kort": "geluid 56 dB"
+     },
+     "markt": {
+      "punten": 0.5,
+      "kort": "m²-prijs 15% onder buurt"
+     }
+    },
+    "uitleg_regel": "4,5 · afkoop tot 2032 −2,0 · 82 m² +0,6 · balkon 6 m² oost +0,5 · overig +0,4",
+    "let_op": [
+     {
+      "onderdeel": "erfpacht",
+      "groep": "let_op",
+      "oordeel": "sterk",
+      "label": "Erfpacht",
+      "waarde": "afgekocht tot 2032 (6 jaar)",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": -2.0,
+      "kort": "afkoop tot 2032",
+      "vraag": "Vraag wat de canon na 2032 wordt.",
+      "uitleg": null
+     },
+     {
+      "onderdeel": "geluid",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Geluid aan de gevel",
+      "waarde": "56 dB, nacht 47 dB (weg)",
+      "bron": "RIVM 2022/2023",
+      "punten": -0.5,
+      "kort": "geluid 56 dB",
+      "vraag": "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
+      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
+     },
+     {
+      "onderdeel": "woonlasten",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Woonlasten",
+      "waarde": "€ 1.464 netto per maand",
+      "bron": "berekening",
+      "punten": -0.14,
+      "kort": "woonlasten € 1.464",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Twijfelbuurt",
+      "waarde": "Leyenburg",
+      "bron": "jouw lijst",
+      "punten": 0.0,
+      "kort": "twijfelbuurt Leyenburg",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "oppervlak",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Woonoppervlak",
+      "waarde": "82 m² (wens 70)",
+      "bron": "funda",
+      "punten": 0.6,
+      "kort": "82 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Balkon",
+      "waarde": "6 m²",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": 0.5,
+      "kort": "balkon 6 m² oost",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "VvE op orde",
+      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "bron": "kenmerken",
+      "punten": 0.5,
+      "kort": "VvE op orde",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "markt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Prijs per m²",
+      "waarde": "15% onder de buurt",
+      "bron": "funda-buurtcijfer",
+      "punten": 0.5,
+      "kort": "m²-prijs 15% onder buurt",
+      "vraag": null,
+      "uitleg": "Vergeleken met alle te koop staande woningen in de buurt."
+     },
+     {
+      "onderdeel": "woonlaag_lift",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Lift",
+      "waarde": "4e woonlaag",
+      "bron": "kenmerk 'Voorzieningen'",
+      "punten": 0.0,
+      "kort": "lift, 4e woonlaag",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "fundering",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Funderingsrisico buurt",
+      "waarde": "laag",
+      "bron": "Klimaateffectatlas, buurtniveau",
+      "punten": 0.0,
+      "kort": "fundering laag",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "onbekend": [],
+    "info": [
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Eigen geld",
+      "waarde": "genoeg, € 84 over",
+      "bron": "berekening, kosten koper ≈",
+      "punten": 0.0,
+      "kort": "eigen geld",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leenruimte",
+      "waarde": "€ 45.043 over",
+      "bron": "leentoets 2026",
+      "punten": 0.0,
+      "kort": "leenruimte",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Zon op buitenruimte",
+      "waarde": "oost",
+      "bron": "advertentietekst",
+      "punten": 0.0,
+      "kort": "zon oost",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Werk huidig",
+      "waarde": "≈ 5,3 km",
+      "bron": "route",
+      "punten": 0.28,
+      "kort": "werk 5,3 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Werk vanaf 2027",
+      "waarde": "≈ 8,9 km",
+      "bron": "route",
+      "punten": -0.32,
+      "kort": "werk 8,9 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "VvE-bijdrage",
+      "waarde": "€ 230 p/m",
+      "bron": "advertentietekst",
+      "punten": 0.0,
+      "kort": "VvE € 230",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Pand",
+      "waarde": "80 adressen",
+      "bron": "BAG",
+      "punten": 0.0,
+      "kort": "pand met 80 adressen",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leefbaarometer",
+      "waarde": "ruim voldoende (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.0,
+      "kort": "buurt ruim voldoende",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "WOZ-waarde",
+      "waarde": "€ 180.000 (WOZ 2026)",
+      "bron": "funda prijshistorie",
+      "punten": 0.0,
+      "kort": "WOZ-waarde",
+      "vraag": null,
+      "uitleg": "Waardepeildatum 1 januari 2025: de WOZ loopt achter op de markt."
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Makelaar",
+      "waarde": "8,0 uit 25 reviews",
+      "bron": "funda, Vliet & Veen Wonen",
+      "punten": 0.0,
+      "kort": "makelaar",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "kansen": [],
+    "zelf_nagaan": [
+     "Vraag wat de canon na 2032 wordt.",
+     "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
+    ],
+    "financiering": {
+     "max_hypotheek": 274043,
+     "marge_lenen": 45043,
+     "kosten_koper": 6916,
+     "kk_soort": "startersvrijstelling",
+     "tekort": -84,
+     "netto": 1464,
+     "bruto": 1738,
+     "grens": 1450,
+     "grens_soort": "netto",
+     "opbouw": {
+      "bruto_hyp": 1108,
+      "belastingvoordeel": 275,
+      "vve": 230,
+      "vve_bron": "advertentietekst",
+      "vve_geschat": false,
+      "energie": 241,
+      "stook_in_vve": false,
+      "overig": 160,
+      "canon_maand": 0,
+      "woz": 180000,
+      "woz_geschat": false
+     },
+     "koopsom": 229000,
+     "hypotheek": 229000,
+     "over": 14,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "ok",
+     "geluid": "ok",
+     "buurt": "ok"
+    }
+   }
+  },
+  {
+   "id": "w11",
+   "beoordeling": {
+    "poort": "KRAP",
+    "poort_redenen": [
+     "Woonlasten € 58 boven je grens."
+    ],
+    "status_kort": "Krap · € 58 boven je grens",
+    "twijfel": [
+     "Leefbaarometer zwak (2024). Buurt staat niet op je eigen lijst."
+    ],
+    "score": 4.2,
+    "onderdelen": {
+     "woonlasten": {
+      "punten": -0.58,
+      "kort": "woonlasten € 1.508"
+     },
+     "buitenruimte": {
+      "punten": 0.5,
+      "kort": "balkon 5 m²"
+     },
+     "oppervlak": {
+      "punten": 0.3,
+      "kort": "76 m²"
+     },
+     "erfpacht": {
+      "punten": -0.5,
+      "kort": "erfpacht onduidelijk"
+     },
+     "buurt": {
+      "punten": -1.0,
+      "kort": "overlast buurt"
+     },
+     "markt": {
+      "punten": 0.5,
+      "kort": "m²-prijs 12% onder buurt"
+     }
+    },
+    "uitleg_regel": "4,2 · overlast buurt −1,0 · woonlasten € 1.508 −0,6 · overig +0,8 · 2 onbekend",
+    "let_op": [
+     {
+      "onderdeel": "buurt",
+      "groep": "let_op",
+      "oordeel": "sterk",
+      "label": "Leefbaarometer",
+      "waarde": "zwak (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.0,
+      "kort": "buurt zwak",
+      "vraag": null,
+      "uitleg": "Staat niet op je uitsluitlijst. Zelf bekijken en eventueel toevoegen."
+     },
+     {
+      "onderdeel": "woonlasten",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Woonlasten",
+      "waarde": "€ 1.508 netto per maand",
+      "bron": "berekening",
+      "punten": -0.58,
+      "kort": "woonlasten € 1.508",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Werk vanaf 2027",
+      "waarde": "≈ 10,2 km",
+      "bron": "route",
+      "punten": -0.5,
+      "kort": "werk 10,2 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "erfpacht",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Erfpacht",
+      "waarde": "voorwaarden onbekend",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": -0.5,
+      "kort": "erfpacht onduidelijk",
+      "vraag": "Vraag de erfpachtakte: canon, afkoop en einddatum.",
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Kleine VvE",
+      "waarde": "4 adressen in het pand",
+      "bron": "BAG",
+      "punten": -0.5,
+      "kort": "VvE van 4",
+      "vraag": "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+      "uitleg": "Grote kosten (dak, fundering) deel je met weinig eigenaren."
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Overlast en onveiligheid",
+      "waarde": "−0,21 t.o.v. NL",
+      "bron": "Leefbaarometer 3.0",
+      "punten": -0.5,
+      "kort": "overlast buurt",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Tevreden met buurt",
+      "waarde": "79% (2024)",
+      "bron": "RIVM-gezondheidsmonitor",
+      "punten": -0.5,
+      "kort": "tevreden 79%",
+      "vraag": null,
+      "uitleg": "Modelschatting met onzekerheidsmarge."
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Balkon",
+      "waarde": "5 m²",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": 0.5,
+      "kort": "balkon 5 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Werk huidig",
+      "waarde": "≈ 3,1 km",
+      "bron": "route",
+      "punten": 0.5,
+      "kort": "werk 3,1 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "VvE op orde",
+      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "bron": "kenmerken",
+      "punten": 0.5,
+      "kort": "VvE op orde",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "markt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Prijs per m²",
+      "waarde": "12% onder de buurt",
+      "bron": "funda-buurtcijfer",
+      "punten": 0.5,
+      "kort": "m²-prijs 12% onder buurt",
+      "vraag": null,
+      "uitleg": "Vergeleken met alle te koop staande woningen in de buurt."
+     },
+     {
+      "onderdeel": "fundering",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Funderingsrisico buurt",
+      "waarde": "zeer laag",
+      "bron": "Klimaateffectatlas, buurtniveau",
+      "punten": 0.0,
+      "kort": "fundering zeer laag",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "onbekend": [
+     {
+      "onderdeel": "vve",
+      "groep": "onbekend",
+      "oordeel": "onbekend",
+      "label": "VvE-bijdrage",
+      "waarde": "onbekend, gerekend met € 175",
+      "bron": "aanname",
+      "punten": 0.0,
+      "kort": "VvE-bijdrage onbekend",
+      "vraag": "Vraag de maandelijkse VvE-bijdrage op.",
+      "uitleg": null
+     },
+     {
+      "onderdeel": "geluid",
+      "groep": "onbekend",
+      "oordeel": "onbekend",
+      "label": "Geluid aan de gevel",
+      "waarde": "onbekend",
+      "bron": "RIVM",
+      "punten": 0.0,
+      "kort": "geluid onbekend",
+      "vraag": null,
+      "uitleg": "bron gaf geen antwoord"
+     }
+    ],
+    "info": [
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Eigen geld",
+      "waarde": "net genoeg (schatting)",
+      "bron": "berekening, kosten koper ≈",
+      "punten": 0.0,
+      "kort": "eigen geld",
+      "vraag": "Laat je kosten koper narekenen door een adviseur.",
+      "uitleg": "Tekort € 96 valt binnen de onzekerheid van de kosten koper."
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leenruimte",
+      "waarde": "€ 43 over",
+      "bron": "leentoets 2026",
+      "punten": 0.0,
+      "kort": "leenruimte",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "oppervlak",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonoppervlak",
+      "waarde": "76 m² (wens 70)",
+      "bron": "funda",
+      "punten": 0.3,
+      "kort": "76 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "WOZ-waarde",
+      "waarde": "€ 256.000 (WOZ 2026)",
+      "bron": "funda prijshistorie",
+      "punten": 0.0,
+      "kort": "WOZ-waarde",
+      "vraag": null,
+      "uitleg": "Waardepeildatum 1 januari 2025: de WOZ loopt achter op de markt."
+     }
+    ],
+    "kansen": [],
+    "zelf_nagaan": [
+     "Vraag de erfpachtakte: canon, afkoop en einddatum.",
+     "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+     "Vraag de maandelijkse VvE-bijdrage op.",
+     "Laat je kosten koper narekenen door een adviseur.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
+    ],
+    "financiering": {
+     "max_hypotheek": 274043,
+     "marge_lenen": 43,
+     "kosten_koper": 7096,
+     "kk_soort": "startersvrijstelling",
+     "tekort": 96,
+     "netto": 1508,
+     "bruto": 1833,
+     "grens": 1450,
+     "grens_soort": "netto",
+     "opbouw": {
+      "bruto_hyp": 1326,
+      "belastingvoordeel": 324,
+      "vve": 175,
+      "vve_bron": "niet gevonden, geschat",
+      "vve_geschat": true,
+      "energie": 172,
+      "stook_in_vve": false,
+      "overig": 160,
+      "canon_maand": 0,
+      "woz": 256000,
+      "woz_geschat": false
+     },
+     "koopsom": 274000,
+     "hypotheek": 274000,
+     "over": 58,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "ok",
+     "geluid": "onbekend",
+     "buurt": "ok"
+    }
+   }
+  },
+  {
+   "id": "w03",
+   "beoordeling": {
+    "poort": "KRAP",
+    "poort_redenen": [
+     "Woonlasten € 28 boven je grens."
+    ],
+    "status_kort": "Krap · € 28 boven je grens",
+    "twijfel": [
+     "Twijfelbuurt Mariahoeve (jouw lijst)."
+    ],
+    "score": 3.1,
+    "onderdelen": {
+     "woonlasten": {
+      "punten": -0.28,
+      "kort": "woonlasten € 1.478"
+     },
+     "oppervlak": {
+      "punten": 0.1,
+      "kort": "72 m²"
+     },
+     "reisafstand": {
+      "punten": -0.18,
+      "kort": "werk 11,0 km"
+     },
+     "erfpacht": {
+      "punten": -0.5,
+      "kort": "erfpachtcanon"
+     },
+     "vve": {
+      "punten": 0.5,
+      "kort": "VvE op orde"
+     },
+     "fundering": {
+      "punten": -0.5,
+      "kort": "fundering matig"
+     },
+     "geluid": {
+      "punten": -1.0,
+      "kort": "geluid 61 dB"
+     }
+    },
+    "uitleg_regel": "3,1 · geluid 61 dB −1,0 · erfpachtcanon −0,5 · VvE op orde +0,5 · overig −0,9",
+    "let_op": [
+     {
+      "onderdeel": "geluid",
+      "groep": "let_op",
+      "oordeel": "sterk",
+      "label": "Geluid aan de gevel",
+      "waarde": "61 dB, nacht 52 dB (weg)",
+      "bron": "RIVM 2022/2023",
+      "punten": -1.0,
+      "kort": "geluid 61 dB",
+      "vraag": "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
+      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
+     },
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Zon op buitenruimte",
+      "waarde": "noord",
+      "bron": "advertentietekst",
+      "punten": -0.5,
+      "kort": "zon noord",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Werk vanaf 2027",
+      "waarde": "≈ 11,0 km",
+      "bron": "route",
+      "punten": -0.5,
+      "kort": "werk 11,0 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "erfpacht",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Erfpachtcanon",
+      "waarde": "€ 642 per jaar",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": -0.5,
+      "kort": "erfpachtcanon",
+      "vraag": "Vraag de erfpachtakte en de datum van de volgende herziening.",
+      "uitleg": "De canon zit in je woonlasten en in de leentoets."
+     },
+     {
+      "onderdeel": "fundering",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Funderingsrisico buurt",
+      "waarde": "verschilzetting matig (2050)",
+      "bron": "Klimaateffectatlas, buurtniveau",
+      "punten": -0.5,
+      "kort": "fundering matig",
+      "vraag": "Vraag de VvE naar funderingsonderzoek en of ze ervoor reserveert.",
+      "uitleg": "Pand uit 1962. Kaart op buurtniveau: geen oordeel over dit pand."
+     },
+     {
+      "onderdeel": "woonlasten",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Woonlasten",
+      "waarde": "€ 1.478 netto per maand",
+      "bron": "berekening",
+      "punten": -0.28,
+      "kort": "woonlasten € 1.478",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Twijfelbuurt",
+      "waarde": "Mariahoeve",
+      "bron": "jouw lijst",
+      "punten": 0.0,
+      "kort": "twijfelbuurt Mariahoeve",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Balkon",
+      "waarde": "5 m²",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": 0.5,
+      "kort": "balkon 5 m² noord",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "VvE op orde",
+      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "bron": "kenmerken",
+      "punten": 0.5,
+      "kort": "VvE op orde",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "woonlaag_lift",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Lift",
+      "waarde": "6e woonlaag",
+      "bron": "kenmerk 'Voorzieningen'",
+      "punten": 0.0,
+      "kort": "lift, 6e woonlaag",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "onbekend": [],
+    "info": [
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Eigen geld",
+      "waarde": "genoeg, € 44 over",
+      "bron": "berekening, kosten koper ≈",
+      "punten": 0.0,
+      "kort": "eigen geld",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leenruimte",
+      "waarde": "€ 18.984 over",
+      "bron": "leentoets 2026",
+      "punten": 0.0,
+      "kort": "leenruimte",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "oppervlak",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonoppervlak",
+      "waarde": "72 m² (wens 70)",
+      "bron": "funda",
+      "punten": 0.1,
+      "kort": "72 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Werk huidig",
+      "waarde": "≈ 5,1 km",
+      "bron": "route",
+      "punten": 0.32,
+      "kort": "werk 5,1 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "VvE-bijdrage",
+      "waarde": "€ 285 p/m incl. stookkosten",
+      "bron": "advertentietekst",
+      "punten": 0.0,
+      "kort": "VvE € 285",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Pand",
+      "waarde": "64 adressen",
+      "bron": "BAG",
+      "punten": 0.0,
+      "kort": "pand met 64 adressen",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leefbaarometer",
+      "waarde": "voldoende (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.0,
+      "kort": "buurt voldoende",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "WOZ-waarde",
+      "waarde": "€ 212.000 (WOZ 2026)",
+      "bron": "funda prijshistorie",
+      "punten": 0.0,
+      "kort": "WOZ-waarde",
+      "vraag": null,
+      "uitleg": "Waardepeildatum 1 januari 2025: de WOZ loopt achter op de markt."
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Makelaar",
+      "waarde": "8,0 uit 25 reviews",
+      "bron": "funda, Vliet & Veen Wonen",
+      "punten": 0.0,
+      "kort": "makelaar",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "kansen": [],
+    "zelf_nagaan": [
+     "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
+     "Vraag de erfpachtakte en de datum van de volgende herziening.",
+     "Vraag de VvE naar funderingsonderzoek en of ze ervoor reserveert.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
+    ],
+    "financiering": {
+     "max_hypotheek": 257984,
+     "marge_lenen": 18984,
+     "kosten_koper": 6956,
+     "kk_soort": "startersvrijstelling",
+     "tekort": -44,
+     "netto": 1478,
+     "bruto": 1762,
+     "grens": 1450,
+     "grens_soort": "netto",
+     "opbouw": {
+      "bruto_hyp": 1156,
+      "belastingvoordeel": 284,
+      "vve": 285,
+      "vve_bron": "advertentietekst",
+      "vve_geschat": false,
+      "energie": 108,
+      "stook_in_vve": true,
+      "overig": 160,
+      "canon_maand": 54,
+      "woz": 212000,
+      "woz_geschat": false
+     },
+     "koopsom": 239000,
+     "hypotheek": 239000,
+     "over": 28,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "ok",
+     "geluid": "ok",
+     "buurt": "ok"
+    }
+   }
+  },
+  {
+   "id": "w02",
+   "beoordeling": {
+    "poort": "PAST NIET",
+    "poort_redenen": [
+     "Max. hypotheek € 279.043: € 9.957 uit eigen geld.",
+     "Eigen geld: € 10.073 tekort."
+    ],
+    "status_kort": "Past niet · € 10.073 eigen geld te weinig",
+    "twijfel": [],
+    "score": 6.7,
+    "onderdelen": {
+     "woonlasten": {
+      "punten": 0.69,
+      "kort": "woonlasten € 1.381"
+     },
+     "buitenruimte": {
+      "punten": 1.0,
+      "kort": "dakterras 18 m²"
+     },
+     "oppervlak": {
+      "punten": -0.45,
+      "kort": "61 m²"
+     },
+     "woonlaag_lift": {
+      "punten": -0.5,
+      "kort": "3e zonder lift"
+     },
+     "buurt": {
+      "punten": 0.5,
+      "kort": "buurt zeer goed"
+     },
+     "markt": {
+      "punten": 0.5,
+      "kort": "m²-prijs 11% onder buurt"
+     }
+    },
+    "uitleg_regel": "6,7 · dakterras 18 m² +1,0 · woonlasten € 1.381 +0,7 · 3e zonder lift −0,5 · overig +0,6",
+    "let_op": [
+     {
+      "onderdeel": "financiering",
+      "groep": "let_op",
+      "oordeel": "sterk",
+      "label": "Leenruimte",
+      "waarde": "€ 9.957 boven max. hypotheek",
+      "bron": "leentoets 2026",
+      "punten": 0.0,
+      "kort": "leenruimte te klein",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "woonlaag_lift",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Trappen",
+      "waarde": "3e woonlaag, geen lift",
+      "bron": "kenmerk 'Gelegen op'",
+      "punten": -0.5,
+      "kort": "3e zonder lift",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Werk vanaf 2027",
+      "waarde": "≈ 11,7 km",
+      "bron": "route",
+      "punten": -0.5,
+      "kort": "werk 11,7 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Kleine VvE",
+      "waarde": "4 adressen in het pand",
+      "bron": "BAG",
+      "punten": -0.5,
+      "kort": "VvE van 4",
+      "vraag": "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+      "uitleg": "Grote kosten (dak, fundering) deel je met weinig eigenaren."
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Eigen geld",
+      "waarde": "€ 10.073 tekort",
+      "bron": "berekening, kosten koper ≈",
+      "punten": 0.0,
+      "kort": "eigen geld",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Dakterras",
+      "waarde": "18 m²",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": 1.0,
+      "kort": "dakterras 18 m²",
+      "vraag": "Is er een vergunning voor het dakterras en staat het in de splitsingsakte?",
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Werk huidig",
+      "waarde": "≈ 2,3 km",
+      "bron": "route",
+      "punten": 0.5,
+      "kort": "werk 2,3 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "VvE op orde",
+      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "bron": "kenmerken",
+      "punten": 0.5,
+      "kort": "VvE op orde",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Leefbaarometer",
+      "waarde": "zeer goed (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.5,
+      "kort": "buurt zeer goed",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "markt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Prijs per m²",
+      "waarde": "11% onder de buurt",
+      "bron": "funda-buurtcijfer",
+      "punten": 0.5,
+      "kort": "m²-prijs 11% onder buurt",
+      "vraag": null,
+      "uitleg": "Vergeleken met alle te koop staande woningen in de buurt."
+     },
+     {
+      "onderdeel": "energielabel",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Energielabel",
+      "waarde": "B",
+      "bron": "funda",
+      "punten": 0.0,
+      "kort": "label B",
+      "vraag": null,
+      "uitleg": "Lagere stookkosten en meer leenruimte; dat zit al in woonlasten en leentoets."
+     },
+     {
+      "onderdeel": "erfpacht",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Grond",
+      "waarde": "eigen grond",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": 0.0,
+      "kort": "eigen grond",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "fundering",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Funderingsrisico buurt",
+      "waarde": "laag",
+      "bron": "Klimaateffectatlas, buurtniveau",
+      "punten": 0.0,
+      "kort": "fundering laag",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "onbekend": [],
+    "info": [
+     {
+      "onderdeel": "woonlasten",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonlasten",
+      "waarde": "€ 1.381 netto per maand",
+      "bron": "berekening",
+      "punten": 0.69,
+      "kort": "woonlasten € 1.381",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     },
+     {
+      "onderdeel": "oppervlak",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonoppervlak",
+      "waarde": "61 m² (wens 70)",
+      "bron": "funda",
+      "punten": -0.45,
+      "kort": "61 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "VvE-bijdrage",
+      "waarde": "€ 95 p/m",
+      "bron": "kenmerk 'Bijdrage VvE'",
+      "punten": 0.0,
+      "kort": "VvE € 95",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "geluid",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Geluid aan de gevel",
+      "waarde": "52 dB, nacht 43 dB (weg)",
+      "bron": "RIVM 2022/2023",
+      "punten": 0.0,
+      "kort": "geluid 52 dB",
+      "vraag": null,
+      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "WOZ-waarde",
+      "waarde": "€ 268.000 (WOZ 2026)",
+      "bron": "funda prijshistorie",
+      "punten": 0.0,
+      "kort": "WOZ-waarde",
+      "vraag": null,
+      "uitleg": "Waardepeildatum 1 januari 2025: de WOZ loopt achter op de markt."
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Makelaar",
+      "waarde": "8,9 uit 58 reviews",
+      "bron": "funda, Makelaardij Het Plein",
+      "punten": 0.0,
+      "kort": "makelaar",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "kansen": [],
+    "zelf_nagaan": [
+     "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+     "Is er een vergunning voor het dakterras en staat het in de splitsingsakte?",
+     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
+    ],
+    "financiering": {
+     "max_hypotheek": 279043,
+     "marge_lenen": -9957,
+     "kosten_koper": 7116,
+     "kk_soort": "startersvrijstelling",
+     "tekort": 10073,
+     "netto": 1381,
+     "bruto": 1711,
+     "grens": 1450,
+     "grens_soort": "netto",
+     "opbouw": {
+      "bruto_hyp": 1350,
+      "belastingvoordeel": 330,
+      "vve": 95,
+      "vve_bron": "kenmerk 'Bijdrage VvE'",
+      "vve_geschat": false,
+      "energie": 106,
+      "stook_in_vve": false,
+      "overig": 160,
+      "canon_maand": 0,
+      "woz": 268000,
+      "woz_geschat": false
+     },
+     "koopsom": 289000,
+     "hypotheek": 279043,
+     "over": -69,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "ok",
+     "geluid": "ok",
+     "buurt": "ok"
+    }
+   }
+  },
+  {
+   "id": "w05",
+   "beoordeling": {
+    "poort": "PAST NIET",
+    "poort_redenen": [
+     "Max. hypotheek € 252.511: € 16.489 uit eigen geld.",
+     "Eigen geld: € 16.499 tekort.",
+     "Woonlasten € 26 boven je grens."
+    ],
+    "status_kort": "Past niet · € 16.499 eigen geld te weinig",
+    "twijfel": [],
+    "score": 6.4,
+    "onderdelen": {
+     "woonlasten": {
+      "punten": -0.26,
+      "kort": "woonlasten € 1.476"
+     },
+     "buitenruimte": {
+      "punten": 1.0,
+      "kort": "balkon 8 m² zuid"
+     },
+     "oppervlak": {
+      "punten": 0.2,
+      "kort": "74 m²"
+     },
+     "erfpacht": {
+      "punten": -0.5,
+      "kort": "erfpachtcanon"
+     },
+     "vve": {
+      "punten": 0.5,
+      "kort": "VvE op orde"
+     },
+     "geluid": {
+      "punten": -0.5,
+      "kort": "geluid 57 dB"
+     },
+     "buurt": {
+      "punten": 0.5,
+      "kort": "buurt goed"
+     },
+     "markt": {
+      "punten": 0.5,
+      "kort": "m²-prijs 19% onder buurt"
+     }
+    },
+    "uitleg_regel": "6,4 · balkon 8 m² zuid +1,0 · erfpachtcanon −0,5 · VvE op orde +0,5 · overig +0,4",
+    "let_op": [
+     {
+      "onderdeel": "financiering",
+      "groep": "let_op",
+      "oordeel": "sterk",
+      "label": "Leenruimte",
+      "waarde": "€ 16.489 boven max. hypotheek",
+      "bron": "leentoets 2026",
+      "punten": 0.0,
+      "kort": "leenruimte te klein",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Werk vanaf 2027",
+      "waarde": "≈ 10,4 km",
+      "bron": "route",
+      "punten": -0.5,
+      "kort": "werk 10,4 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "erfpacht",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Erfpachtcanon",
+      "waarde": "€ 1.250 per jaar",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": -0.5,
+      "kort": "erfpachtcanon",
+      "vraag": "Vraag de erfpachtakte en de datum van de volgende herziening.",
+      "uitleg": "De canon zit in je woonlasten en in de leentoets."
+     },
+     {
+      "onderdeel": "geluid",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Geluid aan de gevel",
+      "waarde": "57 dB, nacht 48 dB (weg)",
+      "bron": "RIVM 2022/2023",
+      "punten": -0.5,
+      "kort": "geluid 57 dB",
+      "vraag": "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
+      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
+     },
+     {
+      "onderdeel": "woonlasten",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Woonlasten",
+      "waarde": "€ 1.476 netto per maand",
+      "bron": "berekening",
+      "punten": -0.26,
+      "kort": "woonlasten € 1.476",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Eigen geld",
+      "waarde": "€ 16.499 tekort",
+      "bron": "berekening, kosten koper ≈",
+      "punten": 0.0,
+      "kort": "eigen geld",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Balkon",
+      "waarde": "8 m²",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": 0.5,
+      "kort": "balkon 8 m² zuid",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Zon op buitenruimte",
+      "waarde": "zuid",
+      "bron": "advertentietekst",
+      "punten": 0.5,
+      "kort": "zon zuid",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Werk huidig",
+      "waarde": "≈ 2,2 km",
+      "bron": "route",
+      "punten": 0.5,
+      "kort": "werk 2,2 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "VvE op orde",
+      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "bron": "kenmerken",
+      "punten": 0.5,
+      "kort": "VvE op orde",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Leefbaarometer",
+      "waarde": "goed (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.5,
+      "kort": "buurt goed",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "markt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Prijs per m²",
+      "waarde": "19% onder de buurt",
+      "bron": "funda-buurtcijfer",
+      "punten": 0.5,
+      "kort": "m²-prijs 19% onder buurt",
+      "vraag": null,
+      "uitleg": "Vergeleken met alle te koop staande woningen in de buurt."
+     },
+     {
+      "onderdeel": "fundering",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Funderingsrisico buurt",
+      "waarde": "laag",
+      "bron": "Klimaateffectatlas, buurtniveau",
+      "punten": 0.0,
+      "kort": "fundering laag",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "onbekend": [],
+    "info": [
+     {
+      "onderdeel": "oppervlak",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonoppervlak",
+      "waarde": "74 m² (wens 70)",
+      "bron": "funda",
+      "punten": 0.2,
+      "kort": "74 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "VvE-bijdrage",
+      "waarde": "€ 120 p/m",
+      "bron": "kenmerk 'Bijdrage VvE'",
+      "punten": 0.0,
+      "kort": "VvE € 120",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Pand",
+      "waarde": "6 adressen",
+      "bron": "BAG",
+      "punten": 0.0,
+      "kort": "pand met 6 adressen",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "WOZ-waarde",
+      "waarde": "€ 248.000 (WOZ 2026)",
+      "bron": "funda prijshistorie",
+      "punten": 0.0,
+      "kort": "WOZ-waarde",
+      "vraag": null,
+      "uitleg": "Waardepeildatum 1 januari 2025: de WOZ loopt achter op de markt."
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Makelaar",
+      "waarde": "8,9 uit 58 reviews",
+      "bron": "funda, Makelaardij Het Plein",
+      "punten": 0.0,
+      "kort": "makelaar",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "kansen": [
+     {
+      "onderdeel": "kans",
+      "groep": "kans",
+      "oordeel": "kans",
+      "label": "Prijs verlaagd",
+      "waarde": "€ 20.000 lager",
+      "bron": "eigen tracking",
+      "punten": 0.0,
+      "kort": "prijs verlaagd",
+      "vraag": null,
+      "uitleg": "Was € 289.000."
+     }
+    ],
+    "zelf_nagaan": [
+     "Vraag de erfpachtakte en de datum van de volgende herziening.",
+     "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
+    ],
+    "financiering": {
+     "max_hypotheek": 252511,
+     "marge_lenen": -16489,
+     "kosten_koper": 7010,
+     "kk_soort": "startersvrijstelling",
+     "tekort": 16499,
+     "netto": 1476,
+     "bruto": 1773,
+     "grens": 1450,
+     "grens_soort": "netto",
+     "opbouw": {
+      "bruto_hyp": 1222,
+      "belastingvoordeel": 298,
+      "vve": 120,
+      "vve_bron": "kenmerk 'Bijdrage VvE'",
+      "vve_geschat": false,
+      "energie": 168,
+      "stook_in_vve": false,
+      "overig": 160,
+      "canon_maand": 104,
+      "woz": 248000,
+      "woz_geschat": false
+     },
+     "koopsom": 269000,
+     "hypotheek": 252511,
+     "over": 26,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "ok",
+     "geluid": "ok",
+     "buurt": "ok"
+    }
+   }
+  },
+  {
+   "id": "w08",
+   "beoordeling": {
+    "poort": "PAST NIET",
+    "poort_redenen": [
+     "Max. hypotheek € 289.043: € 15.957 uit eigen geld.",
+     "Eigen geld: € 16.113 tekort."
+    ],
+    "status_kort": "Past niet · € 16.113 eigen geld te weinig",
+    "twijfel": [],
+    "score": 5.0,
+    "onderdelen": {
+     "woonlasten": {
+      "punten": 0.85,
+      "kort": "woonlasten € 1.365"
+     },
+     "buitenruimte": {
+      "punten": 1.0,
+      "kort": "balkon 9 m² zuid"
+     },
+     "oppervlak": {
+      "punten": -0.6,
+      "kort": "58 m²"
+     },
+     "reisafstand": {
+      "punten": 0.27,
+      "kort": "werk 2,4 km"
+     },
+     "vve": {
+      "punten": 0.5,
+      "kort": "VvE op orde"
+     },
+     "geluid": {
+      "punten": -1.0,
+      "kort": "geluid 63 dB"
+     },
+     "buurt": {
+      "punten": -1.0,
+      "kort": "overlast buurt"
+     }
+    },
+    "uitleg_regel": "5,0 · balkon 9 m² zuid +1,0 · geluid 63 dB −1,0 · overlast buurt −1,0 · overig +1,0",
+    "let_op": [
+     {
+      "onderdeel": "geluid",
+      "groep": "let_op",
+      "oordeel": "sterk",
+      "label": "Geluid aan de gevel",
+      "waarde": "63 dB, nacht 54 dB (weg)",
+      "bron": "RIVM 2022/2023",
+      "punten": -1.0,
+      "kort": "geluid 63 dB",
+      "vraag": "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
+      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "let_op",
+      "oordeel": "sterk",
+      "label": "Leenruimte",
+      "waarde": "€ 15.957 boven max. hypotheek",
+      "bron": "leentoets 2026",
+      "punten": 0.0,
+      "kort": "leenruimte te klein",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "oppervlak",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Woonoppervlak",
+      "waarde": "58 m² (wens 70)",
+      "bron": "funda",
+      "punten": -0.6,
+      "kort": "58 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Overlast en onveiligheid",
+      "waarde": "−0,18 t.o.v. NL",
+      "bron": "Leefbaarometer 3.0",
+      "punten": -0.5,
+      "kort": "overlast buurt",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Tevreden met buurt",
+      "waarde": "78% (2024)",
+      "bron": "RIVM-gezondheidsmonitor",
+      "punten": -0.5,
+      "kort": "tevreden 78%",
+      "vraag": null,
+      "uitleg": "Modelschatting met onzekerheidsmarge."
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Eigen geld",
+      "waarde": "€ 16.113 tekort",
+      "bron": "berekening, kosten koper ≈",
+      "punten": 0.0,
+      "kort": "eigen geld",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Balkon",
+      "waarde": "9 m²",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": 0.5,
+      "kort": "balkon 9 m² zuid",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Zon op buitenruimte",
+      "waarde": "zuid",
+      "bron": "advertentietekst",
+      "punten": 0.5,
+      "kort": "zon zuid",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Werk huidig",
+      "waarde": "≈ 2,4 km",
+      "bron": "route",
+      "punten": 0.5,
+      "kort": "werk 2,4 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "VvE op orde",
+      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "bron": "kenmerken",
+      "punten": 0.5,
+      "kort": "VvE op orde",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "woonlaag_lift",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Lift",
+      "waarde": "5e woonlaag",
+      "bron": "kenmerk 'Voorzieningen'",
+      "punten": 0.0,
+      "kort": "lift, 5e woonlaag",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "energielabel",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Energielabel",
+      "waarde": "A++",
+      "bron": "funda",
+      "punten": 0.0,
+      "kort": "label A++",
+      "vraag": null,
+      "uitleg": "Lagere stookkosten en meer leenruimte; dat zit al in woonlasten en leentoets."
+     }
+    ],
+    "onbekend": [],
+    "info": [
+     {
+      "onderdeel": "woonlasten",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonlasten",
+      "waarde": "€ 1.365 netto per maand",
+      "bron": "berekening",
+      "punten": 0.85,
+      "kort": "woonlasten € 1.365",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Werk vanaf 2027",
+      "waarde": "≈ 8,4 km",
+      "bron": "route",
+      "punten": -0.23,
+      "kort": "werk 8,4 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "erfpacht",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Erfpacht",
+      "waarde": "afgekocht tot 2071 (45 jaar)",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": 0.0,
+      "kort": "afkoop tot 2071",
+      "vraag": "Vraag wat de canon na 2071 wordt.",
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "VvE-bijdrage",
+      "waarde": "€ 85 p/m",
+      "bron": "advertentietekst",
+      "punten": 0.0,
+      "kort": "VvE € 85",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Pand",
+      "waarde": "120 adressen",
+      "bron": "BAG",
+      "punten": 0.0,
+      "kort": "pand met 120 adressen",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "fundering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Fundering",
+      "waarde": "bouwjaar 2021, na 1970",
+      "bron": "BAG",
+      "punten": 0.0,
+      "kort": "fundering geen risico",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leefbaarometer",
+      "waarde": "voldoende (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.0,
+      "kort": "buurt voldoende",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "WOZ-waarde",
+      "waarde": "€ 291.000 (WOZ 2026)",
+      "bron": "funda prijshistorie",
+      "punten": 0.0,
+      "kort": "WOZ-waarde",
+      "vraag": null,
+      "uitleg": "Waardepeildatum 1 januari 2025: de WOZ loopt achter op de markt."
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Makelaar",
+      "waarde": "9,3 uit 214 reviews",
+      "bron": "funda, Duinrand Makelaars",
+      "punten": 0.0,
+      "kort": "makelaar",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "kansen": [],
+    "zelf_nagaan": [
+     "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
+     "Vraag wat de canon na 2071 wordt.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
+    ],
+    "financiering": {
+     "max_hypotheek": 289043,
+     "marge_lenen": -15957,
+     "kosten_koper": 7156,
+     "kk_soort": "startersvrijstelling",
+     "tekort": 16113,
+     "netto": 1365,
+     "bruto": 1705,
+     "grens": 1450,
+     "grens_soort": "netto",
+     "opbouw": {
+      "bruto_hyp": 1398,
+      "belastingvoordeel": 340,
+      "vve": 85,
+      "vve_bron": "advertentietekst",
+      "vve_geschat": false,
+      "energie": 62,
+      "stook_in_vve": false,
+      "overig": 160,
+      "canon_maand": 0,
+      "woz": 291000,
+      "woz_geschat": false
+     },
+     "koopsom": 305000,
+     "hypotheek": 289043,
+     "over": -85,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "niet_nodig",
+     "geluid": "ok",
+     "buurt": "ok"
+    }
+   }
+  },
+  {
+   "id": "w09",
+   "beoordeling": {
+    "poort": "PAST NIET",
+    "poort_redenen": [
+     "Woonlasten € 164 boven je grens."
+    ],
+    "status_kort": "Past niet · € 164 boven je grens",
+    "twijfel": [],
+    "score": 0.0,
+    "onderdelen": {
+     "woonlasten": {
+      "punten": -1.5,
+      "kort": "woonlasten € 1.614"
+     },
+     "buitenruimte": {
+      "punten": -1.5,
+      "kort": "geen buitenruimte"
+     },
+     "oppervlak": {
+      "punten": 0.45,
+      "kort": "79 m²"
+     },
+     "energielabel": {
+      "punten": -1.0,
+      "kort": "label G"
+     },
+     "erfpacht": {
+      "punten": -1.5,
+      "kort": "voortdurende erfpacht"
+     },
+     "vve": {
+      "punten": -1.5,
+      "kort": "VvE niet actief"
+     },
+     "fundering": {
+      "punten": -1.0,
+      "kort": "fundering matig"
+     },
+     "staat": {
+      "punten": -1.5,
+      "kort": "opknapper"
+     }
+    },
+    "uitleg_regel": "0,0 (grens) · woonlasten € 1.614 −1,5 · geen buitenruimte −1,5 · overig −6,0 · 1 onbekend",
+    "let_op": [
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "let_op",
+      "oordeel": "sterk",
+      "label": "Buitenruimte",
+      "waarde": "geen",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": -1.5,
+      "kort": "geen buitenruimte",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "erfpacht",
+      "groep": "let_op",
+      "oordeel": "sterk",
+      "label": "Erfpacht",
+      "waarde": "voortdurend, canon herzien",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": -1.5,
+      "kort": "voortdurende erfpacht",
+      "vraag": "Vraag wanneer het tijdvak afloopt en wat de nieuwe canon wordt.",
+      "uitleg": null
+     },
+     {
+      "onderdeel": "staat",
+      "groep": "let_op",
+      "oordeel": "sterk",
+      "label": "Staat",
+      "waarde": "opknapper",
+      "bron": "advertentietekst",
+      "punten": -1.5,
+      "kort": "opknapper",
+      "vraag": "Laat een verbouwbegroting maken voor je bod.",
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "let_op",
+      "oordeel": "sterk",
+      "label": "VvE",
+      "waarde": "niet actief",
+      "bron": "kenmerken en tekst",
+      "punten": -1.0,
+      "kort": "VvE niet actief",
+      "vraag": "Vraag of de VvE een rekening, verzekering en vergadering heeft.",
+      "uitleg": null
+     },
+     {
+      "onderdeel": "woonlasten",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Woonlasten",
+      "waarde": "€ 1.614 netto per maand",
+      "bron": "berekening",
+      "punten": -1.5,
+      "kort": "woonlasten € 1.614",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     },
+     {
+      "onderdeel": "energielabel",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Energielabel",
+      "waarde": "G",
+      "bron": "funda",
+      "punten": -1.0,
+      "kort": "label G",
+      "vraag": "Vraag naar verduurzamingsplannen van de VvE.",
+      "uitleg": "Voor energiebesparende maatregelen mag je tot € 20.000 extra lenen."
+     },
+     {
+      "onderdeel": "fundering",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Funderingsrisico buurt",
+      "waarde": "verschilzetting matig (2050)",
+      "bron": "Klimaateffectatlas, buurtniveau",
+      "punten": -1.0,
+      "kort": "fundering matig",
+      "vraag": "Vraag de VvE naar funderingsonderzoek en of ze ervoor reserveert.",
+      "uitleg": "Pand uit 1895. Kaart op buurtniveau: geen oordeel over dit pand."
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Werk vanaf 2027",
+      "waarde": "≈ 11,2 km",
+      "bron": "route",
+      "punten": -0.5,
+      "kort": "werk 11,2 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Reservefonds",
+      "waarde": "nee",
+      "bron": "kenmerk 'Reservefonds aanwezig'",
+      "punten": -0.5,
+      "kort": "geen reservefonds",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Onderhoudsplan",
+      "waarde": "nee",
+      "bron": "kenmerk 'Onderhoudsplan'",
+      "punten": -0.5,
+      "kort": "geen MJOP",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Kleine VvE",
+      "waarde": "2 adressen in het pand",
+      "bron": "BAG",
+      "punten": -0.5,
+      "kort": "VvE van 2",
+      "vraag": "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+      "uitleg": "Grote kosten (dak, fundering) deel je met weinig eigenaren."
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "reisafstand",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Werk huidig",
+      "waarde": "≈ 1,5 km",
+      "bron": "route",
+      "punten": 0.5,
+      "kort": "werk 1,5 km",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "onbekend": [
+     {
+      "onderdeel": "vve",
+      "groep": "onbekend",
+      "oordeel": "onbekend",
+      "label": "VvE-bijdrage",
+      "waarde": "onbekend, gerekend met € 175",
+      "bron": "aanname",
+      "punten": 0.0,
+      "kort": "VvE-bijdrage onbekend",
+      "vraag": "Vraag de maandelijkse VvE-bijdrage op.",
+      "uitleg": null
+     }
+    ],
+    "info": [
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Eigen geld",
+      "waarde": "genoeg, € 60 over",
+      "bron": "berekening, kosten koper ≈",
+      "punten": 0.0,
+      "kort": "eigen geld",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leenruimte",
+      "waarde": "€ 34.043 over",
+      "bron": "leentoets 2026",
+      "punten": 0.0,
+      "kort": "leenruimte",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "oppervlak",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonoppervlak",
+      "waarde": "79 m² (wens 70)",
+      "bron": "funda",
+      "punten": 0.45,
+      "kort": "79 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "geluid",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Geluid aan de gevel",
+      "waarde": "54 dB, nacht 45 dB (weg)",
+      "bron": "RIVM 2022/2023",
+      "punten": 0.0,
+      "kort": "geluid 54 dB",
+      "vraag": null,
+      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Leefbaarometer",
+      "waarde": "ruim voldoende (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.0,
+      "kort": "buurt ruim voldoende",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Makelaar",
+      "waarde": "8,9 uit 58 reviews",
+      "bron": "funda, Makelaardij Het Plein",
+      "punten": 0.0,
+      "kort": "makelaar",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "kansen": [],
+    "zelf_nagaan": [
+     "Vraag wanneer het tijdvak afloopt en wat de nieuwe canon wordt.",
+     "Laat een verbouwbegroting maken voor je bod.",
+     "Vraag of de VvE een rekening, verzekering en vergadering heeft.",
+     "Vraag naar verduurzamingsplannen van de VvE.",
+     "Vraag de VvE naar funderingsonderzoek en of ze ervoor reserveert.",
+     "Kleine VvE: vraag notulen, MJOP en stand reservefonds."
+    ],
+    "financiering": {
+     "max_hypotheek": 269043,
+     "marge_lenen": 34043,
+     "kosten_koper": 6940,
+     "kk_soort": "startersvrijstelling",
+     "tekort": -60,
+     "netto": 1614,
+     "bruto": 1893,
+     "grens": 1450,
+     "grens_soort": "netto",
+     "opbouw": {
+      "bruto_hyp": 1137,
+      "belastingvoordeel": 279,
+      "vve": 175,
+      "vve_bron": "niet gevonden, geschat",
+      "vve_geschat": true,
+      "energie": 421,
+      "stook_in_vve": false,
+      "overig": 160,
+      "canon_maand": 0,
+      "woz": 211500,
+      "woz_geschat": true
+     },
+     "koopsom": 235000,
+     "hypotheek": 235000,
+     "over": 164,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "ok",
+     "geluid": "ok",
+     "buurt": "ok"
+    }
+   }
+  },
+  {
+   "id": "w04",
+   "beoordeling": {
+    "poort": "PRIJS ONBEKEND",
+    "poort_redenen": [
+     "Geen vraagprijs: geen leentoets en geen woonlasten."
+    ],
+    "status_kort": "Prijs onbekend · geen vraagprijs, dus geen leentoets",
+    "twijfel": [],
+    "score": 6.7,
+    "onderdelen": {
+     "buitenruimte": {
+      "punten": 1.0,
+      "kort": "balkon 4 m² west"
+     },
+     "oppervlak": {
+      "punten": 0.7,
+      "kort": "84 m²"
+     },
+     "woonlaag_lift": {
+      "punten": -0.5,
+      "kort": "3e zonder lift"
+     },
+     "buurt": {
+      "punten": 0.5,
+      "kort": "buurt zeer goed"
+     }
+    },
+    "uitleg_regel": "6,7 · balkon 4 m² west +1,0 · 84 m² +0,7 · 3e zonder lift −0,5 · overig +0,5 · 3 onbekend",
+    "let_op": [
+     {
+      "onderdeel": "woonlaag_lift",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Trappen",
+      "waarde": "3e woonlaag, geen lift",
+      "bron": "kenmerk 'Gelegen op'",
+      "punten": -0.5,
+      "kort": "3e zonder lift",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Werk vanaf 2027",
+      "waarde": "≈ 13,2 km",
+      "bron": "route",
+      "punten": -0.5,
+      "kort": "werk 13,2 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Kleine VvE",
+      "waarde": "3 adressen in het pand",
+      "bron": "BAG",
+      "punten": -0.5,
+      "kort": "VvE van 3",
+      "vraag": "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+      "uitleg": "Grote kosten (dak, fundering) deel je met weinig eigenaren."
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "oppervlak",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Woonoppervlak",
+      "waarde": "84 m² (wens 70)",
+      "bron": "funda",
+      "punten": 0.7,
+      "kort": "84 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Balkon",
+      "waarde": "4 m²",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": 0.5,
+      "kort": "balkon 4 m² west",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Zon op buitenruimte",
+      "waarde": "west",
+      "bron": "advertentietekst",
+      "punten": 0.5,
+      "kort": "zon west",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Werk huidig",
+      "waarde": "≈ 3,6 km",
+      "bron": "route",
+      "punten": 0.5,
+      "kort": "werk 3,6 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "VvE op orde",
+      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "bron": "kenmerken",
+      "punten": 0.5,
+      "kort": "VvE op orde",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Leefbaarometer",
+      "waarde": "zeer goed (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.5,
+      "kort": "buurt zeer goed",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "erfpacht",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Grond",
+      "waarde": "eigen grond",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": 0.0,
+      "kort": "eigen grond",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Tevreden met buurt",
+      "waarde": "92% (2024)",
+      "bron": "RIVM-gezondheidsmonitor",
+      "punten": 0.0,
+      "kort": "tevreden 92%",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "onbekend": [
+     {
+      "onderdeel": "woonlasten",
+      "groep": "onbekend",
+      "oordeel": "onbekend",
+      "label": "Woonlasten",
+      "waarde": "prijs onbekend",
+      "bron": "funda",
+      "punten": 0.0,
+      "kort": "woonlasten onbekend",
+      "vraag": "Vraag de vraagprijs of een richtprijs.",
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "onbekend",
+      "oordeel": "onbekend",
+      "label": "VvE-bijdrage",
+      "waarde": "onbekend, gerekend met € 175",
+      "bron": "aanname",
+      "punten": 0.0,
+      "kort": "VvE-bijdrage onbekend",
+      "vraag": "Vraag de maandelijkse VvE-bijdrage op.",
+      "uitleg": null
+     },
+     {
+      "onderdeel": "fundering",
+      "groep": "onbekend",
+      "oordeel": "onbekend",
+      "label": "Funderingsrisico buurt",
+      "waarde": "onbekend",
+      "bron": "Klimaateffectatlas",
+      "punten": 0.0,
+      "kort": "fundering onbekend",
+      "vraag": "Vraag de VvE of er funderingsonderzoek is gedaan.",
+      "uitleg": "bron gaf geen antwoord"
+     }
+    ],
+    "info": [
+     {
+      "onderdeel": "geluid",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Geluid aan de gevel",
+      "waarde": "50 dB, nacht 41 dB (weg)",
+      "bron": "RIVM 2022/2023",
+      "punten": 0.0,
+      "kort": "geluid 50 dB",
+      "vraag": null,
+      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
+     },
+     {
+      "onderdeel": "staat",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Monument",
+      "waarde": "ja",
+      "bron": "funda",
+      "punten": 0.0,
+      "kort": "monument",
+      "vraag": "Vraag welke verbouwingen een vergunning nodig hebben.",
+      "uitleg": null
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Makelaar",
+      "waarde": "9,3 uit 214 reviews",
+      "bron": "funda, Duinrand Makelaars",
+      "punten": 0.0,
+      "kort": "makelaar",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "kansen": [],
+    "zelf_nagaan": [
+     "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+     "Vraag de vraagprijs of een richtprijs.",
+     "Vraag de maandelijkse VvE-bijdrage op.",
+     "Vraag de VvE of er funderingsonderzoek is gedaan.",
+     "Vraag welke verbouwingen een vergunning nodig hebben.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting."
+    ],
+    "financiering": {
+     "max_hypotheek": null,
+     "marge_lenen": null,
+     "kosten_koper": null,
+     "kk_soort": null,
+     "tekort": null,
+     "netto": null,
+     "bruto": null,
+     "grens": null,
+     "grens_soort": null,
+     "opbouw": null,
+     "koopsom": null,
+     "hypotheek": null,
+     "over": null,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "onbekend",
+     "geluid": "ok",
+     "buurt": "ok"
+    }
+   }
+  }
+ ]
+}
