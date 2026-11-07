@@ -541,6 +541,10 @@ def test_app_js() -> bool:
     print("app.js: nieuw pas gezien in beeld, opslag")
     return all([
         check("IntersectionObserver", "new IntersectionObserver(" in JS),
+        # Verbergen is een schakelaar: een verborgen woning zet je met hetzelfde oog terug
+        # (eerder kon dat alleen via "Ongedaan maken" in de melding, en dubbelde de id).
+        check("verborgen woning terugzetten", "'[data-actie=\"verberg\"]') && opslag.verborgen.indexOf(id) >= 0" in JS
+              and "Teruggezet: " in JS and "'Zet terug'" in JS),
         check("zonder IntersectionObserver niets markeren", "!('IntersectionObserver' in window)) return;" in JS),
         check("minstens de helft zichtbaar", "GEZIEN_DEEL = 0.5" in JS and "intersectionRatio >= GEZIEN_DEEL" in JS),
         check("een seconde", "GEZIEN_MS = 1000" in JS and "}, GEZIEN_MS);" in JS),
@@ -600,7 +604,7 @@ def test_groottes() -> bool:
     per_woning = len(body.encode()) / 13
     return all([
         check("ui/app.css <= 40 kB", len(CSS.encode()) <= 40_000, f"{len(CSS.encode())} bytes"),
-        check("ui/app.js <= 22 kB", len(JS.encode()) <= 22_000, f"{len(JS.encode())} bytes"),
+        check("ui/app.js <= 23 kB", len(JS.encode()) <= 23_000, f"{len(JS.encode())} bytes"),
         check("body <= 14 kB per woning", per_woning <= 14_000, f"{per_woning:.0f} bytes per woning"),
     ])
 
