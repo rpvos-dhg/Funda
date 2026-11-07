@@ -1,0 +1,86 @@
+name: E2E bouwronde (tijdelijk)
+
+# Tijdelijke end-to-end-test van de bouwronde op een probe-branch. Fictieve
+# config, testwachtwoord, geen secrets, niets gepubliceerd of gepusht.
+on:
+  push:
+    branches: [claude/probe-bouwronde]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Offline tests
+        run: for t in test_*.py; do echo "== $t"; python "$t" > /dev/null || exit 1; done
+      - name: Fictieve testconfig
+        run: |
+          python - <<'PY'
+          import json
+          c = json.load(open("funda_personal.example.json"))
+          c.update({"postcode_huidig": "2513AA",
+                    "werk_postcodes": [["2511AA", "huidig"], ["2611AA", "vanaf 2027"]],
+                    "radius_km": 6, "prijs_min": 230000, "prijs_max": 325000, "m2_min": 55,
+                    "sitemap_max_verkennen": 60,
+                    "actions_url": "https://github.com/rpvos-dhg/Funda/actions/workflows/funda-daily.yml"})
+          c["beoordeling"]["max_woonlasten_netto"] = 1650
+          c["financien"]["scenarios"] = {
+              "nu": {"bruto_jaar": 60000, "label": "Nu"},
+              "2027_01": {"bruto_jaar": 62000, "label": "Vanaf jan 2027"},
+              "2027_01_met_cao": {"bruto_jaar": 66000, "label": "Met cao-verhoging"}}
+          json.dump(c, open("funda_personal.json", "w"))
+          PY
+          printf '%s' 'e2e-test' > funda_pwa_password.txt
+      - name: Run 1 (lege state)
+        env:
+          FUNDA_REQUIRE_ENCRYPTION: "1"
+        run: python funda_zoek.py --no-push --no-open 2>&1 | tee run1.log
+      - name: Run 2 (met cache)
+        env:
+          FUNDA_REQUIRE_ENCRYPTION: "1"
+        run: python funda_zoek.py --no-push --no-open 2>&1 | tee run2.log
+      - name: Controle rapport
+        run: |
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+          from test_funda_pwa import ontsleutel
+          html = Path("docs/index.html").read_text(encoding="utf-8")
+          print("index.html bytes:", len(html.encode()))
+          print("onversleutelde kaarten in index.html:", html.count('class="woning'))
+          body = ontsleutel(html, "e2e-test")
+          print("ontsleuteld, kaarten:", len(re.findall(r'<article[^>]*class="[^"]*woning', body)))
+          m = re.search(r'<script[^>]*id="woning-data"[^>]*>(.*?)</script>', body, re.S)
+          data = json.loads(m.group(1)) if m else []
+          rijen = data if isinstance(data, list) else data.get("woningen", data.get("rijen", []))
+          from collections import Counter
+          print("poorten:", dict(Counter((r.get("poort") or r.get("beoordeling", {}).get("poort")) for r in rijen if isinstance(r, dict))))
+          print("em dash in body:", "—" in body, "| '€ 0' in body:", "€ 0<" in body or "€ 0 " in body)
+          man = json.loads(Path("docs/manifest.webmanifest").read_text()) if Path("docs/manifest.webmanifest").exists() else {}
+          print("manifest:", man.get("name"), man.get("short_name"), man.get("theme_color"))
+          sw = Path("docs/sw.js").read_text() if Path("docs/sw.js").exists() else ""
+          print("service worker v5:", "funda-shortlist-v5" in sw)
+          for f in ("funda_seen_ids.json", "funda_tracking.json", "funda_enrichment_cache.json", "funda_sitemap_cache.json"):
+              p = Path(f)
+              print(f, "bestaat" if p.exists() else "ONTBREEKT", p.stat().st_size if p.exists() else 0)
+          cache = json.loads(Path("funda_enrichment_cache.json").read_text()) if Path("funda_enrichment_cache.json").exists() else {}
+          print("cache-secties:", {k: (len(v) if isinstance(v, dict) else type(v).__name__) for k, v in cache.items()})
+          r = cache.get("rente") or {}
+          print("rente-sectie sleutels:", sorted(r.keys()) if isinstance(r, dict) else r)
+          PY
+          echo "== regels uit de log (run 2)"
+          grep -E -i 'Run-kosten|poort|kenmerk|verrijking|rente|Meting|Pool en sitemap|exit|::error|::warning' run2.log | head -60 || true
