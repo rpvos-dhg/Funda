@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import re
 import shutil
 import sys
@@ -25,6 +26,7 @@ from funda_sitemap_zoek import (
     detail_verboden,
     in_doelmarkt,
     kandidaten_uit,
+    log_tekst,
     ontleed_sitemap,
     sitemap_uit_robots,
     woning_uit_url,
@@ -854,12 +856,38 @@ def test_gzip() -> bool:
     return check("gzip-body uitgepakt", "<urlset" in z._haal("https://example.invalid/x.xml.gz"))
 
 
+def test_log_tekst() -> bool:
+    """Op Actions haalt log_tekst() detailpaden, detail-URL's en woningnummers uit een melding."""
+    print("test: log_tekst voor de publieke log")
+    melding = (f"status 403 voor {B}/den-haag/appartement-a-1/44000001/; "
+               "Listing /detail/koop/den-haag/appartement-b-2/44000002/ not found; globalId 7012345")
+    oud = os.environ.pop("GITHUB_ACTIONS", None)
+    try:
+        lokaal = log_tekst(melding)
+        os.environ["GITHUB_ACTIONS"] = "true"
+        publiek = log_tekst(melding)
+        bron = log_tekst("https://www.funda.nl/sitemap-detail-koop1.xml gaf status 403; "
+                         "gebruik https://www.funda.nl/sitemap_index.xml/; 102365 URL's")
+    finally:
+        os.environ.pop("GITHUB_ACTIONS", None)
+        if oud is not None:
+            os.environ["GITHUB_ACTIONS"] = oud
+    return all([
+        check("lokaal ongewijzigd", lokaal == melding, lokaal),
+        check("Actions: geen detailpad, URL of woningnummer",
+              publiek == "status 403 voor (woning); Listing (woning) not found; globalId (woning)", publiek),
+        check("Actions: sitemap-URL's en aantallen blijven",
+              "sitemap-detail-koop1.xml gaf status 403" in bron and "sitemap_index.xml/" in bron
+              and "102365 URL's" in bron, bron),
+    ])
+
+
 def main() -> int:
     resultaten = [
         test_ontleden(), test_kandidaten(), test_doelmarkt(), test_dropin(),
         test_cache(), test_budget(), test_fouten(), test_gzip(),
         test_index_cache(), test_straal_in_cache(), test_pool_oordeel(), test_meting(),
-        test_detail_dicht(), test_detail_halverwege(), test_steden(), test_leeftijd(),
+        test_detail_dicht(), test_detail_halverwege(), test_steden(), test_leeftijd(), test_log_tekst(),
     ]
     print()
     if all(resultaten):

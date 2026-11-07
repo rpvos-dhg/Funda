@@ -36,6 +36,7 @@ import funda_beoordeling
 import funda_rente
 import funda_ui
 import funda_verrijking
+from funda_sitemap_zoek import log_tekst, publieke_log
 
 # === Persoonlijke config: uit het gitignored bestand (in Actions: secret FUNDA_PERSONAL_JSON) ===
 
@@ -577,7 +578,8 @@ def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None,
             if DETAIL_PAUZE_S:
                 time.sleep(DETAIL_PAUZE_S)
         except Exception as exc:
-            print(f"  Detail fout {lid}: {exc}")
+            # Op Actions zonder woningnummer of URL: de log van de publieke repo is voor iedereen leesbaar.
+            print(log_tekst(f"  Detail fout {'voor een woning' if publieke_log() else lid}: {exc}"))
         d["_enrichment"] = verrijk_woning(f, d, listing_obj, cache)
         lat, lon = _coords(d, details)
         rij = bouw_rij(d, details, bereken_routes(lat, lon, werk_coords), cfg=cfg, rente=rente, vandaag=vandaag)

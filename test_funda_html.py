@@ -8,6 +8,7 @@ Draaien: python test_funda_html.py
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -349,9 +350,43 @@ def test_profiel_www() -> bool:
     ])
 
 
+def test_publieke_log() -> bool:
+    """Op Actions zonder postcode, prijs- en m2-grenzen in de zoek-URL en zonder detailpad bij een fout."""
+    print("test: zoek-URL en detailfout in de publieke log")
+
+    def logregels(actions: bool) -> str:
+        regels: list[str] = []
+        zoeker = HtmlZoeker(StubClient(faal_op={"44564274"}), log=regels.append)
+        zoeker._haal = lambda url: PAGINA
+        zoeker._pauze = 0
+        oud = os.environ.pop("GITHUB_ACTIONS", None)
+        if actions:
+            os.environ["GITHUB_ACTIONS"] = "true"
+        try:
+            zoeker.search_listing(location="1234ab", radius_km=5, price_min=230000, price_max=250000,
+                                  area_min=52, page=0)
+        finally:
+            os.environ.pop("GITHUB_ACTIONS", None)
+            if oud is not None:
+                os.environ["GITHUB_ACTIONS"] = oud
+        return "\n".join(regels)
+
+    publiek, lokaal = logregels(True), logregels(False)
+    lekken = [s for s in ("1234ab", "230000", "250000", "52-", "/detail/", "44564274") if s in publiek]
+    return all([
+        check("Actions: postcode, grenzen en detailpad verborgen", not lekken, ", ".join(lekken)),
+        check("Actions: de rest van de zoek-URL blijft", "selected_area=(verborgen)" in publiek
+              and "price=(verborgen)" in publiek and "floor_area=(verborgen)" in publiek
+              and "availability=" in publiek),
+        check("Actions: detailfout zonder woning", "Detail mislukt voor een woning" in publiek),
+        check("lokaal: zoek-URL en detailpad volledig", "1234ab" in lokaal and "230000-250000" in lokaal
+              and "/detail/" in lokaal),
+    ])
+
+
 def main() -> int:
     resultaten = [test_url(), test_straal(), test_parse(), test_zoeker(), test_dedup(), test_delegatie(), test_botmuur(),
-                  test_profiel_www()]
+                  test_profiel_www(), test_publieke_log()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

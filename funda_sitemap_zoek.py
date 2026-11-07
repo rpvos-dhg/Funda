@@ -67,6 +67,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import os
 import re
 import time
 from collections import Counter
@@ -169,6 +170,30 @@ class WoningNietGevonden(LookupError):
     storing. pyfunda geeft voor elke status behalve 200 een LookupError; de
     Funda-subklasse in funda_zoek.py maakt er op grond van de status deze van.
     """
+
+
+# -- Publieke log ----------------------------------------------------------------
+
+def publieke_log() -> bool:
+    """Draait dit op GitHub Actions? Dan is de log publiek (publieke repo): alleen aantallen."""
+    return bool(os.environ.get("GITHUB_ACTIONS"))
+
+
+# Wat in een foutmelding naar één woning wijst: een detailpad of detail-URL (met
+# straat en huisnummer in de slug) en een woningnummer (tinyId of globalId, 7 of
+# meer cijfers). Een foutmelding van pyfunda of van de Funda-subklasse noemt de
+# woning, en zo'n melding komt in een ::error:: of een logregel terecht.
+_WONING_SPOOR = re.compile(r"(?:https?://[^\s/]+)?/detail/[^\s'\"()<>,;]*|\b\d{7,}\b")
+
+
+def log_tekst(tekst: object) -> str:
+    """Tekst voor de log. Op Actions zonder detailpaden, detail-URL's en woningnummers.
+
+    Vangnet voor foutmeldingen; de regels zelf noemen op Actions al geen woning
+    (zie "Log" in CLAUDE.md). Lokaal blijft alles staan, voor de diagnose."""
+    tekst = str(tekst)
+    return _WONING_SPOOR.sub("(woning)", tekst) if publieke_log() else tekst
+
 
 # Wat deze zoeker deze run met een woning deed; zie pool_oordeel().
 OPGEHAALD = "opgehaald"
@@ -1000,7 +1025,8 @@ class SitemapZoeker:
         try:
             listing = self._client.get_listing(f"https://www.funda.nl{k['pad']}")
         except Exception as exc:  # noqa: BLE001
-            self._log(f"Detail mislukt voor {k['pad']}: {type(exc).__name__}: {exc}")
+            waar = "een woning" if publieke_log() else k["pad"]
+            self._log(log_tekst(f"Detail mislukt voor {waar}: {type(exc).__name__}: {exc}"))
             return None, exc
         finally:
             time.sleep(self._pauze)

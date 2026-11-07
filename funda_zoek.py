@@ -41,6 +41,8 @@ from funda_sitemap_zoek import (
     OVERGESLAGEN as SITEMAP_OVERGESLAGEN,
     DetailEndpointDicht,
     WoningNietGevonden,
+    log_tekst,
+    publieke_log,
 )
 
 try:
@@ -422,8 +424,9 @@ def bewaar_state(ids: set[str]) -> None:
 
 
 def log(msg: str) -> None:
+    """Logregel naar stdout en funda_log.txt. Op Actions via log_tekst(): geen woning-URL's of -nummers."""
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    line = f"[{stamp}] {msg}"
+    line = f"[{stamp}] {log_tekst(msg)}"
     print(line)
     with LOG_FILE.open("a", encoding="utf-8") as fp:
         fp.write(line + "\n")
@@ -1261,7 +1264,7 @@ def _woningen_uit_mailbox() -> list[tuple[str, str]]:
                   "Maak een nieuw app-wachtwoord op "
                   "https://myaccount.google.com/apppasswords en zet het in de omgevingsvariabele.")
         else:
-            print(f"::error::Mailbox niet te lezen: {type(exc).__name__}: {exc}")
+            print(log_tekst(f"::error::Mailbox niet te lezen: {type(exc).__name__}: {exc}"))
         return []
 
     woningen: list[tuple[str, str]] = []
@@ -1436,7 +1439,7 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
 
     boodschap = "Geen enkele zoekbron werkt. " + "; ".join(redenen) + "."
     log(boodschap)
-    print(f"::error::{boodschap}")
+    print(f"::error::{log_tekst(boodschap)}")
     return GeenBron(f, boodschap), "geen"
 
 
@@ -1464,7 +1467,7 @@ def main() -> None:
     seen = laad_state()
     mode = " (debug-wijken)" if debug_wijken else ""
     # De log van een publieke repo is voor iedereen leesbaar; de postcode is privé.
-    toon_pc = "(verborgen)" if os.environ.get("GITHUB_ACTIONS") else POSTCODE
+    toon_pc = "(verborgen)" if publieke_log() else POSTCODE
     log(f"Start{mode}. Postcode {toon_pc}, radius {RADIUS_KM}km. Reeds gezien: {len(seen)}.")
 
     bron, zoek_methode = kies_zoeker(f)
@@ -1482,8 +1485,19 @@ def main() -> None:
     zoek_ok = 0
     zoek_fout = 0
     zoek_fout_redenen: Counter[str] = Counter()
+    # Op Actions geen regel per prijsband: de grenzen komen uit het profiel, het
+    # aantal banden geeft (maal de bandstap) de breedte van het budget en de
+    # aantallen per band waar in die breedte het aanbod valt. Om dezelfde reden
+    # daar geen aantallen zoek-calls (banden maal sorteringen) en elke zoekfout
+    # één keer. Lokaal blijft alles staan, voor de diagnose.
+    publiek = publieke_log()
+
+    def aantal(n: int) -> str:
+        return "" if publiek else f" {n}"
+
     for band_min, band_max in banden:
         band_n = 0
+        band_label = f"€ {band_min:,}-{band_max:,}"
         for sort in ZOEK_SORTS:
             sort_n = 0
             sort_label = sort or "standaard"
@@ -1503,8 +1517,12 @@ def main() -> None:
                     )
                 except Exception as exc:
                     zoek_fout += 1
-                    zoek_fout_redenen[str(exc)[:80]] += 1
-                    log(f"Fout band {band_min}-{band_max} sort {sort_label} pagina {pagina}: {exc}")
+                    reden = str(exc)[:80]
+                    if not publiek:
+                        log(f"Fout band {band_label} sort {sort_label} pagina {pagina}: {exc}")
+                    elif reden not in zoek_fout_redenen:
+                        log(f"Zoekfout: {exc}")
+                    zoek_fout_redenen[reden] += 1
                     break
                 zoek_ok += 1
                 if not results:
@@ -1519,8 +1537,10 @@ def main() -> None:
                     sort_n += 1
                     band_n += 1
                 time.sleep(0.4)
-            log(f"Band € {band_min:,}-{band_max:,} ({sort_label}): {sort_n} nieuw.")
-        log(f"Band € {band_min:,}-{band_max:,}: {band_n} uniek na alle sorteringen.")
+            if not publiek:
+                log(f"Band {band_label} ({sort_label}): {sort_n} nieuw.")
+        if not publiek:
+            log(f"Band {band_label}: {band_n} uniek na alle sorteringen.")
 
     log(f"Totaal opgehaald (na dedup): {len(rauwe)} (via {zoek_methode}).")
 
@@ -1529,13 +1549,14 @@ def main() -> None:
     # vorige (gevulde) rapport staan en kleurt de Action rood in plaats van dat
     # het probleem onopgemerkt doorsijpelt als "0 woningen".
     if zoek_ok == 0 and zoek_fout:
-        top = ", ".join(f"{reden} ({n}x)" for reden, n in zoek_fout_redenen.most_common(3))
+        top = ", ".join(reden + ("" if publiek else f" ({n}x)")
+                        for reden, n in zoek_fout_redenen.most_common(3))
         boodschap = (
-            f"Alle {zoek_fout} zoekopdrachten mislukt, geen enkele geslaagde call. "
+            f"Alle{aantal(zoek_fout)} zoekopdrachten mislukt, geen enkele geslaagde call. "
             f"Meest voorkomend: {top}. Rapport NIET bijgewerkt."
         )
         log(boodschap)
-        print(f"::error::{boodschap}")
+        print(f"::error::{log_tekst(boodschap)}")
         raise SystemExit(2)
 
     # Variant op hetzelfde probleem: alle calls slagen, maar er komt niets terug.
@@ -1546,17 +1567,18 @@ def main() -> None:
     # rapport en state met rust laten en de run rood laten worden.
     if not rauwe:
         boodschap = (
-            f"Nul woningen gevonden terwijl alle {zoek_ok} zoek-calls slaagden "
+            f"Nul woningen gevonden terwijl alle{aantal(zoek_ok)} zoek-calls slaagden "
             f"(methode: {zoek_methode}). Dat wijst op een stukke zoekmethode, niet "
             f"op een lege markt. Rapport NIET bijgewerkt."
         )
         log(boodschap)
-        print(f"::error::{boodschap}")
+        print(f"::error::{log_tekst(boodschap)}")
         raise SystemExit(2)
 
     if zoek_fout:
-        log(f"Let op: {zoek_fout} van {zoek_ok + zoek_fout} zoek-calls mislukt; "
-            f"resultaat kan onvolledig zijn.")
+        hoeveel = ("een deel van de zoek-calls" if publiek
+                   else f"{zoek_fout} van {zoek_ok + zoek_fout} zoek-calls")
+        log(f"Let op: {hoeveel} mislukt; resultaat kan onvolledig zijn.")
 
     # Eerder getoonde woningen die deze run niet binnenkwamen opnieuw controleren.
     # Pas ná de checks hierboven: een stukke zoekmethode moet nog steeds luid
@@ -1578,12 +1600,15 @@ def main() -> None:
         # runs al bij de eerste call falen. Dus net als hierboven: stoppen.
         boodschap = f"Detail-endpoint ging tijdens de run dicht ({exc}). Rapport NIET bijgewerkt."
         log(boodschap)
-        print(f"::error::{boodschap}")
+        print(f"::error::{log_tekst(boodschap)}")
         raise SystemExit(2)
     rauwe.extend(pool)
 
-    # Debug: alle binnenkomende wijken inventariseren.
-    if debug_wijken:
+    # Debug: alle binnenkomende wijken inventariseren. Alleen lokaal: de buurtnamen
+    # met aantallen tonen het zoekgebied, en de log op Actions is publiek.
+    if debug_wijken and publieke_log():
+        log("--debug-wijken werkt alleen lokaal (de log op Actions is publiek).")
+    elif debug_wijken:
         wijk_counts: Counter[str] = Counter()
         for r in rauwe:
             buurt = (r.data.get("neighbourhood") or "").strip() or "(leeg)"
@@ -1698,7 +1723,7 @@ def main() -> None:
                 goed.append(d)
             time.sleep(0.5)
         except Exception as exc:
-            log(f"Detail fout {lid}: {exc} - tonen by default.")
+            log(f"Detail fout {'voor een woning' if publieke_log() else lid}: {exc} - tonen by default.")
             goed.append(d)
     if weg_criteria:
         log(f"Buiten prijs/m2/straal in totaal (incl. na detail-call): {weg_criteria}.")
@@ -1753,23 +1778,18 @@ def main() -> None:
     bekend.sort(key=sort_key)
     schrijf_run_summary(nieuw, bekend, afgewezen)
 
-    # Output.
+    # Output. Op Actions alleen aantallen: de log van een publieke repo is voor
+    # iedereen leesbaar, en de lijst (adres, postcode, buurt, prijs, URL) zou
+    # zoekgebied, budget en de gevolgde en afgewezen woningen laten zien. De
+    # lijst staat in het versleutelde rapport.
     print("\n" + "=" * 78)
     print(f"NIEUW: {len(nieuw)}    Eerder gezien: {len(bekend)}    Afgewezen: {len(afgewezen)}")
     print("=" * 78)
 
-    for d in nieuw:
-        toon(d, prefix="NIEUW")
-
-    if bekend:
-        print("\n--- Eerder gezien, nog steeds beschikbaar ---")
-        for d in bekend:
-            toon(d, prefix="     ")
-
-    if afgewezen:
-        print("\n--- Afgewezen (belegging/bg/blacklist) ---")
-        for d, w in afgewezen:
-            print(f"  {d.get('title')}: {', '.join(w)}")
+    if publieke_log():
+        toon_aantallen(nieuw, bekend, afgewezen)
+    else:
+        toon_lijsten(nieuw, bekend, afgewezen)
 
     # State updaten.
     nieuwe_set = {str(d.get("global_id") or d.get("listing_id") or d.get("detail_url")) for d in goed}
@@ -1805,6 +1825,51 @@ def main() -> None:
 
     # Auto-push docs/ naar GitHub (skipt zelf als er geen wijzigingen zijn).
     auto_push()
+
+
+def reden_soort(reden: str) -> str:
+    """De soort van een afwijsreden voor de telling: belegging, begane grond of blacklist."""
+    if reden == "blacklist":
+        return "blacklist"
+    if reden.startswith("begane grond"):
+        return "begane grond"
+    return "belegging"
+
+
+def toon_aantallen(nieuw: list[dict], bekend: list[dict],
+                   afgewezen: list[tuple[dict, list[str]]]) -> None:
+    """Voor de publieke log op Actions: alleen aantallen, geen woning.
+
+    Een woning met meer redenen (belegging én begane grond) telt bij elke soort één keer."""
+    def gedaald(ds: list[dict]) -> int:
+        return sum(1 for d in ds if (d.get("_track") or {}).get("gedaald"))
+
+    print(f"Met prijsdaling: {gedaald(nieuw)} nieuw, {gedaald(bekend)} eerder gezien.")
+    if afgewezen:
+        soorten: Counter[str] = Counter()
+        for _d, redenen in afgewezen:
+            soorten.update({reden_soort(r) for r in redenen})
+        print("Afgewezen per reden: "
+              + ", ".join(f"{soort} {soorten[soort]}" for soort in ("belegging", "begane grond", "blacklist")
+                          if soorten[soort]) + ".")
+    print("Geen woninglijst op Actions (de log is publiek); die staat in het versleutelde rapport.")
+
+
+def toon_lijsten(nieuw: list[dict], bekend: list[dict],
+                 afgewezen: list[tuple[dict, list[str]]]) -> None:
+    """Lokaal: de volledige lijst, met adres, buurt, prijs en URL per woning."""
+    for d in nieuw:
+        toon(d, prefix="NIEUW")
+
+    if bekend:
+        print("\n--- Eerder gezien, nog steeds beschikbaar ---")
+        for d in bekend:
+            toon(d, prefix="     ")
+
+    if afgewezen:
+        print("\n--- Afgewezen (belegging/bg/blacklist) ---")
+        for d, w in afgewezen:
+            print(f"  {d.get('title')}: {', '.join(w)}")
 
 
 def toon(d: dict, prefix: str = "") -> None:

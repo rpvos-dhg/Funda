@@ -194,7 +194,33 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
 - **Log.** Alleen aantallen: labelnamen van funda's `characteristics` met hoe
   vaak ze voorkwamen (om de parsers te kalibreren), aantallen per poort,
   verrijking per bron en status, rente met bron. Nooit adressen, postcodes of
-  bedragen van het profiel.
+  bedragen van het profiel. De Actions-log van deze publieke repo is voor
+  iedereen leesbaar; op Actions (`GITHUB_ACTIONS` gezet, `publieke_log()` in
+  `funda_sitemap_zoek.py`) geldt daarom ook voor `main()`:
+  - geen woninglijst (`toon_lijsten()`: titel, postcode, wijk, prijs, URL; de
+    lijsten "Eerder gezien" en "Afgewezen" met redenen, ook de blacklist), maar
+    `toon_aantallen()`: nieuw, eerder gezien, afgewezen per reden (belegging,
+    begane grond, blacklist) en met prijsdaling. De lijst staat in het
+    versleutelde rapport. Lokaal blijft de volledige lijst, voor de diagnose.
+  - geen regel per prijsband, alleen het totaal: de grenzen komen uit het
+    profiel, het aantal banden maal de bandstap geeft de breedte van het budget
+    en de aantallen per band waar het aanbod valt. Daarom ook geen aantallen
+    zoek-calls (banden maal sorteringen) en elke zoekfout één keer
+    ("Zoekfout: ..."). De zoek-URL van de HTML-route zonder postcode, prijs en
+    m2 (`(verborgen)`); een mislukte detail-call als "een woning", zonder pad of
+    nummer; `--debug-wijken` (buurten met aantallen) alleen lokaal.
+  - Vangnet: `log()` en de `::error::`-regels in `funda_zoek.py`, de foutregels
+    van de zoekers en de detailfout in `funda_rapport.py` gaan door
+    `log_tekst()`, dat detailpaden, detail-URL's en woningnummers (7 of meer
+    cijfers) vervangt door "(woning)". Een foutmelding van de client noemt de
+    woning ("status 403 voor https://www.funda.nl/detail/..."), en zo'n melding
+    belandt in de `::error::`.
+  Vastgepind in `test_funda_zoek.py::test_publieke_log` (`main()` met
+  `GITHUB_ACTIONS` op de stubs, ook de sitemaproute met een endpoint dat dicht
+  gaat: geen "/detail/", postcode, "Wijk:", bedrag, titel of woningnummer;
+  zoeken dicht: geen band of aantal calls; lokaal wel de lijst en de banden).
+  `test_funda_zoek.py` zet `GITHUB_ACTIONS` bovenaan uit, zodat de tests in de
+  job tests hetzelfde doen als lokaal.
 - **Jaarwissel.** `test_funda_beoordeling.py` faalt op 1 januari zolang tabel 1
   niet van het lopende jaar is: dan `data/trhk_2026_tabel1.json` (tabel 1 en de
   labelbedragen), de NHG-grens en de startersgrens in `funda_beoordeling.py`
@@ -670,9 +696,10 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   403 van de zoekpagina. Terugkijkvenster van de mail is nu 14 dagen
   (`mail_dagen_terug`), zodat een paar dagen storing geen woningen kost. Sinds
   6 nov 2026 alleen nog relevant bij `zoek_methode: mail`.
-- **Postcode niet in de publieke log.** Op Actions toont de startregel en de
-  zoek-URL de postcode als "(verborgen)". Actions-logs van een publieke repo zijn
-  voor iedereen leesbaar.
+- **Postcode niet in de publieke log.** Op Actions toont de startregel de
+  postcode als "(verborgen)", en de zoek-URL ook de prijs- en m2-grenzen.
+  Actions-logs van een publieke repo zijn voor iedereen leesbaar; zie "Log"
+  hierboven voor de rest (geen woninglijst, alleen aantallen).
 - **Zoeken gaat via HTML, verrijken via de API.** `funda_html_zoek.py` haalt de
   woning-URL's van `www.funda.nl/zoeken/koop` (server-rendered Vue/Nuxt, geen
   bot-muur vanaf een Actions-runner) en laat het detail-endpoint - dat nog wél
@@ -774,8 +801,9 @@ python funda_zoek.py --no-open  # zonder browser
   `sorteer()`, rente en verrijking die falen), `_twijfel`, `vul_summary_aan`, de
   pushvolgorde (gelijk aan `sorteer()`), `_enrichment` met alleen ruwe velden en de
   cachesleutel van `price_history`, de waarschuwing bij oude configsleutels en
-  de pushtekst (met node, anders overgeslagen; nooit een €-teken, ook niet bij een oude samenvatting), `_sitemap_overslaan` met straal, de workflow-input
-  en de eerlijke client met statuscodes (in een subproces tegen het echte
+  de pushtekst (met node, anders overgeslagen; nooit een €-teken, ook niet bij een oude samenvatting), `_sitemap_overslaan` met straal, de workflow-input,
+  de publieke log op Actions (`test_publieke_log`: alleen aantallen, lokaal de
+  lijst) en de eerlijke client met statuscodes (in een subproces tegen het echte
   pyfunda, met een nep-sessie, zonder netwerk).
   `auto_push()` staat in deze tests uit: `main()` eindigt ermee, en een testrun
   mag nooit committen of pushen. De echte `auto_push()` wordt apart getest in
@@ -790,9 +818,10 @@ python funda_zoek.py --no-open  # zonder browser
   robots-verbod, nul kandidaten, detail-endpoint dicht, gzip), het endpoint dat
   halverwege dichtgaat (5 op rij na successen, meteen bij een weigering, losse
   fouten niet), het tijdsbudget, steden (spelling, een stad zonder URL's) en de
-  leeftijd (bevroren sitemap, geen lastmod, kandidatenlijst na 36 uur opnieuw).
-  Draait met een vaste klok (`NU`), zodat de leeftijdscheck niet afhangt van de
-  dag waarop de tests draaien.
+  leeftijd (bevroren sitemap, geen lastmod, kandidatenlijst na 36 uur opnieuw),
+  en `log_tekst()` (op Actions geen detailpad of woningnummer, sitemap-URL's en
+  aantallen blijven). Draait met een vaste klok (`NU`), zodat de leeftijdscheck
+  niet afhangt van de dag waarop de tests draaien.
 - `python test_funda_mail.py` - offline tests voor de mailbron: linkextractie per
   vorm, ondoorzichtige tracking-links, redirects volgen (inclusief hoplimiet en
   kapotte call), routekeuze van `woningen_uit_mail()`, drop-in-gedrag, cache en
@@ -806,7 +835,8 @@ python funda_zoek.py --no-open  # zonder browser
   op een stub-mailbox, dus geen mailaccount nodig.
 - `python test_funda_html.py` - offline tests voor de HTML-zoekfallback
   (URL-opbouw, kaart-parser, drop-in-gedrag, dedup, één profiel en UA met de
-  sitemapzoeker). Draait op een fixture die is
+  sitemapzoeker, op Actions een zoek-URL zonder postcode, prijs en m2 en een
+  detailfout zonder pad). Draait op een fixture die is
   nagebouwd op echte markup, dus geen netwerk nodig.
 - `python scripts/funda_html_validatie.py` - controleert diezelfde parser tegen
   de échte funda.nl. Dit is de test die afgaat als funda hun HTML verandert.
