@@ -897,10 +897,114 @@ def test_geocode() -> bool:
     return ok
 
 
+def test_geocode_gedeelde_stand() -> bool:
+    """Geocoding en verrijking spreken allebei api.pdok.nl aan en hebben één stand (CLAUDE.md, "Geocoding en
+    routes"): een weigering geldt een dag voor beide en komt in de cache, een serverfout sluit de host de
+    rest van de run ook voor de verrijking, robots.txt één keer per run. Een time-out van het zware
+    postcodeverzoek gaat niet mee. Fictieve postcodes, de 13 fictieve woningen."""
+    print("Geocoding en verrijking: één stand voor api.pdok.nl")
+    ws = woningen()[:3]
+    pdok_paden = ("/kadaster/bag/", "/cbs/wijken-en-buurten-2024/")
+    ok = check("limit=1 in de adresvraag (stopt bij het eerste adres)", "&limit=1&" in v.postcode_url("1011AB"),
+               v.postcode_url("1011AB"))
+
+    # 1. Weigering bij de geocoding: de verrijking in dezelfde run stuurt niets naar api.pdok.nl.
+    geo = NepGeo({"1011AB": [(4.9, 52.37, "Naamgeving uitgegeven")]})
+    geo.status = 429
+    g = v.Geocoder(http=geo, ua=UA, slaap=STIL, vandaag=VANDAAG, cache={})   # de cache, los geladen
+    punt, reden = g.punt("1011AB")
+    ok &= check("geocoding: 429 = geen punt", punt is None and "429" in (reden or ""), str(reden))
+    cache: dict = {}                                                          # de cache van genereer_rapport
+    web = NepWeb(ws)
+    logs: list[str] = []
+    uit = v.verrijk(ws, cache, cfg(), VANDAAG, http=web, ua=UA, log=logs.append, vooraf=g.sessie)
+    ok &= check("verrijking dezelfde run: geen verzoek naar api.pdok.nl, ook geen robots.txt",
+                web.aantal("api.pdok.nl") == 0, str([u for u in web.calls if "pdok" in u][:3]))
+    ok &= check("en bag onbekend met de weigering als reden, andere hosts gewoon",
+                all(uit[str(w["global_id"])]["bag"]["status"] == "onbekend"
+                    and "429" in (uit[str(w["global_id"])]["bag"]["reden"] or "") for w in ws)
+                and web.aantal("data.rivm.nl") > 0)
+    ok &= check("weigering in funda_enrichment_cache.json (verrijking_weigering)",
+                (cache.get("verrijking_weigering") or {}).get("api.pdok.nl") == {"datum": VANDAAG, "status": 429},
+                str(cache.get("verrijking_weigering")))
+    ok &= check("log: api.pdok.nl gestopt, alleen de reden",
+                any("api.pdok.nl deze run gestopt: geweigerd (status 429)" in r for r in logs), str(logs))
+    web2 = NepWeb(ws)
+    v.verrijk(ws, cache, cfg(), VANDAAG, http=web2, ua=UA, log=STIL)
+    ok &= check("volgende run dezelfde dag: nog steeds dicht", web2.aantal("api.pdok.nl") == 0)
+    web3 = NepWeb(ws)
+    uit3 = v.verrijk(ws, cache, cfg(), dag(1), http=web3, ua=UA, log=STIL)
+    ok &= check("dag erna: opnieuw, en dan ok", web3.aantal("api.pdok.nl", "/kadaster/bag/") >= 1
+                and all(uit3[str(w["global_id"])]["bag"]["status"] == "ok" for w in ws))
+
+    # 2. Weigering bij de verrijking: de Geocoder (die de cache meekrijgt) vraagt die dag niets.
+    cache = {"verrijking_weigering": {"api.pdok.nl": {"datum": VANDAAG, "status": 403}}}
+    geo = NepGeo({"1011AB": [(4.9, 52.37, "Naamgeving uitgegeven")]})
+    punt, reden = v.Geocoder(http=geo, ua=UA, slaap=STIL, vandaag=VANDAAG, cache=cache).punt("1011AB")
+    ok &= check("eerdere weigering van de verrijking: geocoding stuurt niets, ook geen robots.txt",
+                punt is None and "403" in (reden or "") and geo.calls == [], f"{reden} {geo.calls}")
+    punt, _ = v.Geocoder(http=geo, ua=UA, slaap=STIL, vandaag=dag(1), cache=cache).punt("1011AB")
+    ok &= check("dag erna: geocoding weer geprobeerd", punt == (52.37, 4.9) and len(geo.calls) == 2, str(geo.calls))
+
+    # 3. Serverfout bij de geocoding: de rest van de run dicht, niet bewaard.
+    geo = NepGeo({"1011AB": [(4.9, 52.37, "Naamgeving uitgegeven")]})
+    geo.status = 503
+    g = v.Geocoder(http=geo, ua=UA, slaap=STIL, vandaag=VANDAAG, cache={})
+    g.punt("1011AB")
+    cache = {}
+    web = NepWeb(ws)
+    v.verrijk(ws, cache, cfg(), VANDAAG, http=web, ua=UA, log=STIL, vooraf=g.sessie)
+    ok &= check("503 bij de geocoding: verrijking deze run niet naar api.pdok.nl, geen weigering bewaard",
+                web.aantal("api.pdok.nl") == 0 and not (cache.get("verrijking_weigering") or {}))
+    web2 = NepWeb(ws)
+    v.verrijk(ws, cache, cfg(), VANDAAG, http=web2, ua=UA, log=STIL)
+    ok &= check("volgende run: weer geprobeerd", web2.aantal("api.pdok.nl", "/kadaster/bag/") >= 1)
+
+    # 4. Time-out bij de geocoding: de verrijking gaat door, robots.txt niet opnieuw.
+    geo = NepGeo({"1011AB": [(4.9, 52.37, "Naamgeving uitgegeven")]})
+    geo.time_out = True
+    g = v.Geocoder(http=geo, ua=UA, slaap=STIL, vandaag=VANDAAG, cache={})
+    punt, _ = g.punt("1011AB")
+    cache = {}
+    web = NepWeb(ws)
+    uit = v.verrijk(ws, cache, cfg(), VANDAAG, http=web, ua=UA, log=STIL, vooraf=g.sessie)
+    ok &= check("time-out bij de geocoding: verrijking vraagt api.pdok.nl wel, en krijgt bag",
+                punt is None and any(web.aantal("api.pdok.nl", p) for p in pdok_paden)
+                and all(uit[str(w["global_id"])]["bag"]["status"] == "ok" for w in ws))
+    ok &= check("robots.txt van api.pdok.nl één keer deze run (bij de geocoding)",
+                sum(u.endswith("/robots.txt") for u in geo.calls) == 1 and web.aantal("api.pdok.nl", "/robots.txt") == 0)
+
+    # 5. Geslaagd: robots.txt één keer, en in de cache.
+    geo = NepGeo({"1011AB": [(4.9, 52.37, "Naamgeving uitgegeven")]})
+    g = v.Geocoder(http=geo, ua=UA, slaap=STIL, vandaag=VANDAAG, cache={})
+    g.punt("1011AB")
+    cache = {}
+    web = NepWeb(ws)
+    v.verrijk(ws, cache, cfg(), VANDAAG, http=web, ua=UA, log=STIL, vooraf=g.sessie)
+    ok &= check("geslaagd: robots.txt niet opnieuw, wel in de cache",
+                web.aantal("api.pdok.nl", "/robots.txt") == 0 and web.aantal("api.pdok.nl", "/kadaster/bag/") >= 1
+                and ((cache.get("robots") or {}).get("api.pdok.nl") or {}).get("fetched") == VANDAAG)
+
+    # 6. neem_cache_over: per host de nieuwste, de Geocoder bij gelijke datum; verrijking uit = toch bewaard.
+    nieuwer = {"robots": {"api.pdok.nl": {"fetched": dag(1), "data": {"regels": []}}}}
+    v.neem_cache_over(nieuwer, g.sessie)
+    ok &= check("neem_cache_over: een nieuwere versie blijft staan", nieuwer["robots"]["api.pdok.nl"]["fetched"] == dag(1))
+    geo = NepGeo()
+    geo.status = 429
+    g = v.Geocoder(http=geo, ua=UA, slaap=STIL, vandaag=VANDAAG, cache={})
+    g.punt("1011AB")
+    cache = {"verrijking_weigering": "kapot"}
+    v.verrijk(ws, cache, {"beoordeling": {"verrijking": {"aan": False}}}, VANDAAG, http=NepWeb(ws), ua=UA, log=STIL,
+              vooraf=g.sessie)
+    ok &= check("verrijking uit: de weigering van de geocoding komt toch in de cache",
+                cache["verrijking_weigering"].get("api.pdok.nl", {}).get("status") == 429, str(cache))
+    return ok
+
+
 def main() -> int:
     resultaten = [test_parsers(), test_gray_index(), test_volledige_run(), test_bron_faalt(), test_weigering(),
                   test_fout_opnieuw(), test_allowlist(), test_budget(), test_uit(), test_signalen(), test_robots(), test_robots_een_dag(),
-                  test_log(), test_bag_matching(), test_vorm(), test_ua(), test_doorverwijzing(), test_geocode()]
+                  test_log(), test_bag_matching(), test_vorm(), test_ua(), test_doorverwijzing(), test_geocode(), test_geocode_gedeelde_stand()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

@@ -156,21 +156,31 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   datum (`rivm_20250101_...`); verdwijnt een jaargang, dan wordt geluid
   "onbekend" tot `RIVM_LAGEN` is bijgewerkt.
 - **Geocoding en routes.** Postcodes worden punten via de BAG-collectie `adres`
-  op `api.pdok.nl` (`funda_verrijking.Geocoder`, filter op postcode, het
-  gemiddelde van de adressen met status "Naamgeving uitgegeven"). Dat geldt voor
+  op `api.pdok.nl` (`funda_verrijking.Geocoder`, filter op postcode, het punt
+  van het eerste adres). Dat geldt voor
   de werkpostcodes (`funda_rapport.get_werk_coords`) en de zoekpostcode
   (`funda_zoek.thuis_coords`, alleen als het afstandsfilter aan staat). Per
   postcode gaat de config voor (`werk_coords` als `{postcode: [lat, lon]}`,
   `thuis_coords` als `[lat, lon]`), dan de bestaande caches
   `funda_werk_coords.json` en `funda_thuis_coords.json` (vorm
   `{postcode: [lat, lon]}`, ongewijzigd), dan één poging via PDOK; een gevonden
-  punt blijft voorgoed in die cache. Dezelfde `Sessie` als de verrijking:
-  robots.txt eerst, `EERLIJKE_UA`, stoppen bij een weigering, nooit omzeilen.
-  Traag (gemeten 7 nov 2026 op de postcode van het stadhuis: 7,7 s met
-  `limit=1`, 24 s met `limit=50`), dus time-out 60 s, één poging per postcode
-  per run en na een time-out is de host die run dicht. Lukt het niet, dan een
-  `::warning::` met alleen aantallen en de reden (nooit de postcode): zonder
-  thuispunt geen afstandsfilter (onbekend = doorlaten), zonder werkpunt geen
+  punt blijft voorgoed in die cache. Een eigen `Sessie` met dezelfde regels als
+  de verrijking (robots.txt eerst, `EERLIJKE_UA`, nooit omzeilen) en **één stand
+  voor `api.pdok.nl` per run**: de Geocoder leest `funda_enrichment_cache.json`,
+  een weigering (401/403/429) komt in `verrijking_weigering` en houdt de host een
+  dag dicht voor geocoding én verrijking, een serverfout sluit hem de rest van
+  de run ook voor de verrijking, en robots.txt gaat één keer per run
+  (`genereer_rapport` geeft de stand door: `neem_cache_over` en
+  `Sessie.neem_over`). Een time-out van de geocoding gaat niet mee: dat ene
+  zware verzoek zegt niets over de lichte verzoeken van de verrijking. Traag
+  (gemeten 7 nov 2026 op de postcode van het stadhuis, 4 adressen: `limit=1` in
+  7,7 en 11,3 s, `limit=10` in 36,6 s, `limit=50` in 24 s; met minder adressen
+  dan de limit zoekt de server de hele postcode af), dus `limit=1`, time-out
+  60 s, één poging per postcode per run en na een time-out is de host die run
+  dicht voor de geocoding. Lukt het niet, dan een `::warning::` met alleen
+  aantallen en de reden (nooit de postcode): zonder thuispunt geen afstandsfilter
+  (onbekend = doorlaten, en de sitemaproute haalt dan ook woningen buiten de
+  straal vers op; zet daarom `thuis_coords` in de config), zonder werkpunt geen
   route en dus "reisafstand onbekend" (geen minpunt). **Bewust niet:**
   Nominatim (`nominatim.openstreetmap.org`, robots.txt verbiedt `/search`,
   `/reverse` en `/lookup`; gelezen 7 nov 2026) en de PDOK Locatieserver
@@ -827,7 +837,9 @@ python funda_zoek.py --no-open  # zonder browser
   de publieke log op Actions (`test_publieke_log`: alleen aantallen, lokaal de
   lijst), de geocoding van werk- en zoekpostcode (`test_geocoding`: config gaat
   voor, de bestaande caches in dezelfde vorm, één poging per run via PDOK, een
-  `::warning::` zonder postcode, nooit Nominatim) en de eerlijke client met
+  `::warning::` zonder postcode, nooit Nominatim; in `test_rapport_testdata`: een
+  weigering bij de geocoding laat de verrijking in dezelfde run `api.pdok.nl`
+  overslaan en staat daarna in de cache) en de eerlijke client met
   statuscodes (in een subproces tegen het echte pyfunda, met een nep-sessie,
   zonder netwerk).
   `auto_push()` staat in deze tests uit: `main()` eindigt ermee, en een testrun
@@ -883,7 +895,8 @@ python funda_zoek.py --no-open  # zonder browser
   een host, cache en budget, allowlist, één poging per dag, de standaardrente uit
   `funda_beoordeling.STANDAARD_RENTE`, en de geocoding (`test_geocode`: het
   gemeten adres-antwoord in `testdata/verrijking/bag_adres_postcode.json`,
-  robots eerst, time-out, weigering en 5xx sluiten de host).
+  robots eerst, time-out, weigering en 5xx sluiten de host; `test_geocode_gedeelde_stand`:
+  één stand voor `api.pdok.nl` met de verrijking, in beide richtingen).
 - `python test_funda_pwa.py` - gzip vóór AES en terug (in Python), fout
   wachtwoord, placeholders, geen onversleuteld rapport in CI, service worker v5,
   manifest, slotscherm, iconen in het palet.

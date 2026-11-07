@@ -111,7 +111,9 @@ USER_AGENT_TERUGVAL = "funda-dagelijkse-check/1.0 (+https://github.com/rpvos-dhg
 # === Geocoding en routing ===
 
 # Eén Geocoder per run, gedeeld met funda_zoek.thuis_coords(): robots.txt één keer, één poging per
-# postcode. Tests zetten hier een Geocoder met een nep-HTTP-functie.
+# postcode. Hij leest funda_enrichment_cache.json (een weigering van api.pdok.nl geldt een dag), en
+# genereer_rapport() geeft zijn stand door aan de verrijking. Tests zetten hier een Geocoder met een
+# nep-HTTP-functie.
 GEOCODER: funda_verrijking.Geocoder | None = None
 
 
@@ -122,7 +124,8 @@ def geocodeer_postcode(postcode: str) -> tuple[tuple[float, float] | None, str |
     global GEOCODER
     try:
         if GEOCODER is None:
-            GEOCODER = funda_verrijking.Geocoder(ua=_eerlijke_ua() or USER_AGENT_TERUGVAL)
+            GEOCODER = funda_verrijking.Geocoder(ua=_eerlijke_ua() or USER_AGENT_TERUGVAL,
+                                                 cache=load_enrichment_cache())
         return GEOCODER.punt(postcode)
     except Exception as exc:  # noqa: BLE001
         return None, f"interne fout ({type(exc).__name__})"
@@ -518,12 +521,14 @@ def haal_rente(cfg: dict, cache: dict, vandaag, http=None, ua: str | None = None
 
 
 def verrijk_rijen(rijen: list[dict], cache: dict, cfg: dict, vandaag, http=None,
-                  ua: str | None = None) -> dict[str, dict]:
-    """funda_verrijking.verrijk() op de rijen (voorlopige beoordeling bepaalt de volgorde). Gooit nooit."""
+                  ua: str | None = None, vooraf=None) -> dict[str, dict]:
+    """funda_verrijking.verrijk() op de rijen (voorlopige beoordeling bepaalt de volgorde). Gooit nooit.
+
+    vooraf: de Sessie van de Geocoder in deze run, zodat api.pdok.nl één stand heeft."""
     if not rijen:
         return {}
     try:
-        return funda_verrijking.verrijk(rijen, cache, cfg, vandaag, http=http, ua=ua) or {}
+        return funda_verrijking.verrijk(rijen, cache, cfg, vandaag, http=http, ua=ua, vooraf=vooraf) or {}
     except Exception as exc:  # noqa: BLE001  verrijking is fail-soft: nooit exit 2, nooit een woning minder
         print(f"[rapport] Verrijking overgeslagen ({type(exc).__name__}); {len(rijen)} woningen zonder.")
         return {}
@@ -586,6 +591,10 @@ def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None,
     ua = ua or _eerlijke_ua()
     werk_coords = get_werk_coords()
     cache = load_enrichment_cache()
+    # De geocoding (zoek- en werkpostcode) sprak api.pdok.nl al aan: zijn weigering en robots.txt in
+    # deze cache, en zijn stand naar de verrijking (CLAUDE.md, "Geocoding en routes").
+    geo = GEOCODER.sessie if GEOCODER is not None else None
+    funda_verrijking.neem_cache_over(cache, geo)
     cfg = laad_config()
     rente = haal_rente(cfg, cache, vandaag, http=http, ua=ua)
     print(f"\n[rapport] Detail-call voor {len(woningen)} woningen, werk-coords: {len(werk_coords)} adressen.")
@@ -612,7 +621,7 @@ def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None,
         rijen.append(rij)
 
     # Verrijking na de voorlopige beoordeling (Past en Krap eerst), daarna definitief beoordelen.
-    verrijking = verrijk_rijen(rijen, cache, cfg, vandaag, http=http, ua=ua)
+    verrijking = verrijk_rijen(rijen, cache, cfg, vandaag, http=http, ua=ua, vooraf=geo)
     for rij in rijen:
         v = verrijking.get(funda_verrijking.woning_sleutel(rij))
         if v:

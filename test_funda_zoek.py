@@ -106,7 +106,7 @@ def maak_stub_funda(zoek_gedrag, details=None, calls=None, faal_na=None):
     # tijdelijke repo.
     fz._echte_auto_push = fz.auto_push
     fz.auto_push = lambda: None
-    # Geen Nominatim in offline tests: zonder thuiscoördinaten slaat het
+    # Geen PDOK-verzoek in offline tests: zonder thuiscoördinaten slaat het
     # afstandsfilter over. Tests die het filter willen, zetten dit zelf.
     fz._THUIS["v"] = None
     for p in (fz.STATE_FILE, fz.TRACKING_FILE, fz.SITEMAP_CACHE_FILE):
@@ -358,7 +358,7 @@ def test_rapport_testdata() -> bool:
     postcodes = [w["listing"]["postcode"] for w in td["woningen"]] + [w["postcode"] for w in td["meta"]["werk"]]
     nieuw_ids = {str(w["listing"]["global_id"]) for w in td["woningen"] if w["fixture"].get("nieuw")}
     oud = {k: getattr(fr, k) for k in ("_PERSONAL", "UITVOER_DIR", "PWA_PASSWORD_FILE", "ENRICHMENT_CACHE",
-                                       "WERK_CACHE", "DETAIL_PAUZE_S", "osrm_route_km")}
+                                       "WERK_CACHE", "DETAIL_PAUZE_S", "osrm_route_km", "GEOCODER")}
     oud_rente, oud_verrijk = funda_rente.huidige_rente, funda_verrijking.verrijk
     oud_env = os.environ.pop("FUNDA_REQUIRE_ENCRYPTION", None)
     verzoeken: list[str] = []
@@ -397,6 +397,16 @@ def test_rapport_testdata() -> bool:
             fr.WERK_CACHE = tmp / "werk.json"
             fr.DETAIL_PAUZE_S = 0
             fr.osrm_route_km = lambda *a: None
+            # De zoekpostcode (fictief) eerder in de run: api.pdok.nl weigert de geocoding met 429.
+            geo_verzoeken: list[str] = []
+
+            def pdok_weigert(url, timeout=None, headers=None):
+                geo_verzoeken.append(url)
+                return (200, b"User-agent: *\nAllow: /\n") if url.endswith("/robots.txt") else (429, b"{}")
+
+            fr.GEOCODER = funda_verrijking.Geocoder(http=pdok_weigert, ua="test-ua/1.0 (+https://example.invalid)",
+                                                    vandaag="2026-11-06", slaap=lambda _s: None, cache={})
+            geo_punt = fr.geocodeer_postcode("1011AB")
 
             ws, log = run(tmp, http=netwerk_stuk, ua="test-ua/1.0 (+https://example.invalid)")
             ok &= check("markdown, HTML en docs/index.html geschreven",
@@ -444,6 +454,12 @@ def test_rapport_testdata() -> bool:
                             for e in cache.get("market_insights", {}).values()))
             ok &= check("rente in het bestaande cachebestand (hooguit één poging per dag)",
                         (cache.get("rente") or {}).get("laatste_poging") == "2026-11-06", str(list(cache)))
+            ok &= check("geocoding geweigerd (429): de verrijking stuurt deze run niets naar api.pdok.nl",
+                        geo_punt[0] is None and len(geo_verzoeken) == 2
+                        and not any("api.pdok.nl" in u for u in verzoeken), str(geo_punt))
+            ok &= check("en die weigering staat in funda_enrichment_cache.json (een dag dicht)",
+                        (cache.get("verrijking_weigering") or {}).get("api.pdok.nl")
+                        == {"datum": "2026-11-06", "status": 429}, str(cache.get("verrijking_weigering")))
 
             def gooi(*a, **k):
                 raise RuntimeError("kapot")
@@ -648,7 +664,7 @@ def test_geocoding() -> bool:
                 for u in calls if u.endswith("&f=json") and "/adres/items" in u]
 
     ok = True
-    oud = {k: getattr(fr, k) for k in ("_PERSONAL", "WERK_CACHE", "GEOCODER", "osrm_route_km")}
+    oud = {k: getattr(fr, k) for k in ("_PERSONAL", "WERK_CACHE", "GEOCODER", "osrm_route_km", "ENRICHMENT_CACHE")}
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
@@ -740,9 +756,15 @@ def test_geocoding() -> bool:
         ok &= check("geen Nominatim meer in de code", "nominatim.openstreetmap.org" not in bronnen
                     and not hasattr(fr, "lookup_postcode"))
         fr.GEOCODER = None
-        ok &= check("standaard-Geocoder: eerlijke user-agent, geen verzoek voor een ongeldige postcode",
-                    fr.geocodeer_postcode("onzin") == (None, "geen geldige postcode")
-                    and fr.GEOCODER.sessie.ua == fr._eerlijke_ua() and fr.GEOCODER.sessie.gedaan == 0)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            weigering = {"api.pdok.nl": {"datum": "2026-11-07", "status": 429}}
+            fr.ENRICHMENT_CACHE = Path(tmpdir) / "cache.json"
+            fr.ENRICHMENT_CACHE.write_text(json.dumps({"verrijking_weigering": weigering}), encoding="utf-8")
+            ok &= check("standaard-Geocoder: eerlijke user-agent, geen verzoek voor een ongeldige postcode",
+                        fr.geocodeer_postcode("onzin") == (None, "geen geldige postcode")
+                        and fr.GEOCODER.sessie.ua == fr._eerlijke_ua() and fr.GEOCODER.sessie.gedaan == 0)
+            ok &= check("standaard-Geocoder leest funda_enrichment_cache.json (een eerdere weigering geldt ook daar)",
+                        fr.GEOCODER.sessie.cache.get("verrijking_weigering") == weigering)
     finally:
         for k, w in oud.items():
             setattr(fr, k, w)
