@@ -22,7 +22,6 @@ Detail-calls zijn het dure deel, dus:
 from __future__ import annotations
 
 import html as html_mod
-import os
 import re
 import time
 from typing import Any, Callable, Iterable
@@ -30,7 +29,7 @@ from urllib.parse import quote
 
 # Eén vast profiel en één user-agent voor www.funda.nl, uit één bron: dezelfde als de sitemapzoeker.
 # Geeft funda een 403 of een bot-controle, dan faalt de run luid; er wordt nooit een ander profiel geprobeerd.
-from funda_sitemap_zoek import IMPERSONATE, UA
+from funda_sitemap_zoek import IMPERSONATE, UA, log_tekst, publieke_log
 
 ZOEK_URL = "https://www.funda.nl/zoeken/koop"
 
@@ -296,10 +295,10 @@ class HtmlZoeker:
         if not self._url_gelogd:
             self._url_gelogd = True
             # De log van een publieke repo is voor iedereen leesbaar; de postcode
-            # in selected_area is privé.
+            # in selected_area en de prijs- en m2-grenzen komen uit het profiel.
             getoond = url
-            if os.environ.get("GITHUB_ACTIONS"):
-                getoond = re.sub(r"selected_area=[^&]*", "selected_area=(verborgen)", url)
+            if publieke_log():
+                getoond = re.sub(r"\b(selected_area|price|floor_area)=[^&]*", r"\1=(verborgen)", url)
             self._log(f"Zoek-URL (eerste van deze run): {getoond}")
 
         kaarten = parse_kaarten(self._haal(url))
@@ -356,7 +355,8 @@ class HtmlZoeker:
                     f"https://www.funda.nl{kaart['detail_url']}"
                 )
             except Exception as exc:
-                self._log(f"Detail mislukt voor {kaart.get('detail_url')}: {exc}")
+                waar = "een woning" if publieke_log() else kaart.get("detail_url")
+                self._log(log_tekst(f"Detail mislukt voor {waar}: {exc}"))
                 # Zonder detail missen we buurt/label; de kaartgegevens alleen zijn
                 # te mager om betrouwbaar op te filteren, dus overslaan.
                 return None

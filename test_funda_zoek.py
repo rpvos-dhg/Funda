@@ -27,6 +27,10 @@ from pathlib import Path
 # op 'api' houdt ze offline: 'auto' zou bij een falende API de HTML-route pakken
 # en dan alsnog het netwerk op willen.
 os.environ["FUNDA_ZOEK_METHODE"] = "api"
+# Op Actions (job tests) staat GITHUB_ACTIONS aan, en dan print main() alleen
+# aantallen. Uitzetten, zodat de tests daar hetzelfde doen als lokaal;
+# test_publieke_log zet het zelf aan.
+os.environ.pop("GITHUB_ACTIONS", None)
 
 SCRATCH = Path(__file__).parent / ".test_tmp"
 
@@ -1368,6 +1372,109 @@ def test_endpoint_halverwege_dicht() -> bool:
     return ok
 
 
+# Fictieve woningen voor test_publieke_log; de postcodes hebben de vorm van een echte.
+PUBLIEK_WONINGEN = {
+    "4400101": {"title": "Lindelaan 11", "postcode": "1234 AB"},
+    "4400102": {"title": "Beukenhof 22", "postcode": "1234 AC"},
+    "4400103": {"title": "Eikenplein 33", "postcode": "1234 AD",
+                "description": "Verkocht in verhuurde staat, ideaal als belegging."},
+    "4400104": {"title": "Wilgenweg 44", "postcode": "1234 AE"},
+    "4400105": {"title": "Populierstraat 55", "postcode": "1234 AF", "_status": 500},
+}
+
+
+def _publieke_run(actions: bool) -> tuple[int | None, str]:
+    """main() op de API-route met vijf woningen: nieuw met prijsdaling, eerder gezien, belegging,
+    blacklist en een mislukte detail-call. Geeft (exitcode, stdout)."""
+    def zoekdata(gid: str, w: dict) -> dict:
+        slug = w["title"].lower().replace(" ", "-")
+        return {"global_id": gid, "city": "Den Haag", "price": 250000, "living_area": 60,
+                "title": w["title"], "postcode": w["postcode"], "neighbourhood": "Bomenbuurt",
+                "detail_url": f"/detail/koop/den-haag/appartement-{slug}/4{gid}/"}
+
+    details = {gid: {**zoekdata(gid, w), "description": w.get("description", "Licht, op de derde verdieping."),
+                     **({"_status": w["_status"]} if "_status" in w else {})}
+               for gid, w in PUBLIEK_WONINGEN.items()}
+    fz = maak_stub_funda(lambda n: [StubListing(zoekdata(g, w)) for g, w in PUBLIEK_WONINGEN.items()]
+                         if n == 1 else [], details=details, calls=[])
+    vandaag = datetime.now().strftime("%Y-%m-%d")
+    fz.TRACKING_FILE.write_text(json.dumps({"4400101": {"first_seen": vandaag, "last_seen": vandaag,
+                                                        "prices": [[vandaag, 265000]]}}))
+    fz.STATE_FILE.write_text(json.dumps(["4400102"]))
+    fz.BLACKLIST_FILE.write_text(json.dumps(["4400104"]))
+    oude_sleep = time.sleep
+    if actions:
+        os.environ["GITHUB_ACTIONS"] = "true"
+    try:
+        time.sleep = lambda _s: None
+        with contextlib.redirect_stdout(io.StringIO()) as uit:
+            code, _gedraaid = draai(fz)
+    finally:
+        time.sleep = oude_sleep
+        os.environ.pop("GITHUB_ACTIONS", None)
+        fz.BLACKLIST_FILE.unlink(missing_ok=True)
+    return code, uit.getvalue()
+
+
+def _sporen(log: str, ids) -> list[str]:
+    """Wat in een publieke log naar een woning, het zoekgebied of het budget wijst."""
+    gevonden = [s for s in ("/detail/", "Wijk:") if s in log]
+    gevonden += re.findall(r"\b\d{4} ?[A-Z]{2}\b", log)          # postcode
+    gevonden += re.findall(r"€ ?\d[\d.,]*", log)                   # bedrag
+    gevonden += [w["title"] for w in PUBLIEK_WONINGEN.values() if w["title"] in log]
+    gevonden += [str(i) for i in ids if str(i) in log]
+    return gevonden
+
+
+def test_publieke_log() -> bool:
+    """Op Actions is de log publiek: main() print geen woningen, alleen aantallen.
+
+    Run 42345289110 (7 nov 2026) had 18 detail-URL's en 18 regels "Wijk:" in de log, met per
+    woning titel, postcode en prijs. Lokaal blijft de volledige lijst."""
+    print("test: publieke log op Actions alleen aantallen, lokaal de lijst")
+    ok = True
+    ids = [*PUBLIEK_WONINGEN, *(f"4{g}" for g in PUBLIEK_WONINGEN)]
+
+    code, log = _publieke_run(actions=True)
+    ok &= check("Actions: geen afbreking", code is None, str(code))
+    sporen = _sporen(log, ids)
+    ok &= check("Actions: geen detail-URL, Wijk:, postcode, bedrag, titel of woningnummer",
+                not sporen, ", ".join(sporen))
+    ok &= check("Actions: aantallen nieuw, eerder gezien en afgewezen",
+                "NIEUW: 2    Eerder gezien: 1    Afgewezen: 2" in log)
+    ok &= check("Actions: afgewezen per reden", "Afgewezen per reden: belegging 1, blacklist 1." in log)
+    ok &= check("Actions: aantal met prijsdaling", "Met prijsdaling: 1 nieuw, 0 eerder gezien." in log)
+    ok &= check("Actions: prijsband als volgnummer", re.search(r"Band \d+/\d+: \d+ uniek", log) is not None)
+    ok &= check("Actions: mislukte detail-call zonder woning", "Detail fout voor een woning" in log)
+
+    code, log = _publieke_run(actions=False)
+    ok &= check("lokaal: geen afbreking", code is None, str(code))
+    mist = [t for t in ("Lindelaan 11, 1234 AB", "Wijk: Bomenbuurt", "/detail/koop/",
+                        "Eikenplein 33: verhuurde staat", "Wilgenweg 44: blacklist") if t not in log]
+    ok &= check("lokaal: volledige lijst met titel, postcode, wijk en URL", not mist, ", ".join(mist))
+    ok &= check("lokaal: prijsband met bedragen", "Band € 200,000-220,000" in log)
+
+    # Sitemaproute, endpoint dicht: de foutmelding van de client noemt de woning, en die komt
+    # in de ::error::.
+    import test_funda_sitemap as ts
+    details = {k: {**v, "tiny_id": k} for k, v in ts.DETAILS.items()}
+    nummers = list(details) + [str(v["global_id"]) for v in details.values()]
+    for naam, faal_na in (("403", (1, 403)), ("time-outs", (1, None))):
+        os.environ["GITHUB_ACTIONS"] = "true"
+        try:
+            r = _sitemaprun(details, {}, faal_na=faal_na, budget=200)
+        finally:
+            os.environ.pop("GITHUB_ACTIONS", None)
+        ok &= check(f"sitemap {naam} op Actions: exit 2 met ::error::",
+                    r["code"] == 2 and "::error::" in r["log"], str(r["code"]))
+        lekken = [s for s in ("/detail/", *nummers) if s in r["log"]]
+        ok &= check(f"sitemap {naam} op Actions: geen detailpad of woningnummer", not lekken,
+                    ", ".join(lekken))
+    r = _sitemaprun(details, {}, faal_na=(1, 403), budget=200)
+    ok &= check("sitemap 403 lokaal: detailpad blijft in de log", "/detail/koop/" in r["log"])
+    return ok
+
+
 def test_sitemap_overslaan() -> bool:
     """Stap c: de filter van de sitemapzoeker gebruikt ook prijs, m2 en straal."""
     print("test: _sitemap_overslaan met straal, prijs en m2")
@@ -1977,7 +2084,8 @@ def main() -> int:
                   test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),
                   test_geen_dubbele_detail_calls(), test_pool_404_bovenaan(), test_pool_404_beeindigt_reeks(),
-                  test_endpoint_halverwege_dicht(), test_sitemap_overslaan(), test_instellingen(),
+                  test_endpoint_halverwege_dicht(), test_publieke_log(), test_sitemap_overslaan(),
+                  test_instellingen(),
                   test_eerlijke_client(), test_auto_push_alleen_docs()]
     print()
     if all(resultaten):
