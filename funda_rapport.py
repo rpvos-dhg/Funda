@@ -104,7 +104,9 @@ def _werk_postcodes() -> list[tuple[str, str]]:
 
 WERK_CACHE = Path(__file__).parent / "funda_werk_coords.json"
 ENRICHMENT_CACHE = Path(__file__).parent / "funda_enrichment_cache.json"
-USER_AGENT = "funda-tracker-remco/1.0 (persoonlijk gebruik)"
+# Nominatim en OSRM: dezelfde eerlijke user-agent als de rest (EERLIJKE_UA uit funda_zoek, met repo-link),
+# zonder naam. Op het moment van aanroepen gelezen, zodat er geen kringimport ontstaat.
+USER_AGENT_TERUGVAL = "funda-dagelijkse-check/1.0 (+https://github.com/rpvos-dhg/Funda)"
 
 
 # === Geocoding en routing ===
@@ -114,7 +116,7 @@ def lookup_postcode(postcode: str) -> tuple[float, float] | None:
     q = urllib.parse.quote(f"{postcode}, Nederland")
     url = f"https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1&countrycodes=nl"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        req = urllib.request.Request(url, headers={"User-Agent": _eerlijke_ua() or USER_AGENT_TERUGVAL})
         with urllib.request.urlopen(req, timeout=8) as r:
             data = json.loads(r.read())
         if data:
@@ -158,7 +160,7 @@ def osrm_route_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float |
         f"{lon1},{lat1};{lon2},{lat2}?overview=false"
     )
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        req = urllib.request.Request(url, headers={"User-Agent": _eerlijke_ua() or USER_AGENT_TERUGVAL})
         with urllib.request.urlopen(req, timeout=4) as r:
             data = json.loads(r.read())
         if data.get("code") == "Ok" and data.get("routes"):
@@ -190,18 +192,30 @@ def funda_url(d: dict) -> str:
     return url
 
 
+def _schoon_markt_cache(cache: dict) -> dict:
+    """Alle buurtcijfers in de cache door de allowlist, ook die van buurten die deze run niet langskomen
+    (elementen van voor de allowlist hielden inwonertal en gezinnen met kinderen)."""
+    markt = cache.get("market_insights")
+    if isinstance(markt, dict):
+        for entry in markt.values():
+            if isinstance(entry, dict) and isinstance(entry.get("data"), dict):
+                entry["data"] = _markt_allowlist(entry["data"])
+    return cache
+
+
 def load_enrichment_cache() -> dict:
     if ENRICHMENT_CACHE.exists():
         try:
             data = json.loads(ENRICHMENT_CACHE.read_text(encoding="utf-8"))
             if isinstance(data, dict):
-                return data
+                return _schoon_markt_cache(data)
         except Exception:
             pass
     return {"price_history": {}, "market_insights": {}, "broker": {}}
 
 
 def save_enrichment_cache(cache: dict) -> None:
+    _schoon_markt_cache(cache)
     ENRICHMENT_CACHE.write_text(json.dumps(cache, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
 
 
@@ -257,6 +271,7 @@ def analyse_price_history(changes: list[dict], current_price: int) -> dict:
         item = {
             "price": price,
             "date": change.get("date") or change.get("timestamp"),
+            "timestamp": change.get("timestamp"),   # ISO, voor de peildatum in het rapport
             "source": change.get("source"),
             "status": status,
             "human_price": change.get("human_price"),
@@ -406,10 +421,6 @@ def verrijk_woning(f, d: dict, listing_obj, cache: dict) -> dict:
             30,
             lambda: _markt_allowlist(f.get_market_insights(city, neighbourhood)),
         ))
-        # Ook een ouder cache-element (van voor de allowlist) gaat er zo uit.
-        entry = cache.get("market_insights", {}).get(sleutel_markt)
-        if isinstance(entry, dict) and isinstance(entry.get("data"), dict):
-            entry["data"] = _markt_allowlist(entry["data"])
         if isinstance(market_raw, dict) and market_raw.get("_error"):
             market_raw = None
 
@@ -556,8 +567,10 @@ def _eerlijke_ua() -> str | None:
 def _rente_cfg(cfg: dict) -> dict:
     """financien.rente zoals funda_rente hem leest, met de aliassen die funda_beoordeling ook kent.
 
-    rente.handmatig = rente.pct, rente.rentevast_jaar = rente.rentevast_jaren, en de oude plek
-    beoordeling.financiering.rente (met rente_datum). Een handmatige rente gaat altijd voor."""
+    rente.handmatig = rente.pct, rente.rentevast_jaar = rente.rentevast_jaren, rente.max_dagen, en
+    als terugval de oude plek beoordeling.financiering (rente met rente_datum, rentevast_jaren,
+    rente_max_dagen). Die oude sleutels hebben geen standaardwaarde, dus staan ze er alleen als je
+    ze zelf zet. Een handmatige rente gaat altijd voor."""
     fin = dict(cfg.get("financien") or {}) if isinstance(cfg.get("financien"), dict) else {}
     r = dict(fin.get("rente")) if isinstance(fin.get("rente"), dict) else {}
     if r.get("pct") is None and r.get("handmatig") is not None:
@@ -567,7 +580,12 @@ def _rente_cfg(cfg: dict) -> dict:
     oud = cfg.get("financiering") or {}
     if r.get("pct") is None and oud.get("rente") is not None:
         r["pct"] = oud["rente"]
-        r.setdefault("datum", oud.get("rente_datum"))
+        if r.get("datum") is None:   # ook als financien.rente.datum expliciet null is
+            r["datum"] = oud.get("rente_datum")
+    if r.get("rentevast_jaren") is None and oud.get("rentevast_jaren") is not None:
+        r["rentevast_jaren"] = oud["rentevast_jaren"]
+    if r.get("max_dagen") is None and oud.get("rente_max_dagen") is not None:
+        r["max_dagen"] = oud["rente_max_dagen"]
     fin["rente"] = r
     return {"financien": fin}
 
@@ -724,7 +742,7 @@ def _md(tekst) -> str:
 
 def _prijs_tekst(r: dict) -> str:
     prijs = (r.get("d") or {}).get("price")
-    return "prijs op aanvraag" if r.get("prijs_onbekend") or not prijs else funda_ui.eur(prijs)
+    return "prijs op aanvraag" if r.get("prijs_onbekend") or not prijs else funda_ui.eur_tekst(prijs)
 
 
 def _punten_md(items: list[dict]) -> str:
@@ -771,7 +789,7 @@ def _scenarios_md(rijen: list[dict], meta: dict) -> list[str]:
         if not w:
             continue
         lo, hi = min(w), max(w)
-        tekst = funda_ui.eur(lo) if lo == hi else f"{funda_ui.eur(lo)} tot {funda_ui.eur(hi)}"
+        tekst = funda_ui.eur_tekst(lo) if lo == hi else f"{funda_ui.eur_tekst(lo)} tot {funda_ui.eur_tekst(hi)}"
         regels.append(f"  - {_md(labels[sid])}{' (planning)' if sid == planning else ''}: {tekst}")
     return regels
 
@@ -788,7 +806,7 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
                if ((r.get("beoordeling") or {}).get("financiering") or {}).get("grens") is not None), {})
     if f0:
         soort = "bruto per maand (norm uit de leentoets)" if f0.get("grens_soort") == "bruto norm" else "netto per maand"
-        lines.append(f"- Je grens: {funda_ui.eur(f0['grens'])} {soort}")
+        lines.append(f"- Je grens: {funda_ui.eur_tekst(f0['grens'])} {soort}")
     r = meta.get("rente") or {}
     if _rente_md(r):
         lines.append(f"- Rente: {_rente_md(r)}")
@@ -829,9 +847,9 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
         m2 = d.get("living_area") or det.get("living_area")
         prijs = _prijs_tekst(rij)
         if not rij.get("prijs_onbekend") and m2:
-            prijs += f" ({funda_ui.eur(d['price'] / m2)} per m²)"
+            prijs += f" ({funda_ui.eur_tekst(d['price'] / m2)} per m²)"
         netto = fin.get("netto")
-        lasten = f"{funda_ui.eur(netto)} netto per maand" if netto is not None else "onbekend"
+        lasten = f"{funda_ui.eur_tekst(netto)} netto per maand" if netto is not None else "onbekend"
         lines.append(f"- Vraagprijs: {prijs} · Woonlasten: {lasten}")
         feit = [f"{m2} m²" if m2 else None, f"{d.get('rooms')} kamers" if d.get("rooms") else None,
                 f"label {d.get('energy_label') or det.get('energy_label') or 'onbekend'}",
@@ -839,7 +857,7 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
         lines.append("- Woning: " + ", ".join(x for x in feit if x))
         tr = rij.get("track") or {}
         if tr.get("gedaald") and tr.get("eerdere_prijs"):
-            lines.append(f"- Prijs gedaald: was {funda_ui.eur(tr['eerdere_prijs'])}")
+            lines.append(f"- Prijs gedaald: was {funda_ui.eur_tekst(tr['eerdere_prijs'])}")
         for kop, sleutel in (("Let op", "let_op"), ("Pluspunten", "pluspunten"), ("Onbekend", "onbekend"),
                              ("Kansen", "kansen")):
             if b.get(sleutel):
@@ -1001,6 +1019,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="{funda_ui.THEME_COLOR_DONKER}">
 <meta name="theme-color" content="{funda_ui.THEME_COLOR}">
 <title>Woningrapport, {nu.day} {_NL_MAANDEN[nu.month - 1]} {nu.year}</title>
 <link rel="icon" href="{asset_prefix}favicon.svg" type="image/svg+xml">
@@ -1095,11 +1114,11 @@ self.addEventListener('notificationclick', e => {
 });
 """
 
-# Icoon in het eigen palet (ui/app.css): het paars van de topbalk, een wit huis en een lavendel
+# Icoon in het eigen palet (ui/app.css): het inktblauw van de topbalk, een wit huis en een lichtblauw
 # raam. Geen geel, geen groen of goud. De PNG vult het hele vlak (ook geschikt als maskable).
 ICOON_ACHTERGROND = funda_ui.THEME_COLOR
 ICOON_HUIS = "#ffffff"
-ICOON_ACCENT = "#c4b5fd"   # lavendel, --background-color-interactive-strong in donker
+ICOON_ACCENT = "#93b4fd"   # lichtblauw, --background-color-interactive-strong in donker
 
 # Huis op een raster van 512: dak (top, links, rechts), romp, deur en raam.
 _HUIS_DAK = [(256, 116), (88, 262), (424, 262)]

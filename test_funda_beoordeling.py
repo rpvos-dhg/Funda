@@ -634,6 +634,61 @@ def test_parsers() -> bool:
     return ok
 
 
+# Fixronde: een mogelijkheid tot afkoop is geen afkoop, een einddatum met maandnaam telt, 'geen erfpacht' is eigen grond.
+ERFPACHT_FIXRONDE = [   # (kenmerken, zin, (status, canon_jaar, eind))
+    ({"Eigendomssituatie": "Gemeentelijk eigendom belast met erfpacht"},
+     "Erfpacht met een canon van € 1.250 per jaar. De canon kan worden afgekocht.", ("erfpacht_onduidelijk", 1250, None)),
+    ({}, "Erfpacht, canon € 980 per jaar. Afkopen is mogelijk, dan wordt het eeuwigdurend afgekocht.",
+     ("erfpacht_onduidelijk", 980, None)),
+    ({}, "Erfpacht, canon € 980 per jaar. Omzetten naar eeuwigdurend afgekocht is mogelijk.", ("erfpacht_onduidelijk", 980, None)),
+    ({}, "Eeuwigdurende erfpacht, canon kan worden afgekocht; canon € 500 per jaar.", ("eeuwig_canon", 500, None)),
+    ({}, "Eeuwigdurende erfpacht, canon afgekocht tot 1 januari 2035.", ("afgekocht_tot", None, 2035)),
+    ({}, "Eeuwigdurende erfpacht, canon afgekocht tot 01-01-2035.", ("afgekocht_tot", None, 2035)),
+    ({}, "Erfpacht, de canon is afgekocht tot 31 dec. 2061.", ("afgekocht_tot", None, 2061)),
+    ({}, "Eeuwigdurende erfpacht, canon afgekocht tot het einde van het tijdvak.", ("afgekocht_looptijd_onbekend", None, None)),
+    ({}, "Het appartement staat op eigen grond, geen erfpacht.", ("eigen", None, None)),
+    ({}, "Het appartement is niet belast met erfpacht.", ("eigen", None, None)),
+    ({}, "Let op: geen eigen grond, eeuwigdurende erfpacht met een canon van € 640 per jaar.", ("eeuwig_canon", 640, None)),
+]
+
+
+def test_erfpacht_fixronde() -> bool:
+    print("test: erfpacht (afkoop alleen als feit, einddatum met maandnaam, 'geen erfpacht')")
+    ok = True
+    fout = []
+    for ch, zin, v in ERFPACHT_FIXRONDE:
+        i = fb.erfpacht(ch, zin)
+        if (i["status"], i["canon_jaar"], i["eind"]) != v:
+            fout.append((zin, i))
+    ok &= check(f"{len(ERFPACHT_FIXRONDE) - len(fout)}/{len(ERFPACHT_FIXRONDE)} zinnen goed", not fout, str(fout[:3]))
+
+    # Door het hele model: 'kan worden afgekocht' laat de canon in de woonlasten en de leentoets staan.
+    fx = _fixture()
+    profiel = fx["meta"]["profiel"]
+    cfg = fb.laad_config(dict(profiel, beoordeling={"max_woonlasten_netto": GRENS_FICTIEF}))
+    w = next(x for x in fx["woningen"] if x["fixture"]["id"] == "w02")
+
+    def met(tekst, eig):
+        d, details, routes, twijfel = invoer(w, fx)
+        d = dict(d, description=tekst, characteristics=dict(d.get("characteristics") or {}, Eigendomssituatie=eig))
+        return fb.beoordeel(d, d, routes, twijfel, profiel, cfg, _verrijking("w02"), vandaag=VANDAAG)
+
+    eig = "Gemeentelijk eigendom belast met erfpacht"
+    kan = met("Erfpacht met een canon van € 1.250 per jaar. De canon kan worden afgekocht.", eig)
+    is_ = met("Erfpacht, de canon is afgekocht tot 2070.", eig)
+    c_kan = kan["financiering"]["opbouw"].get("canon_maand") or 0
+    c_is = is_["financiering"]["opbouw"].get("canon_maand") or 0
+    ok &= check("'kan worden afgekocht': canon € 104 per maand in de woonlasten", round(c_kan) == 104, str(c_kan))
+    ok &= check("'is afgekocht tot 2070': geen canon", c_is == 0, str(c_is))
+    ok &= check("canon verlaagt de max. hypotheek", kan["financiering"]["max_hypotheek"] < is_["financiering"]["max_hypotheek"],
+                f'{kan["financiering"]["max_hypotheek"]} / {is_["financiering"]["max_hypotheek"]}')
+    eeuwig = met("Eeuwigdurende erfpacht, canon afgekocht tot 1 januari 2035.", eig)
+    ok &= check("'afgekocht tot 1 januari 2035' is geen pluspunt 'eeuwigdurend afgekocht'",
+                not any(i["onderdeel"] == "erfpacht" for i in eeuwig["pluspunten"])
+                and eeuwig["onderdelen"]["erfpacht"]["punten"] < 0, str(eeuwig["onderdelen"].get("erfpacht")))
+    return ok
+
+
 def test_sortering() -> bool:
     print("test: sortering (poort, twijfel, -score)")
     ok = True
@@ -894,7 +949,7 @@ def main() -> int:
         schrijf_verwacht()
         return 0
     resultaten = [test_leentoets(), test_kosten_koper_en_koopsom(), test_scenarios(), test_rente(), test_poort(),
-                  test_harde_eisen(), test_score(), test_parsers(), test_sortering(), test_contract(),
+                  test_harde_eisen(), test_score(), test_parsers(), test_erfpacht_fixronde(), test_sortering(), test_contract(),
                   test_geen_bevolkingskenmerken(), test_verrijking_vormen(), test_rommelige_invoer(), test_fixture_verwachting(),
                   test_log_kenmerk_labels(), test_kansen_en_info(), test_import_zonder_personal()]
     print()

@@ -6,6 +6,7 @@ hebben (in een gewone Python-string wordt content:"\\2212" een octale escape).
 
 Publieke API
   THEME_COLOR, ACHTERGROND     kleur van de topbalk en van de pagina (licht), voor manifest en theme-color
+  THEME_COLOR_DONKER           kleur van de topbalk in donker (theme-color met prefers-color-scheme)
   UI_CSS, UI_JS, SLOT_HTML     inhoud van ui/app.css, ui/app.js en ui/slot.html
   SLOT_PLACEHOLDERS            de placeholders die ui/slot.html precies één keer bevat
   render_report_body(rijen, meta) -> str
@@ -45,9 +46,11 @@ UI_JS = (UI_DIR / "app.js").read_text(encoding="utf-8")
 SLOT_HTML = (UI_DIR / "slot.html").read_text(encoding="utf-8")
 SLOT_PLACEHOLDERS = ("__APP_CSS__", "__MAP_HEAD__", "__APP_SCRIPTS__", "__GZ__", "__SALT__", "__IV__", "__CT__", "__ITERS__")
 
-# Palet "Lavendel" (ui/app.css): topbalk en pagina in licht. Voor het manifest en <meta name="theme-color">.
-THEME_COLOR = "#2e1f6b"
-ACHTERGROND = "#f4f5f8"
+# Palet "Inkt en blauw" (ui/app.css, besluit 8): topbalk en pagina in licht, voor het manifest en
+# <meta name="theme-color">; THEME_COLOR_DONKER is de topbalk in donker (theme-color met media query).
+THEME_COLOR = "#0f172a"
+THEME_COLOR_DONKER = "#1e293b"
+ACHTERGROND = "#f4f6f9"
 
 AMS = ZoneInfo("Europe/Amsterdam")
 RUN_CRON_UTC = [(8, 30), (16, 30)]   # .github/workflows/funda-daily.yml
@@ -79,7 +82,9 @@ MAAND_LANG = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "a
 
 # ── opmaak: één notatie (€ 1.250, m², decimale komma, minteken U+2212) ──────────
 def h(s) -> str:
-    return _html.escape(str(s if s is not None else ""), quote=True)
+    """HTML-escape. '€ ' wordt '€' plus harde spatie, zodat het teken nooit los van het bedrag afbreekt
+    (ook in teksten die funda_beoordeling met een gewone spatie opbouwt)."""
+    return _html.escape(str(s if s is not None else ""), quote=True).replace("€ ", "€\u00a0")
 
 
 def nl(n) -> str:
@@ -87,12 +92,14 @@ def nl(n) -> str:
 
 
 def eur(n) -> str:
+    """'€ 1.250' met een harde spatie (U+00A0), voor HTML: het euroteken breekt nooit los van het getal af."""
+    return "€\u00a0" + nl(n)
+
+
+def eur_tekst(n) -> str:
+    """'€ 1.250' met een gewone spatie, voor gegevens die buiten de HTML komen (statusregel, markdown, push).
+    In de HTML maakt h() er alsnog een harde spatie van."""
     return "€ " + nl(n)
-
-
-def eur_vast(n) -> str:
-    """Bedrag dat niet tussen € en het getal afbreekt (harde spatie), voor smalle kolommen."""
-    return "€ " + nl(n)
 
 
 def komma(x, d=1) -> str:
@@ -240,14 +247,14 @@ def status_reden(poort: str, fin: dict, meta: dict | None = None) -> str:
     lasten = fin.get("bruto") if bruto_norm else fin.get("netto")
     grens, tekort = fin.get("grens"), fin.get("tekort") or 0
     if lasten is None or grens is None:
-        return f"{eur(tekort)} eigen geld te weinig" if tekort > 0 else "woonlasten onbekend"
+        return f"{eur_tekst(tekort)} eigen geld te weinig" if tekort > 0 else "woonlasten onbekend"
     if (poort == "PAST NIET" and tekort > te_weinig) or (poort == "KRAP" and tekort > kk and lasten <= grens):
-        return f"{eur(tekort)} eigen geld te weinig"
+        return f"{eur_tekst(tekort)} eigen geld te weinig"
     if lasten == grens:   # geen "€ 0 onder je grens"
         return "precies op " + ("de norm (bruto)" if bruto_norm else "je grens")
     if lasten < grens:
-        return f"{eur(grens - lasten)} onder " + ("de norm (bruto)" if bruto_norm else "je grens")
-    return f"{eur(lasten - grens)} boven " + ("de norm (bruto)" if bruto_norm else "je grens")
+        return f"{eur_tekst(grens - lasten)} onder " + ("de norm (bruto)" if bruto_norm else "je grens")
+    return f"{eur_tekst(lasten - grens)} boven " + ("de norm (bruto)" if bruto_norm else "je grens")
 
 
 def status_tekst(poort: str, fin: dict, meta: dict | None = None) -> str:
@@ -284,13 +291,35 @@ def reis_tekst(w) -> str:
     return " · ".join(delen)
 
 
+def scenario_regel(tekst) -> str:
+    """'Past nu' -> 'Financiering: past nu'. Het scenario gaat over leenruimte en eigen geld, de poort ook
+    over je grens voor de woonlasten; zonder label lijkt 'Past nu' onder 'Past niet' een tegenspraak."""
+    t = str(tekst or "").strip()
+    return f"Financiering: {t[:1].lower()}{t[1:]}" if t else ""
+
+
+def _iso_datum(x) -> date | None:
+    try:
+        return date.fromisoformat(str(x)[:10])
+    except ValueError:
+        return None
+
+
+def _placeholder_lasten(woningen: list[dict]) -> str:
+    """Placeholder voor Max. woonlasten: je eigen grens (netto) als die er is, anders geen."""
+    grens = next((w["fin"].get("grens") for w in woningen if w["fin"].get("grens") is not None
+                  and w["fin"].get("grens_soort") != "bruto norm"), None)
+    return f'placeholder="bijv. {int(round(grens))}"' if _getal(grens) else ""
+
+
 # ── HTML ─────────────────────────────────────────────────────────────────────
 def punt_html(it, met_punten=True) -> str:
     o = it.get("oordeel") or "neutraal"
     ptxt = punten(it.get("punten") or 0)
     pcls = "pt-plus" if ptxt.startswith("+") else "pt-min" if ptxt.startswith("−") else "pt-nul"
     pt = f'<span class="pt {pcls}">{ptxt if ptxt != "0" else ""}</span>' if met_punten else "<span></span>"
-    vraag = f'<span class="vraag">Navragen: {h(it["vraag"])}</span>' if it.get("vraag") else ""
+    # Geen voorvoegsel: de vraagzinnen beginnen zelf al met "Vraag ..." of een eigen label ("Kleine VvE: ...").
+    vraag = f'<span class="vraag">{ic("vraag", "ic ic-s")}<span>{h(it["vraag"])}</span></span>' if it.get("vraag") else ""
     uitleg = (f'<span class="uitleg">{h(it["uitleg"])}</span>' if it.get("uitleg") and o in ("sterk", "let_op")
               and it.get("onderdeel") != "woonlasten" else "")
     return (f'<li class="punt">{ic(OORDEEL_IC.get(o, "info"), "ic o-" + o)}'
@@ -305,7 +334,9 @@ def opbouw_score(w, basis=5.0) -> str:
         p = v["punten"]
         if abs(p) < 0.05:
             continue
-        stap = max(1, min(10, round(abs(p) / 2 * 10)))   # 0,2 punt per stap; 2 punten = halve balk
+        # 0,2 punt per stap; 2 punten = halve balk. Uit de getoonde waarde (1 decimaal) en half naar boven,
+        # zodat twee keer "−0,5" ook twee even brede balkjes geeft (round() rondt .5 naar even af).
+        stap = max(1, min(10, int(float(f"{abs(p):.1f}") * 5 + 0.5)))
         balk = f'<span class="balk" aria-hidden="true"><i class="{"bp" if p > 0 else "bm"} b{stap}"></i></span>'
         rijen.append(f'<div><dt>{h(v.get("kort") or naam)}</dt><dd>{punten(p)}</dd><dd>{balk}</dd></div>')
     afgekapt = w["score"] in (0, 10)
@@ -374,7 +405,8 @@ def kenmerken(w) -> str:
         rijen.append(("Prijsverloop", f"was {eur(w['eerdere_prijs'])}, nu {eur(w['prijs'])}"))
     woz = w["woz"] or {}
     if _getal(woz.get("price")):
-        rijen.append(("WOZ", eur(woz["price"]) + (f" (peildatum {woz['date']})" if woz.get("date") else "")))
+        peil = _iso_datum(woz.get("timestamp")) or _iso_datum(woz.get("date"))   # anders geen datum
+        rijen.append(("WOZ", eur(woz["price"]) + (f" (peildatum {datum_lang(peil)})" if peil else "")))
     a = w["aangeboden"]
     if a:
         rijen.append(("Op funda", "sinds vandaag" if str(a).lower() == "vandaag" else f"sinds {a}"))
@@ -403,7 +435,7 @@ def financiering(w, meta: dict | None = None) -> str:
         rij.append(("Je grens", f"{eur(f['grens'])} {soort}"))
     for s in f.get("scenarios") or []:
         oordeel = "past" if s.get("past") else "past niet"
-        extra = f", max. koopsom {eur_vast(s['max_koopsom'])}" if _getal(s.get("max_koopsom")) else ""
+        extra = f", max. koopsom {eur(s['max_koopsom'])}" if _getal(s.get("max_koopsom")) else ""
         plan = " (planning)" if s.get("id") == f.get("planning") else ""
         rij.append((str(s.get("label") or s.get("id")) + plan, oordeel + extra))
     return f'<dl class="kenmerken">{"".join(f"<dt>{h(a)}</dt><dd>{h(b)}</dd>" for a, b in rij)}</dl>'
@@ -458,7 +490,8 @@ def kaart_html(w, meta: dict | None = None) -> str:
     lo = "".join(punt_html(x) for x in w["let_op"]) or '<li class="punt-tekst">Niets gevonden.</li>'
     plus = "".join(punt_html(x) for x in plus_met)
     ook = ('<p class="punt-tekst mt-100"><span class="gesch">Ook in orde: </span>'
-           + h(", ".join(f"{str(x.get('label', '')).lower()} {x.get('waarde', '')}" for x in plus_nul)) + "</p>") if plus_nul else ""
+           + h(" · ".join(f"{x.get('label', '')}: {x.get('waarde', '')}" if x.get("waarde") else str(x.get("label", ""))
+                          for x in plus_nul)) + "</p>") if plus_nul else ""
     onb = "".join(punt_html(x, False) for x in w["onbekend"])
     kans = "".join(punt_html({**x, "oordeel": "kans"}, False) for x in w["kansen"])
     t = h(w["titel"])
@@ -489,7 +522,7 @@ def kaart_html(w, meta: dict | None = None) -> str:
                       f'(opent nieuw venster)" title="Bekijk op funda">{ic("extern")}</a>')
     else:
         funda_knop = ""
-    scenario = f'<span class="w-scenario">{h(w["scenario_tekst"])}</span>' if w["scenario_tekst"] else ""
+    scenario = f'<span class="w-scenario">{h(scenario_regel(w["scenario_tekst"]))}</span>' if w["scenario_tekst"] else ""
     labels_html = f'<p class="w-labels">{"".join(labels)}</p>' if labels else ""
     return f"""<article class="woning" id="card-{cid}" data-id="{h(w['id'])}" aria-labelledby="t-{cid}">
 <div class="w-status st-{POORT_CLS[p]}">{ic(POORT_IC[p])}<p>{w['status_html']}{scenario}</p></div>
@@ -518,7 +551,7 @@ def js_data(w) -> dict:
             "netto": w["fin"].get("netto"), "prijs": w["prijs"], "m2": w["m2"], "score": w["score"],
             "score_tekst": komma(w["score"]), "twijfel": bool(w["twijfel"]), "gedaald": w["gedaald"],
             "dagen": w["dagen"], "reis_min": r0["min"] if r0 else None,
-            "reis_tekst": (f"fiets ≈ {r0['min']} min" if r0 else ""),
+            "reis_tekst": (f"fiets ≈ {r0['min']} min" if r0 else ""),   # popup; de vergelijking gebruikt reis_min
             "top_plus": f"{top_plus.get('label')}: {top_plus.get('waarde')}" if top_plus else "",
             "top_let_op": f"{top_lo.get('label')}: {top_lo.get('waarde')}" if top_lo else "",
             "lat": w["lat"], "lon": w["lon"], "nieuw_run": w["nieuw_run"]}
@@ -562,17 +595,21 @@ def _rente(meta: dict, woningen: list[dict], nu: datetime) -> dict:
 
 
 def rente_melding(r: dict) -> str:
-    """Eén zichtbare melding als de rente oud is of de rentemodule iets meldt; anders niets."""
-    delen = []
+    """Eén korte zin bovenaan als de rente oud is of de rentemodule iets meldt; anders niets.
+
+    Bij een oude rente alleen datum, percentage en leeftijd. De uitleg van de rentemodule (met de
+    configsleutel) staat dan alleen in "Jouw budget en aannames"."""
     if r["oud"]:
-        delen.append(f"Rente is {r['dagen']} dagen oud: woonlasten kunnen afwijken." if r.get("dagen") is not None
-                     else "Rente is oud: woonlasten kunnen afwijken.")
-    if r["melding"]:
-        delen.append(_zin(r["melding"]))
-    if not delen:
+        van = f" van {datum_lang(r['peildatum'])}" if r.get("peildatum") else ""
+        pct = f" ({komma(r['pct'], 2)}%)" if r.get("pct") is not None else ""
+        oud = f"is {r['dagen']} dagen oud" if r.get("dagen") is not None else "is oud"
+        tekst = f"Rente{van}{pct} {oud}: woonlasten kunnen afwijken."
+    elif r["melding"]:
+        tekst = _zin(r["melding"])
+    else:
         return ""
     return (f'<a class="melding rente-melding" id="rente-melding" href="#budget" data-actie="budget">{ic("warn")}'
-            f'<span>{h(" ".join(delen))} <u>Meer weten</u></span></a>')
+            f'<span>{h(tekst)} <u>Meer weten</u></span></a>')
 
 
 def _scenarios_budget(meta: dict, woningen: list[dict]) -> tuple[list[tuple[str, str, bool]], str | None]:
@@ -595,7 +632,7 @@ def _scenarios_budget(meta: dict, woningen: list[dict]) -> tuple[list[tuple[str,
         if not w:
             continue
         lo, hi = min(w), max(w)
-        tekst = eur_vast(lo) if lo == hi else f"{eur_vast(lo)} tot {eur_vast(hi)}"
+        tekst = eur(lo) if lo == hi else f"{eur(lo)} tot {eur(hi)}"
         uit.append((str(label), tekst, sid == planning))
     plan_label = next((label for label, _, plan in uit if plan), None)
     return uit, plan_label
@@ -658,7 +695,7 @@ def _push_html(meta: dict) -> str:
 
 
 APPARAAT_HTML = f"""<details class="opbouw" id="apparaat" hidden><summary>Dit apparaat{ic('chev', 'ic chev')}</summary><div class="tekst">
-<p>Dit apparaat onthoudt een sleutel voor het rapport, niet je wachtwoord. Vergeet hem als je dit toestel deelt of wegdoet.</p>
+<p>Dit apparaat onthoudt een sleutel voor het rapport, niet je wachtwoord. Vergeet hem als je dit apparaat deelt of wegdoet.</p>
 <div class="acties"><button type="button" class="knop knop-ter" data-actie="vergeet">Vergeet dit apparaat</button></div></div></details>"""
 
 
@@ -728,7 +765,7 @@ def render_report_body(rijen: list[dict], meta: dict | None = None) -> str:
 <a class="skip" href="#lijst">Naar de woningen</a>
 <header class="app-top context-strong"><div class="app-top-in">
 <div class="app-top-tekst"><h1>Woningen<span id="top-tel" class="top-tel" hidden></span></h1>
-<p>Bijgewerkt {datum_kort(nu)}, {nu:%H:%M}{f' · volgende rond {volgende}' if volgende else ''}</p></div>
+<p>Bijgewerkt {datum_kort(nu)} {nu:%H:%M}{f' · volgende {volgende}' if volgende else ''}</p></div>
 {run_knop}
 </div></header>
 <div id="app" class="app" data-view="lijst" data-run="{run_iso}">
@@ -770,10 +807,10 @@ Klimaateffectatlas, RIVM-geluidkaarten, Leefbaarometer 3.0, RIVM-gezondheidsmoni
 <fieldset><legend>Financiering</legend>{poort_html}</fieldset>
 <fieldset><legend>Plaats</legend>{stad_html}</fieldset>
 <fieldset><legend>Grenzen</legend><div class="velden">
-<div class="veld"><label for="f-maxlasten">Max. woonlasten</label><input id="f-maxlasten" type="number" inputmode="numeric" min="0" step="50" placeholder="bijv. 1450"></div>
+<div class="veld"><label for="f-maxlasten">Max. woonlasten</label><input id="f-maxlasten" type="number" inputmode="numeric" min="0" step="50" {_placeholder_lasten(woningen)}></div>
 <div class="veld"><label for="f-minm2">Min. oppervlak (m²)</label><input id="f-minm2" type="number" inputmode="numeric" min="0" step="5" placeholder="bijv. 60"></div></div></fieldset>
 <fieldset><legend>Tonen</legend>
-<label class="schakel" for="f-twijfel"><span>Twijfel verbergen <small class="gesch">(buurt of stad onduidelijk)</small></span><input id="f-twijfel" type="checkbox" role="switch"></label>
+<label class="schakel" for="f-twijfel"><span>Twijfel verbergen <small class="gesch">(buurt, stad of leefbaarheid onduidelijk)</small></span><input id="f-twijfel" type="checkbox" role="switch"></label>
 <label class="schakel" for="f-verborgen"><span>Verborgen woningen tonen</span><input id="f-verborgen" type="checkbox" role="switch"></label></fieldset>
 </div>
 <div class="sheet-voet"><button type="button" class="knop knop-ter" data-actie="wis">Wis filters</button>
@@ -781,7 +818,7 @@ Klimaateffectatlas, RIVM-geluidkaarten, Leefbaarometer 3.0, RIVM-gezondheidsmoni
 <dialog id="vergelijk" class="sheet" aria-labelledby="vergelijk-titel">
 <div class="sheet-kop"><h2 id="vergelijk-titel">Bewaarde woningen naast elkaar</h2><button type="button" class="icoonknop" data-actie="sluit" aria-label="Sluiten">{ic('sluit')}</button></div>
 <div class="sheet-body"><div class="vergelijk-wrap"><table id="vergelijk-tabel" class="vergelijk"></table></div>
-<p class="groep-uitleg">"Beste" is per regel de gunstigste waarde. Bewaren en vergelijken blijft op dit toestel.</p></div></dialog>
+<p class="groep-uitleg">"Beste" is per regel de gunstigste waarde. Bewaren en vergelijken blijft op dit apparaat.</p></div></dialog>
 <div id="toast" class="toast context-strong" role="status" hidden><span id="toast-tekst"></span><button type="button" class="linkknop" id="toast-knop">Ongedaan maken</button></div>
 </div>
 <script type="application/json" id="woning-data">{data}</script>"""

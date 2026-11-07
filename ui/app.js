@@ -1,21 +1,23 @@
-/* Woningrapport: filteren, sorteren, groeperen, nieuw per bezoek, bewaren, verbergen, vergelijken, kaart.
-   Geen netwerk. Opslag per toestel in localStorage, altijd in try/catch (zonder opslag: zonder geheugen).
-   In de PWA staat dit script in het slotscherm (buiten de versleutelde body); dat roept na het
-   ontsleutelen window.fundaAfterReportLoad() aan. */
+/* Woningrapport: filteren, sorteren, groeperen, nieuw, bewaren, verbergen, vergelijken, kaart. Geen netwerk;
+   opslag per apparaat in localStorage (try/catch). In de PWA roept het slotscherm na het ontsleutelen
+   window.fundaAfterReportLoad() aan. */
 (function(){
 'use strict';
 var OPSLAG = 'funda_rapport_v1';
 var POORT_RANG = {'PAST':0,'KRAP':1,'PAST NIET':2,'PRIJS ONBEKEND':3};
 var POORT_CLS = {'PAST':'PAST','KRAP':'KRAP','PAST NIET':'NIET','PRIJS ONBEKEND':'ONBEKEND'};
 var POORT_IC = {'PAST':'check','KRAP':'warn','PAST NIET':'x','PRIJS ONBEKEND':'info'};
-var STANDAARD = {sort:'aanbevolen', snel:'alles', poort:[], stad:[], maxLasten:'', minM2:'', minScore:'0', zonderTwijfel:false, toonVerborgen:false};
+var STANDAARD = {sort:'aanbevolen', snel:'alles', poort:[], stad:[], maxLasten:'', minM2:'', zonderTwijfel:false, toonVerborgen:false};
 
 function lees(){ try { return JSON.parse(localStorage.getItem(OPSLAG)) || {}; } catch(e){ return {}; } }
 function schrijf(s){ try { localStorage.setItem(OPSLAG, JSON.stringify(s)); } catch(e){} }
 function $(s, r){ return (r||document).querySelector(s); }
 function $$(s, r){ return Array.prototype.slice.call((r||document).querySelectorAll(s)); }
-function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
-function eur(n){ return n==null ? '' : '€ ' + Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+// € met een harde spatie (U+00A0)
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }).replace(/€ /g, '€\u00a0'); }
+function eur(n){ return n==null ? '' : '€\u00a0' + Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+// 'Past nu' -> 'past nu', achter 'Financiering:' (funda_ui.scenario_regel)
+function finTekst(t){ t = String(t || ''); return t.charAt(0).toLowerCase() + t.slice(1); }
 
 var app, data, opslag, stand, nieuwIds, kaart = null;
 
@@ -36,10 +38,9 @@ function init(){
   if(window.matchMedia('(min-width:64rem)').matches) startKaart();
 }
 
-/* Nieuw sinds je vorige bezoek: per toestel. Zonder eerdere bezoekdata: nieuw volgens de run.
-   Een nieuwe woning telt pas als gezien als haar kaart echt in beeld is geweest: minstens de helft
-   zichtbaar, een seconde lang (IntersectionObserver). Woningen die bij dit bezoek niet nieuw zijn,
-   gelden meteen als bekend. Zonder IntersectionObserver wordt niets als gezien gemarkeerd. */
+/* Nieuw sinds je vorige bezoek, per apparaat (zonder eerder bezoek: nieuw volgens de run). Gezien pas
+   als de kaart een seconde voor de helft in beeld was, tussen top- en onderbalk (IntersectionObserver);
+   zonder IntersectionObserver niets. Woningen die nu niet nieuw zijn, gelden meteen als bekend. */
 var GEZIEN_DEEL = 0.5, GEZIEN_MS = 1000;
 function bepaalNieuw(){
   var run = app.dataset.run, sessieSleutel = 'funda_rapport_nieuw_' + run, bron = 'run';
@@ -75,7 +76,7 @@ function markeerGezien(id){
   if(!opslag.gezien) opslag.gezien = [];
   if(opslag.gezien.indexOf(id) < 0){ opslag.gezien.push(id); schrijf(opslag); }
 }
-/* Kaart in beeld: de helft van de kaart, of bij een open kaart die hoger is dan het scherm de helft van het scherm. */
+/* In beeld: de helft van de kaart, of bij een open kaart hoger dan het scherm de helft van het scherm. */
 function volgGezien(teVolgen){
   var klokken = {};
   volgGezien.stop = function(){ for(var id in klokken){ clearTimeout(klokken[id]); } klokken = {}; };
@@ -92,10 +93,15 @@ function volgGezien(teVolgen){
         }, GEZIEN_MS);
       } else if(klokken[id]){ clearTimeout(klokken[id]); delete klokken[id]; }
     });
-  }, {threshold: drempels});
+  }, {threshold: drempels, rootMargin: balkMarge()});
   $$('.woning').forEach(function(k){ if(teVolgen.indexOf(k.dataset.id) >= 0) io.observe(k); });
 }
 volgGezien.stop = function(){};
+/* Wat onder de vaste top- en onderbalk valt, telt niet als in beeld. */
+function balkMarge(){
+  function hg(sel){ var el = $(sel); return el ? Math.round(el.getBoundingClientRect().height) : 0; }
+  return '-' + hg('.app-top') + 'px 0px -' + hg('.app-onder') + 'px 0px';
+}
 
 function woningVan(id){ for(var i=0;i<data.woningen.length;i++) if(data.woningen[i].id===id) return data.woningen[i]; return null; }
 
@@ -112,11 +118,14 @@ function past(w){
   if(s.stad.length && s.stad.indexOf(w.stad) < 0) return false;
   if(s.maxLasten && w.netto != null && w.netto > +s.maxLasten) return false;
   if(s.minM2 && (w.m2 || 0) < +s.minM2) return false;
-  if(+s.minScore && w.score < +s.minScore) return false;
   if(s.zonderTwijfel && w.twijfel) return false;
   return true;
 }
 
+/* Zonder vraagprijs altijd achteraan, bij elke sortering. */
+function onbekendAchter(f){
+  return function(a,b){ return ((a.poort==='PRIJS ONBEKEND')-(b.poort==='PRIJS ONBEKEND')) || f(a,b); };
+}
 var SORT = {
   aanbevolen: function(a,b){ return (POORT_RANG[a.poort]-POORT_RANG[b.poort]) || ((a.twijfel?1:0)-(b.twijfel?1:0)) || (b.score-a.score); },
   score: function(a,b){ return b.score-a.score; },
@@ -125,6 +134,7 @@ var SORT = {
   reis: function(a,b){ return (a.reis_min==null?1e9:a.reis_min)-(b.reis_min==null?1e9:b.reis_min); },
   nieuwst: function(a,b){ return (a.dagen==null?1e9:a.dagen)-(b.dagen==null?1e9:b.dagen); }
 };
+Object.keys(SORT).forEach(function(k){ SORT[k] = onbekendAchter(SORT[k]); });
 
 function toepassen(){
   var zichtbaar = data.woningen.filter(past).sort(SORT[stand.sort] || SORT.aanbevolen);
@@ -145,7 +155,7 @@ function toepassen(){
     bw.setAttribute('aria-pressed', opslag.bewaard.indexOf(w.id) >= 0 ? 'true' : 'false');
     kaartEl.classList.toggle('is-verborgen', opslag.verborgen.indexOf(w.id) >= 0);
   });
-  // nieuw-sectie: blijft staan met een regel als hij leeg is (alleen zonder actieve filters)
+  // nieuw-sectie: blijft staan met een regel als hij leeg is (zonder filters)
   var nieuw = $('#nieuw');
   var filterActief = actieveFilters() > 0 || stand.snel !== 'alles';
   nieuw.hidden = !tel.nieuw && filterActief;
@@ -162,7 +172,7 @@ function toepassen(){
   $('#leeg').hidden = zichtbaar.length > 0;
   var geenBewaard = stand.snel === 'bewaard' && !opslag.bewaard.length;
   $('#leeg-kop').textContent = geenBewaard ? 'Nog niets bewaard' : 'Geen woningen met deze filters';
-  $('#leeg-tekst').textContent = geenBewaard ? 'Tik op de ster bij een woning om hem hier te bewaren. Bewaren blijft op dit toestel.'
+  $('#leeg-tekst').textContent = geenBewaard ? 'Tik op de ster bij een woning om hem hier te bewaren. Bewaren blijft op dit apparaat.'
     : 'Zet een filter uit of wis ze allemaal. Verborgen woningen tellen niet mee.';
   $('#bewaard-balk').hidden = !(stand.snel === 'bewaard' && opslag.bewaard.length);
   $('#bewaard-tekst').textContent = opslag.bewaard.length < 2 ? 'Bewaar nog een woning om te vergelijken.'
@@ -196,7 +206,7 @@ function actieveFilters(){
   var n = 0;
   if(stand.sort !== 'aanbevolen') n++;
   n += stand.poort.length ? 1 : 0; n += stand.stad.length ? 1 : 0;
-  if(stand.maxLasten) n++; if(stand.minM2) n++; if(+stand.minScore) n++;
+  if(stand.maxLasten) n++; if(stand.minM2) n++;
   if(stand.toonVerborgen) n++; if(stand.zonderTwijfel) n++;
   return n;
 }
@@ -206,7 +216,6 @@ function zetFormulier(){
   $$('input[name="sort"]', f).forEach(function(i){ i.checked = i.value === stand.sort; });
   $$('input[name="poort"]', f).forEach(function(i){ i.checked = stand.poort.indexOf(i.value) >= 0; });
   $$('input[name="stad"]', f).forEach(function(i){ i.checked = stand.stad.indexOf(i.value) >= 0; });
-  $$('input[name="minScore"]', f).forEach(function(i){ i.checked = i.value === String(stand.minScore); });
   $('#f-maxlasten').value = stand.maxLasten; $('#f-minm2').value = stand.minM2;
   $('#f-verborgen').checked = !!stand.toonVerborgen;
   $('#f-twijfel').checked = !!stand.zonderTwijfel;
@@ -216,7 +225,6 @@ function leesFormulier(){
   stand.sort = ($('input[name="sort"]:checked', f) || {}).value || 'aanbevolen';
   stand.poort = $$('input[name="poort"]:checked', f).map(function(i){ return i.value; });
   stand.stad = $$('input[name="stad"]:checked', f).map(function(i){ return i.value; });
-  stand.minScore = ($('input[name="minScore"]:checked', f) || {}).value || '0';
   stand.maxLasten = $('#f-maxlasten').value; stand.minM2 = $('#f-minm2').value;
   stand.toonVerborgen = $('#f-verborgen').checked;
   stand.zonderTwijfel = $('#f-twijfel').checked;
@@ -273,7 +281,7 @@ function koppel(){
   });
 }
 
-/* "Onthoud op dit apparaat" (slotscherm): het slotscherm zet window.fundaApparaat. Hier alleen tonen en vergeten. */
+/* "Onthoud op dit apparaat": het slotscherm zet window.fundaApparaat; hier tonen en vergeten. */
 function apparaat(){
   var blok = $('#apparaat'), a = window.fundaApparaat;
   if(blok) blok.hidden = !(a && a.onthouden);
@@ -309,12 +317,12 @@ function vulVergelijk(){
   var ws = opslag.bewaard.map(woningVan).filter(Boolean);
   var rijen = [
     ['Status', function(w){ return esc(w.status_kort); }],
-    ['Wanneer', function(w){ return esc(w.scenario_tekst || 'onbekend'); }],
-    ['Woonlasten', function(w){ return w.netto==null ? 'onbekend' : eur(w.netto) + ' per maand'; }, 'netto', -1],
+    ['Financiering', function(w){ return w.scenario_tekst ? esc(finTekst(w.scenario_tekst)) : 'onbekend'; }],
+    ['Woonlasten', function(w){ return w.netto==null ? 'onbekend' : eur(w.netto) + ' netto per maand'; }, 'netto', -1],
     ['Vraagprijs', function(w){ return w.prijs ? eur(w.prijs) : 'op aanvraag'; }, 'prijs', -1],
     ['Score', function(w){ return w.score_tekst; }, 'score', 1],
     ['Oppervlak', function(w){ return w.m2 + ' m²'; }, 'm2', 1],
-    ['Fiets naar werk', function(w){ return w.reis_tekst || 'onbekend'; }, 'reis_min', -1],
+    ['Fiets naar werk', function(w){ return w.reis_min==null ? 'onbekend' : '≈ ' + w.reis_min + ' min'; }, 'reis_min', -1],
     ['Sterkste plus', function(w){ return esc(w.top_plus || 'geen'); }],
     ['Sterkste let op', function(w){ return esc(w.top_let_op || 'geen'); }],
     ['Buurt', function(w){ return esc(w.buurt); }]
@@ -360,13 +368,15 @@ function tekenPins(ws, passen){
   ws.forEach(function(w){
     if(w.lat == null) return;
     var nieuw = nieuwIds.indexOf(w.id) >= 0;
-    // Raakvlak om een pil van 32 px hoog; het icoon draagt de poort ook zonder kleur
+    // Raakvlak om een pil van 32 px; het icoon draagt de poort ook zonder kleur
     var icon = L.divIcon({className:'pin-raak', iconSize:[64,44], iconAnchor:[32,22],
       html:'<span class="pin p-' + POORT_CLS[w.poort] + (nieuw ? ' is-nieuw' : '') + '"><svg class="ic" aria-hidden="true" focusable="false">' +
         '<use href="#i-' + POORT_IC[w.poort] + '"/></svg>' + esc(w.score_tekst) + '</span>'});
-    var m = L.marker([w.lat, w.lon], {icon:icon, title:w.titel + ', ' + w.status_kort + (nieuw ? ', nieuw' : ''), keyboard:true});
+    // Beste woning bovenop: poort, dan score
+    var m = L.marker([w.lat, w.lon], {icon:icon, title:w.titel + ', ' + w.status_kort + (nieuw ? ', nieuw' : ''), keyboard:true,
+      zIndexOffset:(3 - POORT_RANG[w.poort]) * 1000 + Math.round((w.score || 0) * 10)});
     m.bindPopup('<div class="pop"><h3>' + esc(w.titel) + '</h3><p>' + esc(w.status_kort) +
-      (w.scenario_tekst ? '<br>' + esc(w.scenario_tekst) : '') + '</p><p>' + esc(w.buurt) +
+      (w.scenario_tekst ? '<br>Financiering: ' + esc(finTekst(w.scenario_tekst)) : '') + '</p><p>' + esc(w.buurt) +
       (w.reis_tekst ? ' · ' + esc(w.reis_tekst) : '') + '</p><button type="button" class="knop knop-sec" data-naar="' + w.card_id +
       '">Toon in lijst</button></div>', {autoPanPaddingTopLeft:[16,64], autoPanPaddingBottomRight:[16,16]});
     m.addTo(kaart._pins); punten.push([w.lat, w.lon]);
@@ -382,6 +392,8 @@ function tekenPins(ws, passen){
 }
 
 window.fundaRapportInit = init;
+// Sorteren zonder DOM (tests)
+window.fundaRapportSorteer = function(lijst, sleutel){ return lijst.slice().sort(SORT[sleutel] || SORT.aanbevolen); };
 window.fundaAfterReportLoad = init;
 window.fundaRapportZetView = function(v){ zetView(v); };
 if(document.readyState !== 'loading') init(); else document.addEventListener('DOMContentLoaded', init);

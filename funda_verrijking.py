@@ -902,7 +902,7 @@ def signalen_buurt(data: dict, dr: dict) -> tuple[list[dict], bool]:
         if k <= dr["leefbaarometer_twijfel_max"]:
             twijfel = True
             uit.append(_signaal("sterk", f"Leefbaarometer {klasse} ({LBM_JAAR}) in {naam}. "
-                                         "Staat de buurt niet op je eigen lijst? Bekijk hem zelf."))
+                                         "Staat de buurt niet op jouw lijst? Bekijk hem zelf."))
         elif k >= dr["leefbaarometer_goed_min"]:
             uit.append(_signaal("goed", f"Leefbaarometer {klasse} ({LBM_JAAR}) in {naam}."))
         else:

@@ -161,13 +161,13 @@ def test_pwa_uiterlijk() -> bool:
                         ("manifest", fr.PWA_MANIFEST), ("lokale HTML", html)):
         ok &= check(f"{naam}: geen oude kleuren, geen geel of ANWB-blauw",
                     not any(k in tekst.lower() for k in OUDE_KLEUREN), naam)
-    ok &= check("iconen in het paars van de topbalk", funda_ui.THEME_COLOR in fr.PWA_ICON_SVG
+    ok &= check("iconen in het inktblauw van de topbalk", funda_ui.THEME_COLOR in fr.PWA_ICON_SVG
                 and funda_ui.THEME_COLOR in fr.PWA_FAVICON_SVG)
     with tempfile.TemporaryDirectory() as tmp:
         pad = Path(tmp) / "icon.png"
         fr._write_png_icon(pad, 180)
         kleur = "#" + "".join(f"{c:02x}" for c in _png_pixel(pad)[:3])
-        ok &= check("PNG-icoon: hoek in het paars van de topbalk (vult het vlak)", kleur == funda_ui.THEME_COLOR, kleur)
+        ok &= check("PNG-icoon: hoek in het inktblauw van de topbalk (vult het vlak)", kleur == funda_ui.THEME_COLOR, kleur)
         ok &= check("PNG-icoon: midden wit (het huis)", _png_pixel(pad, 70, 120)[:3] == (255, 255, 255),
                     str(_png_pixel(pad, 70, 120)))
     return ok

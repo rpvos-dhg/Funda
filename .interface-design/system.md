@@ -1,4 +1,4 @@
-# Ontwerpsysteem: Woningrapport, palet "Lavendel"
+# Ontwerpsysteem: Woningrapport, palet "Inkt en blauw"
 
 Vastgelegde keuzes voor het woningrapport en de PWA (bouwronde november 2026). Gebruik deze
 waarden; verzin ze niet opnieuw. De bron van waarheid is `ui/app.css` (tokens) met
@@ -13,8 +13,11 @@ hieronder (contrast, hex alleen in de tokenblokken, lettergrootte, verboden woor
 - **Gevoel:** fris, rustig, overzichtelijk. Een eigen palet, geen merk.
 
 ## Kleur
-Diep paars als merkkleur (topbalk, knoppen, score), koel grijs als vlak, kaarten in wit. In donker
-zijn de vlakken bijna zwart met een paarse zweem en is lavendel het accent.
+Palet "Inkt en blauw" (besluit van de eigenaar, 7 november 2026; het eerdere paarse palet "Lavendel"
+is afgewezen). Inktblauw als merkvlak (topbalk, toast, slotsymbool), helder blauw voor knoppen, chips
+en score, donkerblauw voor links en koppen, koel leigrijs als vlak, kaarten in wit. In donker zijn de
+vlakken bijna zwart met een blauwe zweem, staat de topbalk een tint lichter dan de pagina en is
+lichtblauw het accent (knop met donkere tekst).
 
 Regels:
 - Hex staat **alleen** in de drie tokenblokken van `ui/app.css`: `:root` (licht), donker onder
@@ -31,45 +34,49 @@ Regels:
 
 | Token | Licht | Donker | Gebruik |
 |---|---|---|---|
-| `--background-color-page` | `#f4f5f8` | `#121019` | pagina |
-| `--background-color-default` | `#ffffff` | `#1c1927` | kaart, sheet, onderbalk |
-| `--background-color-inset` | `#eef0f4` | `#252131` | fotovlak, invoerveld, balkspoor |
-| `--background-color-subtle` | `#e2e5eb` | `#2f2a3d` | schakelaar uit |
-| `--background-color-strong` | `#2e1f6b` | `#2e1f6b` | topbalk, toast, slotsymbool, theme-color |
-| `--background-color-on-strong-hover` | `#3d2b85` | `#3d2b85` | hover in de topbalk |
-| `--foreground-color-strong` | `#4527a0` | `#c9bcff` | koppen, score |
-| `--foreground-color-neutral` | `#16141f` | `#f3f1f8` | lopende tekst |
-| `--foreground-color-subtle` | `#5c5a68` | `#b3adc4` | meta, bron |
+| `--background-color-page` | `#f4f6f9` | `#0b1120` | pagina |
+| `--background-color-default` | `#ffffff` | `#141c2c` | kaart, sheet, onderbalk |
+| `--background-color-inset` | `#eef1f5` | `#1b2538` | fotovlak, invoerveld, balkspoor |
+| `--background-color-subtle` | `#e2e8f0` | `#253148` | schakelaar uit |
+| `--background-color-strong` | `#0f172a` | `#1e293b` | topbalk, toast, slotsymbool, theme-color |
+| `--background-color-on-strong-hover` | `#1e293b` | `#2c3a52` | hover in de topbalk |
+| `--foreground-color-strong` | `#1d4ed8` | `#9dbcff` | koppen |
+| `--foreground-color-neutral` | `#0f172a` | `#f1f5f9` | lopende tekst |
+| `--foreground-color-subtle` | `#4b5567` | `#a7b3c5` | meta, bron |
 | `--foreground-color-on-strong` | `#ffffff` | `#ffffff` | tekst op de topbalk |
-| `--foreground-color-on-strong-subtle` | `#d6cff5` | `#d6cff5` | ondertitel topbalk |
-| `--foreground-color-highlight-strong` | `#5233c4` | `#b8a6ff` | tekstlinks |
-| `--border-color-default` / `-subtle` | `#d3d6de` / `#e3e5ea` | `#474059` / `#2f2a3e` | knoprand, kaartrand (decoratief) |
-| `--border-color-interactive-neutral` | `#6e6b7b` | `#a49db8` | onderrand veld, schakelaar, keuze |
-| `--border-color-interactive-focus` | `#6c47ff` | `#a58bff` | focusring 2 px, offset 2 px |
-| `--background-color-interactive-strong` | `#5233c4` | `#c4b5fd` | knop, chip aan, teller |
-| `--background-color-interactive-strong-hover` | `#43299f` | `#d5caff` | |
-| `--foreground-color-interactive-on-strong` | `#ffffff` | `#1f1147` | tekst op een knop |
-| `--background-color-interactive-weak` | `#f1eefc` | `#2a2440` | hover tertiair |
-| `--foreground-color-interactive-strong` | `#4a2fb3` | `#c9bcff` | summary, tertiaire knop |
+| `--foreground-color-on-strong-subtle` | `#cbd5e1` | `#cbd5e1` | ondertitel topbalk |
+| `--foreground-color-highlight-strong` | `#2563eb` | `#8fb3ff` | score in de kerncijfers |
+| `--border-color-default` / `-subtle` | `#d5dbe3` / `#e4e8ee` | `#3a475e` / `#263247` | kaartrand, scheidingslijn (decoratief) |
+| `--border-color-interactive-neutral` | `#64748b` | `#8a99b0` | rand van chip, tertiaire knop, onderknop en wissel; onderrand veld, schakelaar, keuze |
+| `--border-color-interactive-focus` | `#3b82f6` | `#6ea2ff` | focusring 2 px, offset 2 px |
+| `--background-color-interactive-strong` | `#2563eb` | `#93b4fd` | knop, chip aan, teller |
+| `--background-color-interactive-strong-hover` | `#1d4ed8` | `#b7cdfe` | |
+| `--foreground-color-interactive-on-strong` | `#ffffff` | `#0b1a3d` | tekst op een knop |
+| `--background-color-interactive-weak` | `#eaf0fe` | `#1b2a48` | hover tertiair (alleen met een muis) |
+| `--foreground-color-interactive-strong` | `#1d4ed8` | `#a8c4ff` | tekstlinks, summary, tertiaire knop |
 | `--foreground-color-feedback-positive` | `#16803c` | `#6fd08f` | Past, plus |
 | `--foreground-color-feedback-notice` | `#c46a00` | `#f2b860` | Krap, let op (icoon en rand) |
 | `--foreground-color-feedback-negative` | `#c4282b` | `#f59a9a` | Past niet, min, fout |
 | `--foreground-color-feedback-informative` | `#0b6aa8` | `#73bdf0` | Prijs onbekend, onbekend, kans |
-| `--background-color-feedback-*-weak` | `#e8f6ed` / `#fdf2e1` / `#fdeceb` / `#e5f1fa` | `#15291e` / `#2e2413` / `#321a1e` / `#13263a` | statusvlak |
-| `--status-tekst` | `#16141f` | `#f3f1f8` | tekst in statusregel en melding |
+| `--background-color-feedback-*-weak` | `#e8f6ed` / `#fdf2e1` / `#fdeceb` / `#e5f1fa` | `#13281f` / `#2b2416` / `#2f1b22` / `#11263b` | statusvlak |
+| `--status-tekst` | `#0f172a` | `#f1f5f9` | tekst in statusregel en melding |
 | `--label-daling` / `--label-lang` / `--label-tekst` | `#a3195b` / `#485a6e` / `#ffffff` | gelijk | labels "Prijs gedaald", "Lang te koop" |
 | `--pin-past` / `-krap` / `-niet` / `-onbekend` | `#16803c` / `#e08a00` / `#c4282b` / `#0b6aa8` | gelijk | kaartpins (staan op de tegels) |
-| `--pin-tekst` / `-tekst-krap` / `-rand` / `-nieuw` | `#ffffff` / `#16141f` / `#ffffff` / `#2e1f6b` | gelijk | Krap-pin met donkere tekst |
+| `--pin-tekst` / `-tekst-krap` / `-rand` / `-nieuw` | `#ffffff` / `#0f172a` / `#ffffff` / `#0f172a` | gelijk | Krap-pin met donkere tekst |
 
-PWA en iconen: `funda_ui.THEME_COLOR` (`#2e1f6b`) voor `theme_color` en `<meta name="theme-color">`,
-`funda_ui.ACHTERGROND` (`#f4f5f8`) voor `background_color`. Icoon: wit huis met een lavendel raam
-(`#c4b5fd`) op het paars van de topbalk; de PNG vult het hele vlak (ook als maskable).
+PWA en iconen: `funda_ui.THEME_COLOR` (`#0f172a`) voor `theme_color` en `<meta name="theme-color">`,
+`funda_ui.THEME_COLOR_DONKER` (`#1e293b`) voor de theme-color met `media="(prefers-color-scheme:
+dark)"` (die staat eerst, want de eerste passende telt), `funda_ui.ACHTERGROND` (`#f4f6f9`) voor
+`background_color`. Icoon: wit huis met een lichtblauw raam (`#93b4fd`) op het inktblauw van de
+topbalk; de PNG vult het hele vlak (ook als maskable).
 
 ## Contrast (WCAG 2.x, gemeten)
 - Tekst minimaal 4,5:1, niet-tekst (randen, iconen, focus, schakelaar, balk) minimaal 3:1, in licht
-  én donker. `test_funda_ui.py` rekent 51 paren uit de tokens na.
-- Laagste tekstpaar: 5,0:1 (Past-pin en plus op wit). Laagste niet-tekst: 3,5:1 (Krap-icoon op het
-  Krap-vlak). In de browser gemeten op de effectieve achtergrond: 0 tekstparen onder het minimum.
+  én donker. `test_funda_ui.py` rekent 53 paren uit de tokens na, en controleert dat chip, tertiaire
+  knop, onderknop en wissel hun rand uit `--border-color-interactive-neutral` halen (4,4:1 op de
+  pagina, 4,8:1 op wit; in donker 6,5 en 5,9).
+- Laagste tekstpaar: 4,8:1 (score `#2563eb` op de pagina). Laagste niet-tekst: 3,4:1 (focusring op
+  de pagina) en 3,5:1 (Krap-icoon op het Krap-vlak).
 
 ## Typografie
 Systeemletter: `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans",
@@ -112,10 +119,14 @@ Eigen tekeningen: lijnstijl 2 px, viewBox 24 x 24, `stroke: currentColor`, `fill
 sprite zit in de versleutelde body).
 
 ## Opbouw
-- Topbalk "Woningen" met bijgewerkt en volgende run; snelfilters als chips; rentemelding alleen als de
-  rente oud is; "Nieuw sinds je vorige bezoek" (per toestel, pas gezien als de kaart minstens de
-  helft een seconde in beeld was); daarna per poort Past, Krap, Past niet (ingeklapt), Prijs onbekend.
-- Woningkaart laag 1: statusregel (`<Poort> · <reden>`, met scenario eronder), foto, adres met ster,
+- Topbalk "Woningen" met bijgewerkt en volgende run op één regel ("Bijgewerkt 7 nov 17:34 · volgende
+  morgen 09:30"; `nowrap` met ellips, zodat de balk 56 px blijft en de plakkende groepskoppen kloppen);
+  snelfilters als chips; rentemelding als één zin, alleen als de rente oud is of de rentemodule iets
+  meldt (de uitleg met de configsleutel staat in Jouw budget); "Nieuw sinds je vorige bezoek" (per
+  apparaat, pas gezien als de kaart minstens de helft een seconde in beeld was, tussen top- en
+  onderbalk); daarna per poort Past, Krap, Past niet (ingeklapt), Prijs onbekend.
+- Woningkaart laag 1: statusregel (`<Poort> · <reden>`, met "Financiering: past nu" en dergelijke
+  eronder: het scenario gaat over leenruimte en eigen geld, de poort ook over je grens), foto, adres met ster,
   buurt en stad, feitenregel, fietstijd, labels, kerncijfers (Vraagprijs, Woonlasten, Score),
   twijfelregel ("Onderaan gezet."), redenregel, kaartvoet met Let op en Pluspunten, Bekijk op funda
   en Verberg. Laag 2 in `details`: Let op, Pluspunten, Onbekend en kansen, Opbouw score, Geld, Woning,
@@ -124,9 +135,16 @@ sprite zit in de versleutelde body).
   per scenario, nooit inkomen), Meldingen op deze iPhone (alleen zonder abonnement), Dit apparaat,
   Bronnen.
 - Desktop vanaf 64rem: lijst links, plakkende zijkolom (filter, vergelijk, kaart) rechts.
+- Sheets: kop en voet staan vast, alleen de body scrollt (`.sheet>form` is een flex-kolom).
+- Sorteren: een woning zonder vraagprijs staat bij elke sortering achteraan (`onbekendAchter` in
+  `ui/app.js`). Op de kaart ligt de beste woning bovenop (`zIndexOffset` op poort en score); de legenda
+  staat boven de bronvermelding.
+- Hover alleen binnen `@media (hover:hover)`: op iOS blijft een hoverkleur na een tik anders staan.
 
 ## Tekst
-Nederlands, je-vorm, korte zinnen, geen em dash of gedachtestreepje. `€ 1.250` met spatie, `m²`,
+Nederlands, je-vorm, korte zinnen, geen em dash of gedachtestreepje. `€ 1.250` met een harde spatie
+(U+00A0) in de HTML (`funda_ui.eur`, `h()` en `esc()` in `ui/app.js`), een gewone spatie in markdown,
+push en de statusregel in de data (`funda_ui.eur_tekst`). Eén woord: "apparaat", niet "toestel". `m²`,
 decimale komma, minteken U+2212. Nooit "€ 0": zonder vraagprijs staat er "op aanvraag", zonder
 woonlasten "onbekend".
 

@@ -59,8 +59,6 @@
     "lang_op_funda_dagen": 90,
     "financiering": {
       "alleenstaand": true,
-      "rentevast_jaren": 30,
-      "rente_max_dagen": 60,
       "overbod_pct": 0.0,
       "kk_onzekerheid": 1500,
       "eigen_geld_tekort_past_niet": 5000
@@ -131,5 +129,5 @@
       "bron": "auto"
     }
   },
-  "_doc_financien": "Persoonlijke cijfers voor de leentoets 2026, alleen in funda_personal.json en de secret, nooit in de repo. scenarios: toetsinkomen per moment (nu, 2027_01 = vanaf 1 januari 2027, ..._met_cao); de poort volgt planning (standaard 2027_01). Per scenario mag ook datum en eigen_geld. eigen_geld op een scenariodatum = nu + per_maand x hele maanden sinds datum, min buffer. starter_tot: datum tot wanneer de startersvrijstelling geldt (leeg = leeftijd onder 35). bkr: [{limiet, opgezegd}] of [{maandlast}]. kosten_koper.nhg_pct in procent. rente.pct leeg = actuele rente ophalen (ASN, anders DNB; bron auto, asn, dnb of uit); een getal gaat altijd voor (zet dan ook rente.datum). Zonder dit blok rekent het model met bruto_jaar, eigen_inleg, duo_maandlast en leeftijd hierboven, zonder scenario's."
+  "_doc_financien": "Persoonlijke cijfers voor de leentoets 2026, alleen in funda_personal.json en de secret, nooit in de repo. scenarios: toetsinkomen per moment (nu, 2027_01 = vanaf 1 januari 2027, ..._met_cao); de poort volgt planning (standaard 2027_01). Per scenario mag ook datum en eigen_geld. eigen_geld op een scenariodatum = nu + per_maand x hele maanden sinds datum, min buffer. starter_tot: datum tot wanneer de startersvrijstelling geldt (leeg = leeftijd onder 35). bkr: [{limiet, opgezegd}] of [{maandlast}]. kosten_koper.nhg_pct in procent. rente.pct leeg = actuele rente ophalen (ASN, anders DNB; bron auto, asn, dnb of uit); een getal gaat altijd voor (zet dan ook rente.datum). rente.rentevast_jaren (standaard 10) kiest het tarief en bepaalt de toetsrente (korter dan 10 jaar: 5%); dit is de enige plek voor rente en rentevast. Zonder dit blok rekent het model met bruto_jaar, eigen_inleg, duo_maandlast en leeftijd hierboven, zonder scenario's."
 }

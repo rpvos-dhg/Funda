@@ -6,7 +6,8 @@
 <meta name="color-scheme" content="light dark">
 <title>Woningrapport</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#2e1f6b">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1e293b">
+<meta name="theme-color" content="#0f172a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -52,7 +53,7 @@ __APP_SCRIPTS__
     <div class="slot-merk" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg></div>
     <div>
       <h1>Woningrapport</h1>
-      <p class="slot-intro">Vul je wachtwoord in. Het rapport wordt op dit toestel ontsleuteld; je wachtwoord gaat nergens heen.</p>
+      <p class="slot-intro">Vul je wachtwoord in. Het rapport wordt op dit apparaat ontsleuteld; je wachtwoord gaat nergens heen.</p>
     </div>
     <form id="slot-form" class="slot-form" novalidate>
       <div class="veld">
@@ -63,10 +64,10 @@ __APP_SCRIPTS__
             <svg class="ic" aria-hidden="true" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/><path class="streep" d="M4 4l16 16"/></svg>
           </button>
         </div>
+        <p id="err" class="slot-fout" role="alert" aria-live="assertive"></p>
       </div>
       <label class="keuze" for="remember"><input id="remember" type="checkbox" aria-describedby="remember-uitleg"> Onthoud op dit apparaat</label>
-      <p id="remember-uitleg" class="slot-hint">Bewaart een sleutel op dit toestel, nooit je wachtwoord. 30 dagen geldig.</p>
-      <p id="err" class="slot-fout" role="alert" aria-live="assertive"></p>
+      <p id="remember-uitleg" class="slot-hint">Bewaart een sleutel op dit apparaat, nooit je wachtwoord. 30 dagen geldig.</p>
       <button id="btn" type="submit" class="knop knop-sec">Ontgrendelen</button>
       <button id="vergeet" type="button" class="linkknop" hidden>Vergeet dit apparaat</button>
     </form>
@@ -176,7 +177,7 @@ $("slot-form").addEventListener("submit", async (e) => {
     if(ex instanceof TeOud){ $("err").textContent = TE_OUD; return; }
     if(bewaard){ try { await wis(); } catch(_){} }   // nieuw wachtwoord: de oude sleutel past niet meer
     onthouden(false);
-    $("err").textContent = "Het onthouden wachtwoord werkt niet meer. Vul het opnieuw in.";
+    $("err").textContent = "De onthouden sleutel werkt niet meer. Vul je wachtwoord opnieuw in.";
   }
 })();
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {

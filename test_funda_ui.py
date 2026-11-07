@@ -11,6 +11,8 @@ import copy
 import json
 import math
 import re
+import shutil
+import subprocess
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
@@ -37,10 +39,10 @@ CONTRASTPAREN = [
     ("subtiel/inzet", "foreground-color-subtle", "background-color-inset", TEKST),
     ("kop/pagina", "foreground-color-strong", "background-color-page", TEKST),
     ("kop/kaart", "foreground-color-strong", "background-color-default", TEKST),
-    ("link/pagina", "foreground-color-highlight-strong", "background-color-page", TEKST),
-    ("link/kaart", "foreground-color-highlight-strong", "background-color-default", TEKST),
-    ("knoptekst/pagina", "foreground-color-interactive-strong", "background-color-page", TEKST),
-    ("knoptekst/kaart", "foreground-color-interactive-strong", "background-color-default", TEKST),
+    ("score/pagina", "foreground-color-highlight-strong", "background-color-page", TEKST),
+    ("score/kaart", "foreground-color-highlight-strong", "background-color-default", TEKST),
+    ("link en knoptekst/pagina", "foreground-color-interactive-strong", "background-color-page", TEKST),
+    ("link en knoptekst/kaart", "foreground-color-interactive-strong", "background-color-default", TEKST),
     ("knoptekst/hover", "foreground-color-interactive-strong", "background-color-interactive-weak", TEKST),
     ("topbalk", "foreground-color-on-strong", "background-color-strong", TEKST),
     ("topbalk subtiel", "foreground-color-on-strong-subtle", "background-color-strong", TEKST),
@@ -64,6 +66,9 @@ CONTRASTPAREN = [
     ("veldrand/kaart", "border-color-interactive-neutral", "background-color-default", NIET_TEKST),
     ("veldrand/inzet", "border-color-interactive-neutral", "background-color-inset", NIET_TEKST),
     ("veldrand/pagina", "border-color-interactive-neutral", "background-color-page", NIET_TEKST),
+    # Rand van chip, tertiaire knop, onderknop en wissel (het vlak zelf verschilt nauwelijks van de omgeving).
+    ("knoprand/pagina", "border-color-interactive-neutral", "background-color-page", NIET_TEKST),
+    ("knoprand/kaart", "border-color-interactive-neutral", "background-color-default", NIET_TEKST),
     ("schakelaar uit", "foreground-color-subtle", "background-color-subtle", NIET_TEKST),
     ("focus/pagina", "border-color-interactive-focus", "background-color-page", NIET_TEKST),
     ("focus/kaart", "border-color-interactive-focus", "background-color-default", NIET_TEKST),
@@ -198,6 +203,17 @@ def contrasten() -> list[tuple[str, float, float, float]]:
             for naam, fg, bg, minimum in CONTRASTPAREN]
 
 
+def _is_paars(hexkleur: str) -> bool:
+    """Tint tussen 250 en 330 graden met merkbare verzadiging (het afgewezen palet "Lavendel")."""
+    import colorsys
+    x = hexkleur.lstrip("#")
+    if len(x) != 6:
+        return False
+    r, g, b = (int(x[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    tint, licht, verz = colorsys.rgb_to_hls(r, g, b)
+    return 250 <= tint * 360 <= 330 and verz > 0.25 and 0.08 < licht < 0.95
+
+
 def contrast_regel(naam: str, l: float, d: float) -> str:
     return f"{naam} {l:.1f}|{d:.1f}".replace(".", ",")
 
@@ -315,10 +331,10 @@ def test_status_en_scenario_in_kaart() -> bool:
         b = r["beoordeling"]
         kaart = _kaart(body, str(r["d"]["global_id"]))
         naam, _, reden = b["status_kort"].partition(" · ")
-        if f"<strong>{naam}</strong> · {reden}" not in kaart:
+        if f"<strong>{naam}</strong> · {funda_ui.h(reden)}" not in kaart:
             fouten.append(r["_fixture"] + " status")
         st = b["financiering"]["scenario_tekst"]
-        if st and f'<span class="w-scenario">{st}</span>' not in kaart:
+        if st and f'<span class="w-scenario">{funda_ui.scenario_regel(st)}</span>' not in kaart:
             fouten.append(r["_fixture"] + " scenario")
         if f'st-{funda_ui.POORT_CLS[b["poort"]]}' not in kaart or f'#i-{funda_ui.POORT_IC[b["poort"]]}' not in kaart:
             fouten.append(r["_fixture"] + " poortklasse of icoon")
@@ -327,8 +343,10 @@ def test_status_en_scenario_in_kaart() -> bool:
     w10 = _kaart(body, "7990110")
     return all([
         check("statusregel, scenario, klasse en icoon per kaart", not fouten, str(fouten)),
-        check("Past vanaf jan 2027 bij w01", "Past vanaf jan 2027" in w01),
-        check("Alleen met cao-verhoging bij w02", "Alleen met cao-verhoging" in w02),
+        check("scenario met label: Financiering: past vanaf jan 2027 bij w01", "Financiering: past vanaf jan 2027" in w01),
+        check("Financiering: alleen met cao-verhoging bij w02", "Financiering: alleen met cao-verhoging" in w02),
+        check("scenario_regel", funda_ui.scenario_regel("Past nu") == "Financiering: past nu"
+              and funda_ui.scenario_regel(None) == ""),
         check("scenario's in laag 2 met planning", "Vanaf jan 2027 (planning)</dt><dd>past" in w01
               and "<dt>Nu</dt><dd>past niet, max. koopsom" in w01),
         check("twijfelregel met Onderaan gezet", "Twijfelbuurt Leyenburg (jouw lijst). Onderaan gezet." in w10),
@@ -350,7 +368,7 @@ def test_prijs_onbekend() -> bool:
     return all([
         check("op aanvraag", '<dd class="cijfer-leeg">op aanvraag</dd>' in kaart),
         check("woonlasten onbekend", '<dd class="cijfer-leeg">onbekend</dd>' in kaart),
-        check("geen € 0 in de body", "€ 0<" not in body and "€ 0 " not in body and "€ 0," not in body),
+        check("geen € 0 in de body", not re.search(r"€[ \u00a0]0(?![\d.])", body)),
         check("statusregel info", "st-ONBEKEND" in kaart and "geen vraagprijs, dus geen leentoets" in kaart),
         check("nieuw: laatste kaart in Nieuw", re.findall(r'data-id="(\d+)"', nieuw_sectie)[-1] == "7990104"),
         check("eerder gezien: in de groep Prijs onbekend, na Past niet", oud.index('data-id="7990104"') > groep
@@ -408,7 +426,8 @@ def test_css_regels() -> bool:
     body = _body()
     alles = {"app.css": CSS, "app.js": JS, "slot.html": SLOT, "body": body}
     verboden = [(n, w) for n, t in alles.items() for w in VERBODEN_WOORDEN if w in t]
-    licht, _, _ = tokenblokken()
+    licht, media, _ = tokenblokken()
+    donker = {**licht, **media}
     return all([
         check("geen hex buiten de tokenblokken", not los, str(los[:5])),
         check("geen losse font-size", "font-size:" not in CSS),
@@ -417,6 +436,13 @@ def test_css_regels() -> bool:
         check("UI_CSS bevat letterlijk \\2212", "\\2212" in funda_ui.UI_CSS),
         check("THEME_COLOR = topbalk (licht)", funda_ui.THEME_COLOR == licht["background-color-strong"]),
         check("ACHTERGROND = pagina (licht)", funda_ui.ACHTERGROND == licht["background-color-page"]),
+        check("THEME_COLOR_DONKER = topbalk (donker)", funda_ui.THEME_COLOR_DONKER == donker.get("background-color-strong")),
+        check("palet Inkt en blauw (besluit 8): topbalk, knop, link en pagina",
+              (licht["background-color-strong"], licht["background-color-interactive-strong"],
+               licht["foreground-color-interactive-strong"], licht["background-color-page"])
+              == ("#0f172a", "#2563eb", "#1d4ed8", "#f4f6f9")),
+        check("geen paars meer in de tokens", not any(_is_paars(v) for v in list(licht.values()) + list(donker.values())),
+              str([v for v in list(licht.values()) + list(donker.values()) if _is_paars(v)])),
         check("labels zonder feedbackkleur", {licht["label-daling"], licht["label-lang"]}.isdisjoint(
             {licht[k] for k in licht if k.startswith("foreground-color-feedback")})),
         check("vier poortkleuren verschillend", len({licht[k] for k in ("pin-past", "pin-krap", "pin-niet", "pin-onbekend")}) == 4),
@@ -448,8 +474,16 @@ def test_rente_en_budget() -> bool:
                                "melding": "ASN gaf geen rente; DNB-maandcijfer gebruikt"}})
     fractie = _body({"rente": {"pct": 0.0386, "bron": "handmatig", "datum": "2026-11-01", "oud": False, "melding": None}})
     budget = oud[oud.index('id="budget"'):oud.index("</details>", oud.index('id="budget"'))]
+    met_uitleg = _body({"rente": {"pct": 4.11, "bron": "standaard", "datum": "2026-07-06", "oud": True,
+                                  "melding": "Geen actuele rente gevonden. Gerekend met 4,11% van 6 juli 2026; "
+                                             "zet financien.rente.pct in je config."}})
+    rente_top = met_uitleg[met_uitleg.index('id="rente-melding"'):met_uitleg.index("</a>", met_uitleg.index('id="rente-melding"'))]
+    rente_budget = met_uitleg[met_uitleg.index('id="budget"'):met_uitleg.index("</details>", met_uitleg.index('id="budget"'))]
     return all([
-        check("melding bij oude rente", 'id="rente-melding"' in oud and "Rente is 123 dagen oud" in oud),
+        check("melding bij oude rente: één zin met datum, percentage en leeftijd", 'id="rente-melding"' in oud
+              and "Rente van 6 juli 2026 (4,11%) is 123 dagen oud: woonlasten kunnen afwijken. <u>Meer weten</u>" in oud),
+        check("oude rente: uitleg van de rentemodule alleen in Jouw budget", "zet financien.rente.pct" not in rente_top
+              and "zet financien.rente.pct in je config." in rente_budget),
         check("geen melding bij verse rente", 'id="rente-melding"' not in vers),
         check("melding uit de rentemodule zichtbaar", 'id="rente-melding"' in melding
               and "ASN gaf geen rente; DNB-maandcijfer gebruikt." in melding),
@@ -463,7 +497,7 @@ def test_rente_en_budget() -> bool:
         check("geen inkomen in de body", "inkomen" not in oud.lower() and "62.000" not in oud),
         check("scenario's uit meta gaan voor", "<dd>€\u00a0250.000</dd>" in _body(
             {"scenarios": [{"id": "nu", "label": "Nu", "max_koopsom": 250000}]})),
-        check("je grens netto", "<dt>Je grens</dt><dd>€ 1.450 netto per maand</dd>" in budget),
+        check("je grens netto (harde spatie na €)", "<dt>Je grens</dt><dd>€\u00a01.450 netto per maand</dd>" in budget),
     ])
 
 
@@ -485,7 +519,7 @@ def test_meta_en_randgevallen() -> bool:
         check("push-blok weg zonder sleutel", "push-subscribe-btn" not in _body()),
         check("woning zonder beoordeling valt niet weg", "Kale woning" in kaal and "geen beoordeling" in kaal),
         check("apparaat-blok standaard verborgen", '<details class="opbouw" id="apparaat" hidden>' in zonder),
-        check("Bijgewerkt en volgende run", "Bijgewerkt 6 nov, 10:34 · volgende rond 17:30" in _body()),
+        check("Bijgewerkt en volgende run, kort (één regel op 390 px)", "Bijgewerkt 6 nov 10:34 · volgende 17:30" in _body()),
     ])
 
 
@@ -520,6 +554,7 @@ def test_slot() -> bool:
     for p in nodig:
         zonder = zonder.replace(p, "")
     theme = re.search(r'<meta name="theme-color" content="(#[0-9a-fA-F]{6})">', SLOT)
+    theme_donker = re.search(r'<meta name="theme-color" media="\(prefers-color-scheme: dark\)" content="(#[0-9a-fA-F]{6})">', SLOT)
     return all([
         check("precies de placeholders, elk één keer", sorted(gevonden) == sorted(nodig), str(gevonden)),
         check("vul_slot vervangt alles", not re.search(r"__[A-Z_]+__", gevuld)),
@@ -527,6 +562,8 @@ def test_slot() -> bool:
         check("label for=pw", '<label for="pw">' in SLOT),
         check("foutmelding met role=alert", 'role="alert"' in SLOT),
         check("theme-color = THEME_COLOR", bool(theme) and theme.group(1) == funda_ui.THEME_COLOR),
+        check("theme-color donker = THEME_COLOR_DONKER, vóór de gewone (eerste match telt)", bool(theme_donker)
+              and theme_donker.group(1) == funda_ui.THEME_COLOR_DONKER and theme_donker.start() < theme.start()),
         check("color-scheme light dark", '<meta name="color-scheme" content="light dark">' in SLOT),
         check("gzip uitpakken", 'DecompressionStream("gzip")' in SLOT and "const GZ = __GZ__;" in SLOT),
         check("melding te oude browser", "class TeOud" in SLOT and "Werk je iPhone bij naar iOS 16.4 of nieuwer." in SLOT),
@@ -568,10 +605,99 @@ def test_tekst() -> bool:
     ])
 
 
+def test_fixronde_ui() -> bool:
+    """Fixronde na de review: sheet, randen, hover, topbalk, kaart, sortering, teksten."""
+    print("fixronde: sheet, randen, hover, sortering en teksten")
+    css = re.sub(r"/\*.*?\*/", "", CSS, flags=re.S)
+
+    def regel(sel):
+        m = re.search(r"(?:^|})\s*" + re.escape(sel) + r"\{([^}]*)\}", css, re.M)
+        return m.group(1) if m else ""
+
+    hover_buiten = [m.group(0).strip() for m in re.finditer(r"[^{}]*:hover[^{]*\{", css)
+                    if "@media" not in m.group(0) and "@media (hover:hover)" not in css[max(0, m.start() - 400):m.start()]]
+    body = _body()
+    rijen, meta = testrijen()
+    kaart105 = _kaart(body, "7990105")
+    w = funda_ui._woning(rijen[0], meta)
+    w["onderdelen"] = {"a": {"punten": -0.5, "kort": "erfpachtcanon"}, "b": {"punten": -0.45, "kort": "woonlasten"},
+                       "c": {"punten": 0.55, "kort": "balkon"}}
+    balk = re.findall(r'class="b[pm] b(\d+)"', funda_ui.opbouw_score(w))
+    ok = [
+        check("sheet: formulier is een flex-kolom, alleen de body scrollt",
+              "display:flex" in regel(".sheet>form") and "min-height:0" in regel(".sheet>form")
+              and "min-height:0" in regel(".sheet-body") and "overflow:auto" in regel(".sheet-body")),
+        check("chip, tertiaire knop, onderknop en wissel: rand uit interactive-neutral (3:1)",
+              all("border-color-interactive-neutral" in regel(sel) for sel in (".chip", ".knop-ter", ".onderknop", ".wissel"))),
+        check("hover alleen binnen @media (hover:hover)", not hover_buiten, str(hover_buiten[:3])),
+        check("topbalk-ondertitel op één regel", "white-space:nowrap" in regel(".app-top p")
+              and "text-overflow:ellipsis" in regel(".app-top p")),
+        check("kaartlegenda boven de bronvermelding", "bottom:calc(var(--spacing-150) + 1.5rem)" in regel(".kaart-legenda")),
+        check("pins: beste woning bovenop (zIndexOffset op poort en score)",
+              "zIndexOffset:(3 - POORT_RANG[w.poort]) * 1000 + Math.round((w.score || 0) * 10)" in JS),
+        check("nieuw: top- en onderbalk tellen niet als in beeld (rootMargin)",
+              "rootMargin: balkMarge()" in JS and "'.app-top'" in JS and "'.app-onder'" in JS),
+        check("geen 'Navragen:' voor een vraag die zelf al een zin is", "Navragen:" not in body),
+        check("Ook in orde: label: waarde, gescheiden met ·",
+              "Energielabel: A · Grond: eigen grond" in _kaart(body, "7990113") or "Ook in orde: " not in body,
+              re.search(r"Ook in orde: </span>([^<]*)", body).group(1)[:80] if "Ook in orde" in body else ""),
+        check("WOZ-peildatum lang geschreven", "(peildatum 1 januari 2026)" in body and "jan, 2026" not in body),
+        check("euroteken met harde spatie in de HTML (de JSON-data rendert app.js via esc())",
+              "€ " not in body.split('id="woning-data"')[0] and "€\u00a0" in body),
+        check("eur_tekst houdt een gewone spatie (statusregel, markdown, push)", funda_ui.eur_tekst(1250) == "€ 1.250"
+              and funda_ui.status_tekst("PAST", {"netto": 1254, "grens": 1450, "tekort": 0}) == "Past · € 196 onder je grens"),
+        check("eur_vast is weg (eur heeft al een harde spatie)", not hasattr(funda_ui, "eur_vast")),
+        check("scorebalk: −0,5 en −0,5 (afgerond) even breed, half naar boven",
+              len(balk) == 3 and balk[1] == balk[2] == "3" and balk[0] == "3", str(balk)),
+        check("placeholder max. woonlasten uit je grens, zonder grens geen getal",
+              re.search(r'id="f-maxlasten"[^>]* placeholder="bijv. 1450">', body) is not None
+              and re.search(r'id="f-maxlasten"[^>]*>', funda_ui.render_report_body(
+                  [{"d": {"global_id": 1, "price": 1}}], {})).group(0).count("placeholder") == 0),
+        check("twijfeluitleg dekt leefbaarheid", "(buurt, stad of leefbaarheid onduidelijk)" in body),
+        check("vergelijking: Financiering, netto per maand en ≈ min",
+              "['Financiering'," in JS and "' netto per maand'" in JS and "'≈ ' + w.reis_min + ' min'" in JS
+              and "'Wanneer'" not in JS),
+        check("popup: scenario met label Financiering", "'<br>Financiering: ' + esc(finTekst(w.scenario_tekst))" in JS),
+        check("JS: euroteken met harde spatie", "'€\\u00a0'" in JS and "replace(/€ /g, '€\\u00a0')" in JS),
+        check("één woord: apparaat (geen toestel)", all("toestel" not in t for t in (body, JS, SLOT))),
+        check("slot: fout direct onder het wachtwoordveld", SLOT.index('id="err"') < SLOT.index('id="remember"')
+              and SLOT.index('id="err"') > SLOT.index('class="pw-rij"')),
+        check("slot: onthouden sleutel, geen onthouden wachtwoord", "Het onthouden wachtwoord" not in SLOT
+              and "De onthouden sleutel werkt niet meer. Vul je wachtwoord opnieuw in." in SLOT),
+        check("WOZ zonder datum: geen peildatum", "peildatum" not in funda_ui.kenmerken(
+            dict(w, woz={"price": 200000, "date": "1 jan, 2026"}))),
+    ]
+    ok.append(test_sortering_js())
+    return all(ok)
+
+
+def test_sortering_js() -> bool:
+    """Prijs onbekend achteraan bij elke sortering, in het echte app.js (node, zonder DOM). Zonder node: broncheck."""
+    data = _woning_data(_body())["woningen"]
+    sleutels = ["aanbevolen", "score", "woonlasten", "prijs", "reis", "nieuwst"]
+    if not shutil.which("node"):
+        return check("SORT via onbekendAchter (node ontbreekt, alleen broncheck)",
+                     "Object.keys(SORT).forEach(function(k){ SORT[k] = onbekendAchter(SORT[k]); });" in JS)
+    script = ("global.window={};global.document={readyState:'loading',addEventListener(){}};"
+              f"require({json.dumps(str(HIER / 'ui' / 'app.js'))});"
+              "const ws=JSON.parse(require('fs').readFileSync(0,'utf8'));const uit={};"
+              f"for(const k of {json.dumps(sleutels)}) uit[k]=window.fundaRapportSorteer(ws,k).map(w=>w.poort);"
+              "console.log(JSON.stringify(uit));")
+    r = subprocess.run(["node", "-e", script], input=json.dumps(data), capture_output=True, text=True, timeout=30)
+    try:
+        uit = json.loads(r.stdout)
+    except ValueError:
+        return check("node draait app.js", False, r.stderr[:200])
+    fout = {k: v.index("PRIJS ONBEKEND") for k, v in uit.items() if "PRIJS ONBEKEND" in v and v[-1] != "PRIJS ONBEKEND"}
+    return check(f"prijs onbekend achteraan bij alle {len(uit)} sorteringen (node)", len(uit) == 6 and not fout
+                 and all("PRIJS ONBEKEND" in v for v in uit.values()), str(fout))
+
+
 def main() -> int:
     resultaten = [test_contract_testdata(), test_ids_en_attributen(), test_statusregels(), test_status_en_scenario_in_kaart(),
                   test_prijs_onbekend(), test_volgorde(), test_woning_data(), test_css_regels(), test_contrast(),
-                  test_rente_en_budget(), test_meta_en_randgevallen(), test_app_js(), test_slot(), test_groottes(), test_tekst()]
+                  test_rente_en_budget(), test_meta_en_randgevallen(), test_app_js(), test_slot(), test_groottes(), test_tekst(),
+                  test_fixronde_ui()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

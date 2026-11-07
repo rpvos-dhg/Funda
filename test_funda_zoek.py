@@ -267,7 +267,7 @@ def test_prijs_onbekend_rapport() -> bool:
     kaart = body[body.index('data-id="1"'):]
     kaart = kaart[:kaart.index("</article>")]
     ok &= check("kaart: op aanvraag en onbekend, geen € 0",
-                "op aanvraag" in kaart and "onbekend" in kaart and "€ 0" not in kaart)
+                "op aanvraag" in kaart and "onbekend" in kaart and not re.search(r"€[ \u00a0]0(?![\d.])", kaart))
     data = json.loads(body.split('id="woning-data">', 1)[1].split("</script>", 1)[0])
     per = {w["id"]: w for w in data["woningen"]}
     ok &= check("woning-data: prijs en woonlasten leeg (de JS zet ze achteraan)",
@@ -417,11 +417,13 @@ def test_rapport_testdata() -> bool:
                         all(d["_beoordeling"]["verrijking"]["bag"] == "onbekend" for d in ws), str(len(verzoeken)))
             ok &= check("verzoeken alleen via de meegegeven http", bool(verzoeken)
                         and all(u.startswith("https://") and "funda" not in u for u in verzoeken))
-            ok &= check("rente: standaardwaarde met melding", "Rente is" in body or "rente-melding" in body)
+            ok &= check("rente: standaardwaarde met melding", 'id="rente-melding"' in body and "dagen oud" in body)
             ok &= check("scenario's zichtbaar (fictief)", "Vanaf jan 2027" in body and "(planning)" in body)
+            ok &= check("WOZ met peildatum uit het ISO-tijdstip van de prijshistorie", "(peildatum 1 januari 2026)" in body
+                        and "jan, 2026)" not in body)
             md = (tmp / "funda_rapport.md").read_text(encoding="utf-8")
             alles = body + md + (tmp / "funda_rapport.html").read_text(encoding="utf-8")
-            ok &= check("nergens € 0", "€ 0" not in alles)
+            ok &= check("nergens € 0 (ook niet met harde spatie)", not re.search(r"€[ \u00a0]0(?![\d.])", alles))
             ok &= check("geen inkomen in de uitvoer", "62.000" not in alles and "64.000" not in alles and "bruto_jaar" not in alles)
             logregels = [r for r in log.splitlines() if r.startswith(("[rapport]", "[verrijking]", "[rente]"))]
             ok &= check("log: kenmerklabels en aantallen per poort",
@@ -454,6 +456,89 @@ def test_rapport_testdata() -> bool:
         funda_rente.huidige_rente, funda_verrijking.verrijk = oud_rente, oud_verrijk
         if oud_env is not None:
             os.environ["FUNDA_REQUIRE_ENCRYPTION"] = oud_env
+    return ok
+
+
+def test_rapport_rente_cache_ua() -> bool:
+    """Fixronde: rentevast en leeftijdsgrens als terugval uit beoordeling.financiering, de allowlist op de
+    hele buurtcijfercache, en de eerlijke user-agent voor Nominatim en OSRM. Geen netwerk."""
+    print("test: rente-instellingen, buurtcijfercache en user-agent van funda_rapport")
+    import funda_beoordeling as fb
+    import funda_rapport as fr
+    import funda_rente
+    import urllib.request
+
+    ok = True
+    cfg = fb.laad_config({"beoordeling": {"financiering": {"rentevast_jaren": 5, "rente_max_dagen": 45}}})
+    r = fr._rente_cfg(cfg)["financien"]["rente"]
+    ok &= check("beoordeling.financiering.rentevast_jaren als terugval", r.get("rentevast_jaren") == 5, str(r))
+    ok &= check("beoordeling.financiering.rente_max_dagen als terugval", r.get("max_dagen") == 45, str(r))
+    cfg2 = fb.laad_config({"beoordeling": {"financiering": {"rentevast_jaren": 5}},
+                           "financien": {"rente": {"rentevast_jaren": 20}}})
+    ok &= check("financien.rente gaat voor", fr._rente_cfg(cfg2)["financien"]["rente"]["rentevast_jaren"] == 20)
+    cfg3 = fb.laad_config({"beoordeling": {"financiering": {"rente": 0.039, "rente_datum": "2026-10-30"}},
+                           "financien": {"rente": {"pct": None, "datum": None}}})
+    r3 = fr._rente_cfg(cfg3)["financien"]["rente"]
+    ok &= check("rente_datum ook als financien.rente.datum null is", r3.get("datum") == "2026-10-30", str(r3))
+    ok &= check("zonder eigen sleutels geen rentevast uit de standaard", "rentevast_jaren" not in
+                fr._rente_cfg(fb.laad_config({}))["financien"]["rente"])
+
+    oud_rente = funda_rente.huidige_rente
+    funda_rente.huidige_rente = lambda *a, **k: {"pct": 3.9, "bron": "ASN", "datum": "2026-11-06", "oud": False,
+                                                 "melding": None}
+    try:
+        rente = fr.haal_rente(cfg, {}, datetime(2026, 11, 7).date())
+        ok &= check("haal_rente: rentevast 5 jaar uit de terugval", rente.get("rentevast_jaren") == 5, str(rente))
+        ok &= check("toets rekent met 5 jaar vast, dus de AFM-toetsrente", fb._rentevast(rente, cfg) == 5
+                    and fb.toetsrente(0.039, 5) == 0.05)
+        standaard = fr.haal_rente(fb.laad_config({}), {}, datetime(2026, 11, 7).date())
+        ok &= check("zonder instelling: 10 jaar vast (funda_rente)", standaard.get("rentevast_jaren") == 10, str(standaard))
+    finally:
+        funda_rente.huidige_rente = oud_rente
+
+    oud_cache = fr.ENRICHMENT_CACHE
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fr.ENRICHMENT_CACHE = Path(tmpdir) / "cache.json"
+        try:
+            fr.ENRICHMENT_CACHE.write_text(json.dumps({"market_insights": {
+                f"teststad|buurt{i}": {"fetched": "2026-10-01", "data": {"avg_asking_price_per_m2": 5000 + i,
+                                                                         "inhabitants": 1000 + i,
+                                                                         "families_with_children_pct": 20}}
+                for i in range(3)}}), encoding="utf-8")
+            cache = fr.load_enrichment_cache()
+            velden = [set(e["data"]) for e in cache["market_insights"].values()]
+            ok &= check("alle buurten in de cache door de allowlist bij laden",
+                        velden == [{"avg_asking_price_per_m2"}] * 3, str(velden))
+            cache["market_insights"]["teststad|nieuw"] = {"fetched": "2026-11-07",
+                                                          "data": {"avg_asking_price_per_m2": 1, "inhabitants": 9}}
+            fr.save_enrichment_cache(cache)
+            opgeslagen = json.loads(fr.ENRICHMENT_CACHE.read_text(encoding="utf-8"))
+            ok &= check("en bij opslaan", "inhabitants" not in json.dumps(opgeslagen))
+        finally:
+            fr.ENRICHMENT_CACHE = oud_cache
+
+    gezien = []
+
+    class Antwoord:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"[]"
+
+    oud_urlopen = urllib.request.urlopen
+    urllib.request.urlopen = lambda req, timeout=None: (gezien.append(req.get_header("User-agent")), Antwoord())[1]
+    try:
+        fr.lookup_postcode("1234 AB")
+        fr.osrm_route_km(52.0, 4.3, 52.1, 4.4)
+    finally:
+        urllib.request.urlopen = oud_urlopen
+    ok &= check("Nominatim en OSRM krijgen de eerlijke user-agent met repo-link",
+                len(gezien) == 2 and all(ua == fr._eerlijke_ua() and "github.com/rpvos-dhg/Funda" in ua for ua in gezien),
+                str(gezien))
     return ok
 
 
@@ -1649,7 +1734,7 @@ def test_pool_in_run() -> bool:
 
 def main() -> int:
     resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(), test_prijs_onbekend(),
-                  test_prijs_onbekend_rapport(), test_rapport_testdata(), test_twijfel_naar_rapport(), test_vul_summary_aan(),
+                  test_prijs_onbekend_rapport(), test_rapport_testdata(), test_rapport_rente_cache_ua(), test_twijfel_naar_rapport(), test_vul_summary_aan(),
                   test_pushtekst(), test_auto_keten(), test_buurtfilter(), test_stadfilter(),
                   test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),

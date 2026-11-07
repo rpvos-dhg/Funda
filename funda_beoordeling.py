@@ -90,8 +90,7 @@ Alles is optioneel; de standaard staat in STANDAARD hieronder.
       "max_woonlasten_netto": null,   jouw grens voor netto woonlasten per maand;
                                       null = bruto norm (33% van het bruto maandinkomen)
       "krap_marge": 150,              Krap tot zoveel euro boven je grens, daarboven Past niet
-      "financiering": {"alleenstaand": true, "rente": null, "rente_datum": null,
-                       "rentevast_jaren": 30, "rente_max_dagen": 60, "overbod_pct": 0.0,
+      "financiering": {"alleenstaand": true, "overbod_pct": 0.0,
                        "kk_onzekerheid": 1500, "eigen_geld_tekort_past_niet": 5000,
                        "starter_tot": null},
       "harde_eisen": {"veiling": true, "kluswoning": false, "slapende_vve": false,
@@ -128,7 +127,8 @@ Ook geaccepteerd (zelfde betekenis): "toetsinkomen": {id: bedrag} in plaats van
 "scenarios", "startersvrijstelling_tot", "verplichtingen_maand": {"duo": x},
 "bkr_limieten": x (som van niet opgezegde limieten), "buffer" op het hoogste niveau,
 "eigen_geld": {id: bedrag} als vaste waarde per scenario, "rente": {"handmatig": x,
-"rentevast_jaar": n}.
+"rentevast_jaar": n}. Als terugval, alleen als je ze zelf zet: beoordeling.financiering.rente,
+rente_datum, rentevast_jaren en rente_max_dagen (financien.rente gaat voor).
 
 Zonder "financien" valt alles terug op de bestaande sleutels van het profiel:
 bruto_jaar, eigen_inleg, duo_maandlast en leeftijd. Dan zijn er geen scenario's
@@ -203,10 +203,10 @@ STANDAARD: dict = {
     "krap_marge": 150,
     "financiering": {
         "alleenstaand": True,
+        # Rente, rentevast en de leeftijdsgrens staan in financien.rente (één plek). De oude sleutels
+        # rente, rente_datum, rentevast_jaren en rente_max_dagen hier werken nog als terugval
+        # (funda_rapport._rente_cfg), maar alleen als je ze zelf zet; daarom geen standaardwaarde.
         "rente": None,
-        "rente_datum": None,
-        "rentevast_jaren": 30,
-        "rente_max_dagen": 60,
         "overbod_pct": 0.0,
         "kk_onzekerheid": 1500,
         "eigen_geld_tekort_past_niet": 5000,
@@ -541,7 +541,7 @@ def rente_uit_config(cfg: dict, vandaag=None) -> dict:
         pct, bron, datum = STANDAARD_RENTE["pct"], "standaard", STANDAARD_RENTE["datum"]
     frac = _als_fractie(pct, 0.2)
     d = _datum(datum)
-    max_dagen = int(f.get("rente_max_dagen") or 60)
+    max_dagen = int(r.get("max_dagen") or f.get("rente_max_dagen") or 30)   # zelfde grens als funda_rente
     dagen = (vandaag - d).days if d else None
     oud = dagen is None or dagen > max_dagen
     melding = None
@@ -945,40 +945,81 @@ def stookkosten_in_vve(ch: dict, tekst: str) -> bool:
             or bool(re.search(r"inclusief\s+(?:het\s+)?voorschot\s+(?:stook|energie|warmte)", tekst or "", re.I)))
 
 
+_MAANDNAAM = (r"(?:januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december"
+              r"|jan|feb|mrt|apr|jun|jul|aug|sep|sept|okt|nov|dec)\.?")
+# Een mogelijkheid is geen feit: "kan worden afgekocht", "afkopen is mogelijk", "omzetten naar eeuwigdurend".
+_MODAAL_VOOR = re.compile(r"\b(?:kan|kunnen|kunt|zou|zouden|wil|mogelijk|mogelijkheid|omzetten|omzetting|overstappen"
+                          r"|optie|desgewenst|afkopen|afkoopsom)\b")
+_MODAAL_NA = re.compile(r"\s*(?:kan\b|kunnen\b|worden\b|te\s+worden\b|is\s+mogelijk\b|mogelijk\b)")
+_ERFPACHT_EIND = re.compile(r"(?:afgekocht|vooruitbetaald|afkoop)\s+tot\s+(?:en\s+met\s+)?"
+                            r"(?:\d{1,2}[-./]\d{1,2}[-./]|\d{1,2}\s+" + _MAANDNAAM + r"\s+|(?:eind|einde|begin|medio|ultimo)\s+)?"
+                            r"((?:20|21)\d{2})\b")
+
+
+def _zinsdeel_voor(t: str, i: int, venster: int = 60) -> str:
+    """De tekst vóór positie i in dezelfde zin, hooguit `venster` tekens (een punt in 1.250 telt niet)."""
+    voor = t[max(0, i - venster):i]
+    grens = max((m.end() for m in re.finditer(r"[.;!?](?:\s|$)", voor)), default=0)
+    return voor[grens:]
+
+
+def _feitelijk(t: str, patroon: str) -> bool:
+    """Komt het patroon voor zonder modale vorm ervoor of erna ("kan worden afgekocht", "is mogelijk")?"""
+    for m in re.finditer(patroon, t):
+        if _MODAAL_VOOR.search(_zinsdeel_voor(t, m.start())) or _MODAAL_NA.match(t[m.end():m.end() + 20]):
+            continue
+        return True
+    return False
+
+
+def _erfpacht_genoemd(t: str) -> bool:
+    """'erfpacht' in de tekst, maar niet ontkend ('geen erfpacht', 'niet belast met erfpacht', 'zonder erfpacht')."""
+    for m in re.finditer(r"erfpacht", t):
+        zinsdeel = re.split(r"[,:]", _zinsdeel_voor(t, m.start(), 25))[-1]
+        if not re.search(r"\b(?:geen|niet|zonder)\b", zinsdeel):
+            return True
+    return False
+
+
 def erfpacht(ch: dict, tekst: str) -> dict:
     """{"status", "canon_jaar", "eind", "bron"}. Status: eigen, eeuwig_afgekocht, afgekocht_tot,
     afgekocht_looptijd_onbekend, eeuwig_canon, voortdurend, erfpacht_onduidelijk, onbekend.
 
     Kenmerken 'Eigendomssituatie' en 'Lasten' eerst. In tekst: €-teken, NL-duizendtallen,
-    eenheid, ontkenning ('niet afgekocht'); een einddatum alleen na 'afgekocht/vooruitbetaald tot'."""
+    eenheid, ontkenning ('niet afgekocht', 'geen erfpacht'); alleen een feitelijke afkoop telt
+    ('is afgekocht', niet 'kan worden afgekocht' of 'afkopen is mogelijk'); een einddatum alleen na
+    'afgekocht/vooruitbetaald tot', ook met een maandnaam ('tot 1 januari 2035')."""
     eig = (ch.get("Eigendomssituatie") or "").lower()
     lasten = (ch.get("Lasten") or "").lower()
     t = (tekst or "").lower()
     info = {"status": "onbekend", "canon_jaar": None, "eind": None, "bron": "niet vermeld"}
+    erfpacht_in_tekst = _erfpacht_genoemd(t)
     if eig:
         info["bron"] = "kenmerk 'Eigendomssituatie'"
         if "volle eigendom" in eig:
             info["status"] = "eigen"
             return info
-    elif re.search(r"(?<!geen )(?<!niet op )\beigen grond\b", t) and "erfpacht" not in t:
+    elif not erfpacht_in_tekst and (re.search(r"(?<!geen )(?<!niet op )\beigen grond\b", t) or "erfpacht" in t):
+        # 'eigen grond', of alleen een ontkende erfpacht ('geen erfpacht'): eigen grond.
         return {"status": "eigen", "canon_jaar": None, "eind": None, "bron": "advertentietekst"}
-    if not (eig or "erfpacht" in t):
+    if not (eig or erfpacht_in_tekst):
         return info
     if info["bron"] == "niet vermeld":
         info["bron"] = "advertentietekst"
     voortdurend = "voortdurend" in eig or re.search(r"voortdurende\s+erfpacht", t)
-    eeuwig = "eeuwigdurend" in eig or "eeuwigdurend" in t
+    eeuwig = "eeuwigdurend" in eig or _feitelijk(t, r"eeuwigdurend")
     niet_afgekocht = re.search(r"niet\s+(?:is\s+)?afgekocht|canon\s+niet\s+afgekocht", t + " " + lasten)
     afgekocht = (("afgekocht" in lasten and not re.search(r"niet\s+afgekocht", lasten))
-                 or (not niet_afgekocht and re.search(r"\b(?:afgekocht|vooruitbetaald|afkoop\s+tot)\b", t)))
-    jaar = re.search(r"(?:afgekocht|vooruitbetaald)\s+(?:tot\s+(?:en\s+met\s+)?)(?:\d{1,2}[-./]\d{1,2}[-./])?(20\d{2})",
-                     lasten + " " + t)
+                 or (not niet_afgekocht and _feitelijk(t, r"\b(?:afgekocht|vooruitbetaald|afkoop\s+tot)\b")))
+    jaar = _ERFPACHT_EIND.search(lasten + " " + t)
     if jaar:
         info["eind"] = int(jaar.group(1))
+    # 'afgekocht tot ...' zonder leesbaar jaar is geen eeuwigdurende afkoop.
+    tot_zonder_jaar = not jaar and re.search(r"(?:afgekocht|vooruitbetaald)\s+tot\b", lasten + " " + t)
     canon_txt = lasten if "€" in lasten else ""
     if not canon_txt:
-        zin = re.search(r"canon.*?(?:\.\s|;|$)", t)    # tot het einde van de zin, niet tot de punt in 1.250
-        canon_txt = zin.group(0) if zin else ""
+        # De eerste zin met 'canon' en een bedrag, tot het einde van de zin (niet tot de punt in 1.250).
+        canon_txt = next((z.group(0) for z in re.finditer(r"canon.*?(?:\.\s|;|$)", t) if "€" in z.group(0)), "")
     canon = re.search(r"€\s*([\d.,\-]+)\s*(?:per\s+)?(jaar|maand|halfjaar|kwartaal)?", canon_txt)
     if canon and not afgekocht:
         bedrag = _getal(canon.group(1))
@@ -986,7 +1027,7 @@ def erfpacht(ch: dict, tekst: str) -> dict:
         info["canon_jaar"] = int(round(bedrag * {"jaar": 1, "maand": 12, "halfjaar": 2, "kwartaal": 4}[per])) if bedrag else None
     if afgekocht and info["eind"]:
         info["status"] = "afgekocht_tot"
-    elif afgekocht and eeuwig:
+    elif afgekocht and eeuwig and not tot_zonder_jaar:
         info["status"] = "eeuwig_afgekocht"
     elif afgekocht:
         info["status"] = "afgekocht_looptijd_onbekend"
@@ -1571,7 +1612,7 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
             jaar = bu.get("jaar") or 2024
             if k <= dr["leefbaarometer_twijfel_max"]:
                 if not any(z.lower().startswith("twijfelbuurt") for z in twijfel_z):
-                    twijfel_z.append(f"Leefbaarometer {LBM_KLASSE[k]} ({jaar}). Buurt staat niet op je eigen lijst.")
+                    twijfel_z.append(f"Leefbaarometer {LBM_KLASSE[k]} ({jaar}). Buurt staat niet op jouw lijst.")
                 add(_item("buurt", "sterk", "Leefbaarometer", f"{LBM_KLASSE[k]} ({jaar})", "Leefbaarometer 3.0", kort="buurt zwak",
                           uitleg="Staat niet op je uitsluitlijst. Zelf bekijken en eventueel toevoegen."))
             elif k >= dr["leefbaarometer_goed_min"]:

@@ -86,7 +86,12 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   rapport, de log of de pushmelding.
 - **Rente (`funda_rente.py`).** Een handmatige rente gaat altijd voor
   (`financien.rente.pct` met `datum`; ook `rente.handmatig` of de oude plek
-  `beoordeling.financiering.rente`). Anders het nieuwste ASN-tariefblad (statische
+  `beoordeling.financiering.rente`). Rentevast staat ook daar
+  (`financien.rente.rentevast_jaren`, standaard 10; korter dan 10 jaar = toetsrente
+  5%). De oude sleutels `beoordeling.financiering.rentevast_jaren` en
+  `rente_max_dagen` hebben geen standaard meer en werken alleen als terugval als je
+  ze zelf zet (`funda_rapport._rente_cfg`). Nominatim en OSRM krijgen ook
+  `EERLIJKE_UA`, zonder naam. Anders het nieuwste ASN-tariefblad (statische
   PDF's in het rentearchief op `www.asnbank.nl`; robots.txt verbiedt daar alleen
   `/web/contentViewCounter`), anders het DNB-cijfer "rente op nieuwe hypotheken"
   via het ECB Data Portal (`data-api.ecb.europa.eu`, `/service/data` toegestaan),
@@ -107,7 +112,9 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   omzeilen. Een fout geeft "onbekend" in het rapport, nooit exit 2 en nooit een
   woning minder. Allowlist van velden: herkomst, nationaliteit, inkomen en andere
   bevolkingskenmerken worden nooit gelezen, bewaard of getoond. Ook van funda's
-  buurtcijfers wordt alleen de vraagprijs per m² bewaard. Niet automatisch: het
+  buurtcijfers wordt alleen de vraagprijs per m² bewaard; bij laden en opslaan
+  gaat de hele cachesectie `market_insights` door die allowlist, ook buurten die
+  deze run niet langskomen. Niet automatisch: het
   WOZ-waardeloket en KOOP (robots verbiedt het). De RIVM-laagnamen hebben een
   datum (`rivm_20250101_...`); verdwijnt een jaargang, dan wordt geluid
   "onbekend" tot `RIVM_LAGEN` is bijgewerkt.
@@ -131,15 +138,19 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   `funda-shortlist-v5` (ophogen bij elke nieuwe wrapper, anders blijft een
   geïnstalleerde PWA de oude tonen). Manifest "Woningrapport" / "Woningen"
   (geen voornaam: het staat publiek), kleuren `funda_ui.THEME_COLOR` en
-  `funda_ui.ACHTERGROND`, iconen in hetzelfde palet. "Nieuw" geldt per toestel en
-  telt pas als gezien als de kaart minstens half een seconde in beeld was.
-- **Huisstijl: eigen palet "Lavendel", bewust geen ANWB-huisstijl.** Kleuren,
+  `funda_ui.ACHTERGROND`, iconen in hetzelfde palet. "Nieuw" geldt per apparaat en
+  telt pas als gezien als de kaart minstens half een seconde in beeld was, tussen
+  de vaste top- en onderbalk.
+- **Huisstijl: eigen palet "Inkt en blauw", bewust geen ANWB-huisstijl.** Kleuren,
   stylesheet, iconen en fonts van het ANWB-designsysteem zijn merkeigendom van de
   ANWB (merkrecht), en de CSS van het slotscherm staat buiten de versleuteling
   publiek op GitHub Pages. Daarom een eigen palet met dezelfde opbouw (tokens
   licht en donker, feedbackkleuren alleen voor feedback, WCAG AA gemeten).
   Tokens en regels: `.interface-design/system.md`. `test_funda_ui.py` weigert
-  ANWB-blauw `#003d86`, geel `#ffcd00` en de merk- en fontnamen.
+  ANWB-blauw `#003d86`, geel `#ffcd00` en de merk- en fontnamen. Het eerdere
+  paarse palet "Lavendel" is op 7 nov 2026 door de eigenaar afgewezen; de test
+  weigert ook paarse tokens en pint topbalk `#0f172a`, knop `#2563eb`, link
+  `#1d4ed8` en pagina `#f4f6f9` vast.
 - **Log.** Alleen aantallen: labelnamen van funda's `characteristics` met hoe
   vaak ze voorkwamen (om de parsers te kalibreren), aantallen per poort,
   verrijking per bron en status, rente met bron. Nooit adressen, postcodes of
