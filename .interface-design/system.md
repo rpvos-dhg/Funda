@@ -143,8 +143,9 @@ sprite zit in de versleutelde body).
 
 ## Tekst
 Nederlands, je-vorm, korte zinnen, geen em dash of gedachtestreepje. `€ 1.250` met een harde spatie
-(U+00A0) in de HTML (`funda_ui.eur`, `h()` en `esc()` in `ui/app.js`), een gewone spatie in markdown,
-push en de statusregel in de data (`funda_ui.eur_tekst`). Eén woord: "apparaat", niet "toestel". `m²`,
+(U+00A0) in de HTML (`funda_ui.eur`, `h()` en `esc()` in `ui/app.js`), een gewone spatie in markdown
+en de statusregel in de data (`funda_ui.eur_tekst`). De pushmelding bevat geen bedragen, alleen adres,
+poortwoord en score. Eén woord: "apparaat", niet "toestel". `m²`,
 decimale komma, minteken U+2212. Nooit "€ 0": zonder vraagprijs staat er "op aanvraag", zonder
 woonlasten "onbekend".
 

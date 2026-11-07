@@ -475,18 +475,33 @@ def schrijf_run_summary(nieuw: list[dict], bekend: list[dict], afgewezen: list[t
     SUMMARY_FILE.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def _poortwoord(b: dict) -> str | None:
+    """'Past', 'Krap', 'Past niet' of 'Prijs onbekend' uit een beoordeling, zonder bedragen."""
+    from funda_beoordeling import POORT_NAAM
+    woord = POORT_NAAM.get(b.get("poort"))
+    if not woord and isinstance(b.get("status_kort"), str):
+        woord = b["status_kort"].split(" · ")[0].strip()
+    if not woord or "€" in woord:
+        return None
+    return woord
+
+
 def vul_summary_aan(woningen: list[dict]) -> int:
-    """Na het rapport: statusregel en score per nieuwe woning in funda_run_summary.json.
+    """Na het rapport: poortwoord en score per nieuwe woning in funda_run_summary.json.
 
     schrijf_run_summary() draait vóór het rapport (de push-preview hangt eraan); het rapport zet
-    daarna d["_beoordeling"] op dezelfde dicts. Hier komen `status` (status_kort, zonder
-    inkomensbedragen) en `score` erbij, voor scripts/send_web_push.cjs. Zonder beoordeling of
-    zonder bestand verandert er niets. Geeft het aantal aangevulde woningen.
+    daarna d["_beoordeling"] op dezelfde dicts. Hier komen `status_push` (alleen het poortwoord:
+    Past, Krap, Past niet of Prijs onbekend) en `score` erbij, voor scripts/send_web_push.cjs.
+    Bewust niet de statusregel (status_kort): die noemt bedragen die van het profiel afhangen
+    ('€ 65 onder de norm (bruto)' geeft met de publieke code het bruto inkomen terug, '€ 26.610
+    eigen geld te weinig' het eigen geld), en een melding staat leesbaar op het vergrendelscherm.
+    De bedragen blijven in het versleutelde rapport. Zonder beoordeling of zonder bestand verandert
+    er niets. Geeft het aantal aangevulde woningen.
     """
     beoordeling = {}
     for d in woningen:
         b = d.get("_beoordeling")
-        if isinstance(b, dict) and b.get("status_kort"):
+        if isinstance(b, dict) and _poortwoord(b):
             beoordeling[str(d.get("global_id") or d.get("listing_id") or d.get("detail_url") or "")] = b
     if not beoordeling:
         return 0
@@ -499,7 +514,8 @@ def vul_summary_aan(woningen: list[dict]) -> int:
         b = beoordeling.get(str(item.get("id") or ""))
         if not b:
             continue
-        item["status"] = str(b["status_kort"])
+        item.pop("status", None)   # oude vorm met de hele statusregel
+        item["status_push"] = _poortwoord(b)
         if isinstance(b.get("score"), (int, float)) and not isinstance(b.get("score"), bool):
             item["score"] = round(float(b["score"]), 1)
         n += 1
@@ -1778,7 +1794,7 @@ def main() -> None:
             log(f"Rapport: {pad.name}")
             if nieuw:
                 n = vul_summary_aan(nieuw)
-                log(f"Pushsamenvatting: {n} van {len(nieuw)} nieuwe woningen met statusregel.")
+                log(f"Pushsamenvatting: {n} van {len(nieuw)} nieuwe woningen met poortwoord en score.")
 
             # Open HTML rapport in browser bij interactieve run.
             # Niet bij Task Scheduler (sys.stdout.isatty() is dan False).

@@ -63,16 +63,23 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   buurtcijfer, makelaar), **eerst de routes** (de reisafstand telt mee in de
   score), dan een voorlopige beoordeling. Daarna de verrijking uit open bronnen
   (Past en Krap eerst, binnen het budget) en de definitieve beoordeling.
-  Sorteren op `(poort, twijfel, -score)` (`funda_beoordeling.sorteer`, dezelfde
+  Sorteren op `(geen vraagprijs, poort, twijfel, -score)`: zonder vraagprijs altijd
+  achteraan, ook een veiling op PAST NIET (`funda_beoordeling.sorteer`, dezelfde
   sleutel als "Aanbevolen" in de UI). De beoordeling staat in `rij["beoordeling"]`
   en in `d["_beoordeling"]` (contract: docstring van `funda_beoordeling.py`).
 - **Twijfel en push (`funda_zoek.py`).** `d["_twijfel"]` = korte zinnen
   (`twijfel_redenen`: twijfelbuurt van je lijst, gemeente Leidschendam-Voorburg);
   de woning blijft staan, onderaan in zijn groep. Leefbaarometer zwak komt uit de
-  verrijking. Na het rapport zet `vul_summary_aan()` per nieuwe woning `status`
-  (de statusregel) en `score` in `funda_run_summary.json`;
-  `scripts/send_web_push.cjs` toont dan "<adres>, <stad> · Past · € 196 onder je
-  grens · 8,3", anders het oude formaat. Nooit inkomensbedragen, nooit "€ 0".
+  verrijking. Na het rapport zet `vul_summary_aan()` per nieuwe woning
+  `status_push` (alleen het poortwoord: Past, Krap, Past niet of Prijs onbekend)
+  en `score` in `funda_run_summary.json`; `scripts/send_web_push.cjs` toont dan
+  "<adres>, <stad> · Past · 8,3", zonder beoordeling "<adres>, <stad> · 68 m2".
+  **Nooit een eurobedrag in de push** (eindreview PR #19): de statusregel
+  ("€ 65 onder de norm (bruto)", "€ 26.610 eigen geld te weinig") geeft met de
+  publieke code en de publieke woningdata het bruto inkomen of het eigen geld
+  terug, en een melding staat leesbaar op het vergrendelscherm. De bedragen staan
+  alleen in het versleutelde rapport. Vangnet in het script: elk deel met een
+  €-teken valt weg, ook bij een oude samenvatting met `status`.
 - **Config.** `beoordeling` (grens `max_woonlasten_netto`, `krap_marge`,
   gewichten, harde eisen, `verrijking`) en `financien` (scenario's `nu`,
   `2027_01`, `2027_01_met_cao` met toetsinkomen, eigen geld, studieschuld, BKR,
@@ -105,8 +112,10 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   Klimaateffectatlas (`cas.cloud.sogelink.com`, geen robots.txt), RIVM-
   geluidkaarten (`data.rivm.nl`, geen robots.txt), Leefbaarometer 3.0
   (`geo.leefbaarometer.nl`, lege robots.txt) en de RIVM-gezondheidsmonitor via
-  CBS (`dataderden.cbs.nl`, geen robots.txt). robots.txt per host eerst (30 dagen
-  gecacht), `EERLIJKE_UA`, sequentieel met pauze, time-out 10 s, budget 60
+  CBS (`dataderden.cbs.nl`, geen robots.txt). robots.txt per host eerst, vers op
+  de dag van ophalen (RFC 9309 par. 2.4: hooguit 24 uur; ook voor `funda_rente`);
+  de laatste goede versie (hooguit 30 dagen) alleen als terugval bij een time-out
+  of 5xx, nooit bij een weigering. `EERLIJKE_UA`, sequentieel met pauze, time-out 10 s, budget 60
   verzoeken per run (± 5 per nieuwe woning; daarna bijna alles uit de cache).
   Per host stoppen bij 401/403/429/5xx en die host een dag dicht laten; nooit
   omzeilen. Een fout geeft "onbekend" in het rapport, nooit exit 2 en nooit een
@@ -715,7 +724,7 @@ python funda_zoek.py --no-open  # zonder browser
   door het echte `bouw_rij`, een volledige run door `genereer_rapport()` op de
   13 fictieve woningen (versleuteld, ontsleuteld in Python, volgorde gelijk aan
   `sorteer()`, rente en verrijking die falen), `_twijfel`, `vul_summary_aan` en
-  de pushtekst (met node, anders overgeslagen), `_sitemap_overslaan` met straal, de workflow-input
+  de pushtekst (met node, anders overgeslagen; nooit een €-teken, ook niet bij een oude samenvatting), `_sitemap_overslaan` met straal, de workflow-input
   en de eerlijke client met statuscodes (in een subproces tegen het echte
   pyfunda, met een nep-sessie, zonder netwerk).
   `auto_push()` staat in deze tests uit: `main()` eindigt ermee, en een testrun
@@ -780,7 +789,7 @@ python funda_zoek.py --no-open  # zonder browser
 - **iOS PWA push** werkt zonder vaste backend: de webapp toont een subscription
   JSON, die als GitHub Secret `WEB_PUSH_SUBSCRIPTION` wordt opgeslagen. Actions
   stuurt daarna met `scripts/send_web_push.cjs` een Web Push bij nieuwe woningen,
-  met per woning de statusregel en score. Het blok "Meldingen op deze iPhone"
+  met per woning het poortwoord en de score (geen bedragen). Het blok "Meldingen op deze iPhone"
   verdwijnt zodra dit toestel een abonnement heeft.
 - **Financiering is een poort, geen punt.** Eerst: kun je het lenen en wil je
   het elke maand betalen (netto woonlasten tegenover je grens)? Dat bepaalt de

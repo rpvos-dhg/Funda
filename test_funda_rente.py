@@ -158,7 +158,9 @@ def test_asn() -> bool:
     ok &= check("andere instelling zelfde dag: uit de bewaarde tabel", uit3["pct"] == 4.98)
     web4 = NepWeb()
     rente({}, cache, web4, vandaag="2026-11-08")
-    ok &= check("volgende dag: opnieuw opgehaald", len(web4.calls) == 2)   # robots.txt staat 30 dagen in de cache
+    # robots.txt is hooguit een dag vers (RFC 9309 par. 2.4), dus de volgende dag eerst opnieuw.
+    ok &= check("volgende dag: opnieuw opgehaald, robots.txt eerst", len(web4.calls) == 3
+                and web4.calls[0] == "https://www.asnbank.nl/robots.txt", str(web4.calls))
     uit5 = rente({"financien": {"rente": {"rentevast_jaren": 30}}}, {}, NepWeb())
     ok &= check("rentevast 30: 20 jaar met melding", uit5["pct"] == 4.74 and "geen rentevast 30 jaar" in uit5["melding"])
     web6 = NepWeb()

@@ -1,9 +1,12 @@
 // Web Push naar de PWA bij nieuwe woningen. Leest funda_run_summary.json (funda_zoek.py).
 //
-// Per woning één regel. Met beoordeling (funda_zoek.vul_summary_aan zet status en score):
-//   "<adres>, <stad> · Past · € 196 onder je grens · 8,3"
-// Zonder beoordeling het oude formaat: "<adres>, <stad> - € 265.000 - 68 m2".
-// Nooit inkomensbedragen en nooit "€ 0": zonder vraagprijs staat er "prijs op aanvraag".
+// Per woning één regel. Met beoordeling (funda_zoek.vul_summary_aan zet status_push en score):
+//   "<adres>, <stad> · Past · 8,3"      (poortwoord: Past, Krap, Past niet of Prijs onbekend)
+// Zonder beoordeling: "<adres>, <stad> · 68 m2" (of "· prijs op aanvraag · 70 m2").
+// Nooit een eurobedrag. De statusregel uit het rapport ("€ 65 onder de norm (bruto)", "€ 26.610
+// eigen geld te weinig") geeft met de publieke code het inkomen of het eigen geld prijs, en een
+// melding staat leesbaar op het vergrendelscherm. De bedragen staan in het versleutelde rapport.
+// Vangnet: elk deel met een €-teken valt weg, ook bij een oude samenvatting met `status`.
 //
 //   node scripts/send_web_push.cjs                       (in de workflow, met de Web Push-secrets)
 //   require("./scripts/send_web_push.cjs").regel(home)   (tests, zonder te versturen)
@@ -20,31 +23,36 @@ function required(name) {
   return value;
 }
 
-function money(value) {
-  const n = Number(value || 0);
-  return `€ ${Math.round(n).toLocaleString("nl-NL")}`;
-}
-
 function scoreTekst(value) {
   return Number(value).toFixed(1).replace(".", ",");
 }
 
-// "€ 0" mag nooit in een melding (een prijs of grens van 0 betekent: onbekend).
-const NUL_EURO = /€\s*0(?![\d.,])/;
+// Een deel met een €-teken hoort niet in een melding: bedragen staan alleen in het rapport.
+function zonderBedragen(delen) {
+  return delen.map((d) => String(d == null ? "" : d).trim()).filter((d) => d && !d.includes("€"));
+}
+
+function poortwoord(home) {
+  // status_push is al alleen het poortwoord. Een oude samenvatting heeft de hele statusregel in
+  // `status` ("Past · € 196 onder je grens"): dan alleen het eerste deel.
+  if (typeof home.status_push === "string" && home.status_push.trim()) return home.status_push;
+  if (typeof home.status === "string" && home.status.trim()) return home.status.split(" · ")[0];
+  return "";
+}
 
 function regel(home) {
-  const city = home.city ? `, ${home.city}` : "";
-  const status = typeof home.status === "string" ? home.status.trim() : "";
-  if (status) {
-    // Alleen het poortwoord als de reden toch een "€ 0" zou bevatten.
-    const veilig = NUL_EURO.test(status) ? status.split(" · ")[0] : status;
-    const score = typeof home.score === "number" && Number.isFinite(home.score) ? ` · ${scoreTekst(home.score)}` : "";
-    return `${home.title}${city} · ${veilig}${score}`;
+  const kop = `${home.title}${home.city ? `, ${home.city}` : ""}`;
+  const woord = poortwoord(home);
+  let delen;
+  if (woord) {
+    const score = typeof home.score === "number" && Number.isFinite(home.score) ? scoreTekst(home.score) : "";
+    delen = [kop, ...woord.split(" · "), score];
+  } else {
+    // Zonder beoordeling: geen vraagprijs, wel "prijs op aanvraag" als die ontbreekt.
+    const area = home.living_area ? `${home.living_area} m2` : "? m2";
+    delen = [kop, home.price ? "" : "prijs op aanvraag", area];
   }
-  const area = home.living_area ? `${home.living_area} m2` : "? m2";
-  // price is null bij "prijs op aanvraag"; dan geen "€ 0" in de melding.
-  const prijs = home.price ? money(home.price) : "prijs op aanvraag";
-  return `${home.title}${city} - ${prijs} - ${area}`;
+  return zonderBedragen(delen).join(" · ");
 }
 
 function reportUrl() {
@@ -117,6 +125,6 @@ function main() {
   })();
 }
 
-module.exports = { regel, payloadVoor, scoreTekst };
+module.exports = { regel, payloadVoor, scoreTekst, zonderBedragen };
 
 if (require.main === module) main();

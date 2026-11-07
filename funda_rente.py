@@ -18,8 +18,8 @@ Volgorde, de eerste die lukt:
 Hooguit één poging per dag (cache-sectie "rente" in funda_enrichment_cache.json). Een
 ASN-blad of DNB-cijfer van een eerdere dag blijft bruikbaar; de nieuwste datum wint.
 robots.txt per host eerst (www.asnbank.nl en data-api.ecb.europa.eu staan het toe,
-gemeten 7 nov 2026). Netwerk via dezelfde Sessie als funda_verrijking: eerlijke
-user-agent, time-outs, stoppen bij 401/403/429/5xx, nooit een omweg.
+gemeten 7 nov 2026), hooguit een dag gecacht. Netwerk via dezelfde Sessie als
+funda_verrijking: eerlijke user-agent, time-outs, stoppen bij 401/403/429/5xx, nooit een omweg.
 
 Publiek: huidige_rente(cfg, cache, vandaag, http=None) -> {"pct", "bron", "datum", "oud", "melding"}.
 """

@@ -569,8 +569,8 @@ def volgende_run(nu: datetime, cron_utc=None) -> str:
 
 
 def sorteer(woningen: list[dict]) -> list[dict]:
-    """Aanbevolen: (poort, twijfel, -score), zelfde sleutel als funda_beoordeling.sorteer()."""
-    return sorted(woningen, key=lambda w: (POORT_RANG[w["poort"]], bool(w["twijfel"]), -w["score"]))
+    """Aanbevolen: (geen vraagprijs, poort, twijfel, -score), zelfde sleutel als funda_beoordeling.sorteer()."""
+    return sorted(woningen, key=lambda w: (not w.get("prijs"), POORT_RANG[w["poort"]], bool(w["twijfel"]), -w["score"]))
 
 
 def _rente(meta: dict, woningen: list[dict], nu: datetime) -> dict:

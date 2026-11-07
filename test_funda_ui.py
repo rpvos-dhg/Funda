@@ -380,7 +380,7 @@ def test_prijs_onbekend() -> bool:
 
 
 def test_volgorde() -> bool:
-    print("volgorde (poort, twijfel, -score)")
+    print("volgorde (geen vraagprijs, poort, twijfel, -score)")
     data = _woning_data(_body())["woningen"]
     sleutel = [(funda_ui.POORT_RANG[w["poort"]], w["twijfel"], -w["score"]) for w in data]
     poorten = [w["poort"] for w in data]
@@ -390,6 +390,12 @@ def test_volgorde() -> bool:
         check("poorten op volgorde", poorten == sorted(poorten, key=funda_ui.POORT_RANG.get)),
         check("twijfel onderaan in Krap, ook met hogere score", [w["twijfel"] for w in krap] == sorted(w["twijfel"] for w in krap)
               and any(w["twijfel"] for w in krap)),
+        check("zonder vraagprijs achteraan, ook op PAST NIET (veiling)",
+              [w["id"] for w in funda_ui.sorteer([
+                  {"id": "veiling", "poort": "PAST NIET", "prijs": None, "twijfel": [], "score": 9.0},
+                  {"id": "onbekend", "poort": "PRIJS ONBEKEND", "prijs": None, "twijfel": [], "score": 9.9},
+                  {"id": "gewoon", "poort": "PAST NIET", "prijs": 250000, "twijfel": [], "score": 3.5}])]
+              == ["gewoon", "veiling", "onbekend"]),
     ])
 
 
@@ -693,11 +699,70 @@ def test_sortering_js() -> bool:
                  and all("PRIJS ONBEKEND" in v for v in uit.values()), str(fout))
 
 
+def _node_app(script_body: str, invoer) -> tuple[object, str]:
+    """Draai het echte ui/app.js in node zonder DOM; script_body leest `ws` en zet `uit`."""
+    script = ("global.window={};global.document={readyState:'loading',addEventListener(){}};"
+              f"require({json.dumps(str(HIER / 'ui' / 'app.js'))});"
+              "const ws=JSON.parse(require('fs').readFileSync(0,'utf8'));let uit=null;"
+              + script_body + "console.log(JSON.stringify(uit));")
+    r = subprocess.run(["node", "-e", script], input=json.dumps(invoer), capture_output=True, text=True, timeout=30)
+    try:
+        return json.loads(r.stdout), ""
+    except ValueError:
+        return None, r.stderr[-300:]
+
+
+def test_eindreview_js() -> bool:
+    """Eindreview: zonder vraagprijs achteraan, ook op PAST NIET (veiling); de vergelijking zonder
+    'Financiering: onbekend' als er geen scenario's zijn (secret zonder 'financien')."""
+    print("test: eindreview in app.js (prijs ontbreekt achteraan, vergelijking zonder 'onbekend')")
+    if not shutil.which("node"):
+        print("  (node niet gevonden; overgeslagen)")
+        return True
+    ws = _woning_data(_body())["woningen"]
+    basis = next(w for w in ws if w.get("prijs"))
+    veiling = dict(basis, id="veiling", card_id="veiling", poort="PAST NIET", prijs=None, netto=None, score=9.9,
+                   twijfel=[], dagen=0, reis_min=1, status_kort="Past niet · veiling, geen financieringsvoorbehoud")
+    lijst = ws + [veiling]
+    sleutels = ["aanbevolen", "score", "woonlasten", "prijs", "reis", "nieuwst"]
+    uit, fout = _node_app(f"uit={{}};for(const k of {json.dumps(sleutels)}) "
+                          "uit[k]=window.fundaRapportSorteer(ws,k).map(w=>w.prijs==null);", lijst)
+    if uit is None:
+        return check("node draait app.js", False, fout)
+    # Na de eerste woning zonder prijs geen woning met prijs meer.
+    mis = {k: v for k, v in uit.items() if True in v and not all(v[v.index(True):])}
+    ok = check(f"zonder vraagprijs achteraan bij alle {len(uit)} sorteringen, ook PAST NIET (node)",
+               len(uit) == 6 and not mis, str({k: v.index(True) for k, v in mis.items()}))
+
+    def kaal(**kw):
+        return dict(basis, **kw)
+    zonder = [kaal(id="a", poort="PAST", status_kort="Past · € 196 onder je grens", scenario_tekst=None),
+              kaal(id="b", poort="PAST NIET", status_kort="Past niet · € 9.860 eigen geld te weinig", scenario_tekst=None)]
+    gemengd = [kaal(id="c", poort="KRAP", status_kort="Krap · € 12 boven je grens", scenario_tekst="Past vanaf jaar X"),
+               kaal(id="d", poort="PRIJS ONBEKEND", prijs=None, netto=None, scenario_tekst=None,
+                    status_kort="Prijs onbekend · geen vraagprijs, dus geen leentoets")]
+    uit, fout = _node_app("uit=ws.map(l=>window.fundaRapportVergelijk(l));", [zonder, gemengd])
+    if uit is None:
+        return check("node: window.fundaRapportVergelijk", False, fout)
+    rij = '<th scope="row">Financiering</th>'
+
+    def cellen(html):
+        if rij not in html:
+            return None
+        stuk = html.split(rij, 1)[1].split("</tr>", 1)[0]
+        return re.findall(r"<td[^>]*>(.*?)</td>", stuk)
+    ok &= check("zonder scenario's: geen rij Financiering", rij not in uit[0], str(cellen(uit[0])))
+    ok &= check("gemengd: scenario en anders het poortwoord, nooit 'onbekend'",
+                cellen(uit[1]) == ["past vanaf jaar X", "Prijs onbekend"], str(cellen(uit[1])))
+    ok &= check("status blijft in de vergelijking", '<th scope="row">Status</th>' in uit[0])
+    return ok
+
+
 def main() -> int:
     resultaten = [test_contract_testdata(), test_ids_en_attributen(), test_statusregels(), test_status_en_scenario_in_kaart(),
                   test_prijs_onbekend(), test_volgorde(), test_woning_data(), test_css_regels(), test_contrast(),
                   test_rente_en_budget(), test_meta_en_randgevallen(), test_app_js(), test_slot(), test_groottes(), test_tekst(),
-                  test_fixronde_ui()]
+                  test_fixronde_ui(), test_eindreview_js()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

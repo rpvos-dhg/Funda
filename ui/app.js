@@ -1,6 +1,5 @@
-/* Woningrapport: filteren, sorteren, groeperen, nieuw, bewaren, verbergen, vergelijken, kaart. Geen netwerk;
-   opslag per apparaat in localStorage (try/catch). In de PWA roept het slotscherm na het ontsleutelen
-   window.fundaAfterReportLoad() aan. */
+/* Woningrapport: filteren, sorteren, nieuw, bewaren, verbergen, vergelijken, kaart. Geen netwerk; opslag
+   in localStorage. Het slotscherm roept na het ontsleutelen window.fundaAfterReportLoad() aan. */
 (function(){
 'use strict';
 var OPSLAG = 'funda_rapport_v1';
@@ -38,9 +37,8 @@ function init(){
   if(window.matchMedia('(min-width:64rem)').matches) startKaart();
 }
 
-/* Nieuw sinds je vorige bezoek, per apparaat (zonder eerder bezoek: nieuw volgens de run). Gezien pas
-   als de kaart een seconde voor de helft in beeld was, tussen top- en onderbalk (IntersectionObserver);
-   zonder IntersectionObserver niets. Woningen die nu niet nieuw zijn, gelden meteen als bekend. */
+/* Nieuw sinds je vorige bezoek (anders: volgens de run). Gezien na een seconde half in beeld tussen
+   de balken (zonder IntersectionObserver nooit). Wat nu niet nieuw is, is meteen bekend. */
 var GEZIEN_DEEL = 0.5, GEZIEN_MS = 1000;
 function bepaalNieuw(){
   var run = app.dataset.run, sessieSleutel = 'funda_rapport_nieuw_' + run, bron = 'run';
@@ -76,7 +74,7 @@ function markeerGezien(id){
   if(!opslag.gezien) opslag.gezien = [];
   if(opslag.gezien.indexOf(id) < 0){ opslag.gezien.push(id); schrijf(opslag); }
 }
-/* In beeld: de helft van de kaart, of bij een open kaart hoger dan het scherm de helft van het scherm. */
+/* In beeld: half de kaart, of bij een kaart hoger dan het scherm half het scherm. */
 function volgGezien(teVolgen){
   var klokken = {};
   volgGezien.stop = function(){ for(var id in klokken){ clearTimeout(klokken[id]); } klokken = {}; };
@@ -97,7 +95,7 @@ function volgGezien(teVolgen){
   $$('.woning').forEach(function(k){ if(teVolgen.indexOf(k.dataset.id) >= 0) io.observe(k); });
 }
 volgGezien.stop = function(){};
-/* Wat onder de vaste top- en onderbalk valt, telt niet als in beeld. */
+/* Onder de top- en onderbalk is niet in beeld. */
 function balkMarge(){
   function hg(sel){ var el = $(sel); return el ? Math.round(el.getBoundingClientRect().height) : 0; }
   return '-' + hg('.app-top') + 'px 0px -' + hg('.app-onder') + 'px 0px';
@@ -122,9 +120,9 @@ function past(w){
   return true;
 }
 
-/* Zonder vraagprijs altijd achteraan, bij elke sortering. */
+/* Zonder vraagprijs altijd achteraan, bij elke sortering (ook een veiling op PAST NIET). */
 function onbekendAchter(f){
-  return function(a,b){ return ((a.poort==='PRIJS ONBEKEND')-(b.poort==='PRIJS ONBEKEND')) || f(a,b); };
+  return function(a,b){ return (!(a.prijs>0)-!(b.prijs>0)) || f(a,b); };
 }
 var SORT = {
   aanbevolen: function(a,b){ return (POORT_RANG[a.poort]-POORT_RANG[b.poort]) || ((a.twijfel?1:0)-(b.twijfel?1:0)) || (b.score-a.score); },
@@ -141,7 +139,7 @@ function toepassen(){
   var gegroepeerd = stand.sort === 'aanbevolen';
   var bakken = {nieuw: $('#nieuw .kaarten'), plat: $('#plat .kaarten')};
   $$('.groep').forEach(function(g){ bakken[g.dataset.poort] = $('.kaarten', g); });
-  // alle kaarten eerst terug in een parkeerplek, dan opnieuw verdelen
+  // alle kaarten terug naar #park, dan opnieuw verdelen
   var park = $('#park');
   $$('.woning').forEach(function(k){ park.appendChild(k); });
   var tel = {nieuw:0, plat:0};
@@ -312,12 +310,12 @@ function naarKaart(cardId){
   el.classList.add('is-uitgelicht'); setTimeout(function(){ el.classList.remove('is-uitgelicht'); }, 1800);
 }
 
-/* Vergelijken: bewaarde woningen naast elkaar, alleen beslisinfo */
-function vulVergelijk(){
-  var ws = opslag.bewaard.map(woningVan).filter(Boolean);
+/* Vergelijken. Zonder scenario's geen rij Financiering; per woning zonder: het poortwoord. */
+function vergelijkHtml(ws){
+  var sc = ws.some(function(w){ return w.scenario_tekst; });
   var rijen = [
     ['Status', function(w){ return esc(w.status_kort); }],
-    ['Financiering', function(w){ return w.scenario_tekst ? esc(finTekst(w.scenario_tekst)) : 'onbekend'; }],
+    sc && ['Financiering', function(w){ return esc(w.scenario_tekst ? finTekst(w.scenario_tekst) : String(w.status_kort||'').split(' · ')[0]); }],
     ['Woonlasten', function(w){ return w.netto==null ? 'onbekend' : eur(w.netto) + ' netto per maand'; }, 'netto', -1],
     ['Vraagprijs', function(w){ return w.prijs ? eur(w.prijs) : 'op aanvraag'; }, 'prijs', -1],
     ['Score', function(w){ return w.score_tekst; }, 'score', 1],
@@ -326,7 +324,7 @@ function vulVergelijk(){
     ['Sterkste plus', function(w){ return esc(w.top_plus || 'geen'); }],
     ['Sterkste let op', function(w){ return esc(w.top_let_op || 'geen'); }],
     ['Buurt', function(w){ return esc(w.buurt); }]
-  ];
+  ].filter(Boolean);
   var h = '<thead><tr><th scope="col"><span class="vh">Kenmerk</span></th>' +
     ws.map(function(w){ return '<th scope="col">' + esc(w.titel) + '</th>'; }).join('') + '</tr></thead><tbody>';
   rijen.forEach(function(r){
@@ -340,8 +338,10 @@ function vulVergelijk(){
       return '<td' + (b ? ' class="beste"' : '') + '>' + r[1](w) + '</td>';
     }).join('') + '</tr>';
   });
-  $('#vergelijk-tabel').innerHTML = h + '</tbody>';
+  return h + '</tbody>';
 }
+
+function vulVergelijk(){ $('#vergelijk-tabel').innerHTML = vergelijkHtml(opslag.bewaard.map(woningVan).filter(Boolean)); }
 
 /* Kaart: Leaflet, pins naar poort, nieuw als ring. Lazy: pas bij openen (mobiel). */
 function startKaart(){
@@ -394,6 +394,7 @@ function tekenPins(ws, passen){
 window.fundaRapportInit = init;
 // Sorteren zonder DOM (tests)
 window.fundaRapportSorteer = function(lijst, sleutel){ return lijst.slice().sort(SORT[sleutel] || SORT.aanbevolen); };
+window.fundaRapportVergelijk = vergelijkHtml;
 window.fundaAfterReportLoad = init;
 window.fundaRapportZetView = function(v){ zetView(v); };
 if(document.readyState !== 'loading') init(); else document.addEventListener('DOMContentLoaded', init);

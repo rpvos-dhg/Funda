@@ -551,13 +551,87 @@ def test_robots() -> bool:
                 all("robots" in (x["geluid"]["reden"] or "") for x in uit.values()))
     web2 = NepWeb(ws)
     web2.robots["data.rivm.nl"] = (200, b"User-agent: *\nDisallow: /geo/\n")
-    v.verrijk(ws, cache, cfg(), dag(2), http=web2, ua=UA, log=STIL)
-    ok &= check("robots.txt 30 dagen gecacht", web2.aantal("data.rivm.nl") == 0)
+    v.verrijk(ws, cache, cfg(), VANDAAG, http=web2, ua=UA, log=STIL)
+    ok &= check("robots.txt zelfde dag uit de cache", web2.aantal("data.rivm.nl") == 0)
+    web2b = NepWeb(ws)
+    web2b.robots["data.rivm.nl"] = (200, b"User-agent: *\nDisallow: /geo/\n")
+    v.verrijk(ws, cache, cfg(), dag(1), http=web2b, ua=UA, log=STIL)
+    ok &= check("robots.txt volgende dag opnieuw (één keer)", web2b.aantal("data.rivm.nl") == 1
+                and web2b.aantal("data.rivm.nl", "/robots.txt") == 1)
     web3 = NepWeb(ws)
     web3.robots["api.pdok.nl"] = (503, b"")
     uit3 = v.verrijk(ws, {}, cfg(), VANDAAG, http=web3, ua=UA, log=STIL)
     ok &= check("robots.txt met 5xx: host deze run niet gebruiken", web3.aantal("api.pdok.nl") == 1
                 and {x["bag"]["status"] for x in uit3.values()} == {"onbekend"})
+    return ok
+
+
+def test_robots_een_dag() -> bool:
+    """RFC 9309 par. 2.4: een gecachete robots.txt hooguit 24 uur gebruiken, tenzij hij onbereikbaar
+    is. Eindreview: de cache hield hem 30 dagen vers, dus een nieuwe 'Disallow: /' werd tot een maand
+    lang genegeerd. Nu: vers op de dag van ophalen; de laatste goede versie (hooguit 30 dagen) alleen
+    als terugval bij een time-out of 5xx. Een weigering (401/403/429) is geen onbereikbaarheid."""
+    print("robots.txt hooguit een dag gecacht, 30 dagen alleen als terugval bij onbereikbaar")
+    url = "https://data.rivm.nl/geo/alo/wms?service=WMS&request=GetFeatureInfo"
+    robots = "https://data.rivm.nl/robots.txt"
+
+    def web(antwoord):
+        calls: list[str] = []
+
+        def http(u, timeout=None, headers=None):
+            calls.append(u)
+            if u.endswith("/robots.txt"):
+                if isinstance(antwoord, Exception):
+                    raise antwoord
+                return antwoord
+            return 200, b"{}"
+        return http, calls
+
+    def poging(cache, n, antwoord, keer=1, **kw):
+        http, calls = web(antwoord)
+        s = v.Sessie(cache, dag(n), http=http, ua=UA, pauze_s=0, **kw)
+        uit = []
+        for _ in range(keer):
+            try:
+                s.haal_json(url)
+                uit.append("ok")
+            except v.BronFout as exc:
+                uit.append(f"gestopt: {exc}")
+        return uit, calls
+
+    def alles_mag() -> dict:   # gisteren gemeten: geen regels
+        c: dict = {}
+        v.cache_schrijf(c, "robots", "data.rivm.nl", VANDAAG, data={"regels": []})
+        return c
+
+    verbiedt = (200, b"User-agent: *\nDisallow: /\n")
+    ok = True
+    uit, calls = poging(alles_mag(), 0, verbiedt)
+    ok &= check("zelfde dag: uit de cache", uit == ["ok"] and calls == [url], str(calls))
+    uit, calls = poging(alles_mag(), 1, verbiedt)
+    ok &= check("volgende dag: robots.txt opnieuw, nieuw verbod geldt meteen",
+                calls == [robots] and uit == ["gestopt: robots.txt staat dit pad niet toe"], f"{uit} {calls}")
+    uit, calls = poging(alles_mag(), 1, verbiedt, robots_dagen=30)
+    ok &= check("robots_dagen 30 uit een oude config: toch hooguit een dag", calls == [robots], str(calls))
+    ok &= check("standaard in de config: 1 dag", v.STANDAARD["bewaar_dagen"]["robots"] == 1)
+
+    c = alles_mag()
+    uit, calls = poging(c, 10, (503, b""), keer=3)
+    ok &= check("onbereikbaar (503): laatste goede versie als terugval, één robots-verzoek per run",
+                uit == ["ok"] * 3 and calls == [robots, url, url, url], f"{uit} {calls}")
+    ok &= check("terugval laat de goede versie in de cache staan",
+                c["robots"]["data.rivm.nl"] == {"fetched": VANDAAG, "data": {"regels": []}}, str(c["robots"]))
+    uit, calls = poging(alles_mag(), 10, TimeoutError("nep"))
+    ok &= check("onbereikbaar (time-out): ook de terugval", uit == ["ok"] and calls == [robots, url], f"{uit} {calls}")
+    uit, calls = poging(alles_mag(), 31, (503, b""))
+    ok &= check("terugval ouder dan 30 dagen: host deze run niet gebruiken",
+                calls == [robots] and uit[0].startswith("gestopt"), f"{uit} {calls}")
+    uit, calls = poging(alles_mag(), 1, (403, b""))
+    ok &= check("weigering (403) is geen onbereikbaarheid: geen terugval",
+                calls == [robots] and uit[0].startswith("gestopt"), f"{uit} {calls}")
+    uit, calls = poging({}, 0, (503, b""))
+    ok &= check("zonder eerdere versie: 503 stopt de host, zoals voorheen",
+                calls == [robots] and uit[0].startswith("gestopt"), f"{uit} {calls}")
     return ok
 
 
@@ -686,7 +760,7 @@ def test_doorverwijzing() -> bool:
 
 def main() -> int:
     resultaten = [test_parsers(), test_gray_index(), test_volledige_run(), test_bron_faalt(), test_weigering(),
-                  test_fout_opnieuw(), test_allowlist(), test_budget(), test_uit(), test_signalen(), test_robots(),
+                  test_fout_opnieuw(), test_allowlist(), test_budget(), test_uit(), test_signalen(), test_robots(), test_robots_een_dag(),
                   test_log(), test_bag_matching(), test_vorm(), test_ua(), test_doorverwijzing()]
     print()
     if all(resultaten):

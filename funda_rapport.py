@@ -7,7 +7,7 @@ Per woning, in deze volgorde:
 3. een voorlopige beoordeling uit funda_beoordeling (poort, score, uitleg);
 4. de verrijking uit open bronnen (funda_verrijking: BAG, Klimaateffectatlas, RIVM-geluid,
    Leefbaarometer, RIVM-gezondheidsmonitor), Past en Krap eerst, binnen een budget;
-5. de definitieve beoordeling met die verrijking, gesorteerd op (poort, twijfel, -score).
+5. de definitieve beoordeling met die verrijking, gesorteerd op (geen vraagprijs, poort, twijfel, -score).
 
 De rente komt uit funda_rente (handmatig in de config, anders ASN, anders DNB, anders een
 standaardwaarde). Rente en verrijking zijn fail-soft: een fout daar geeft "onbekend" of de
@@ -544,7 +544,7 @@ def bouw_rij(d: dict, details: dict | None, routes: list[dict] | None = None, *,
 
 
 def sorteer_rijen(rijen: list[dict]) -> list[dict]:
-    """(poort, twijfel, -score), in place: zelfde sleutel als 'Aanbevolen' in de UI."""
+    """(geen vraagprijs, poort, twijfel, -score), in place: zelfde sleutel als 'Aanbevolen' in de UI."""
     return funda_beoordeling.sorteer(rijen)
 
 

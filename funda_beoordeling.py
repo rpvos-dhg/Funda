@@ -972,11 +972,18 @@ def _feitelijk(t: str, patroon: str) -> bool:
     return False
 
 
+# Een ontkenning hoort alleen bij 'erfpacht' als hij er direct vóór staat, hooguit met een lidwoord
+# of 'belast met', 'in', 'op', 'sprake van' ertussen: 'geen erfpacht', 'zonder erfpacht', 'niet belast
+# met (de) erfpacht', 'niet in erfpacht', 'geen sprake van erfpacht'. Niet: 'niet in eigendom maar in
+# erfpacht', 'Geen VvE-bijdrage, wel erfpacht', 'Niet afgekocht: erfpacht loopt tot 2045'.
+_ERFPACHT_ONTKEND = re.compile(r"\b(?:geen|niet|zonder)\s+(?:(?:belast\s+met|in|op|sprake\s+van)\s+)?"
+                               r"(?:(?:de|het|een)\s+)?$")
+
+
 def _erfpacht_genoemd(t: str) -> bool:
-    """'erfpacht' in de tekst, maar niet ontkend ('geen erfpacht', 'niet belast met erfpacht', 'zonder erfpacht')."""
+    """'erfpacht' in de tekst, maar niet direct ontkend ('geen erfpacht', 'niet belast met erfpacht')."""
     for m in re.finditer(r"erfpacht", t):
-        zinsdeel = re.split(r"[,:]", _zinsdeel_voor(t, m.start(), 25))[-1]
-        if not re.search(r"\b(?:geen|niet|zonder)\b", zinsdeel):
+        if not _ERFPACHT_ONTKEND.search(t[max(0, m.start() - 40):m.start()]):
             return True
     return False
 
@@ -1792,14 +1799,27 @@ def uitleg_regel(score: float, onderdelen: dict, n_onbekend: int, max_len: int =
 # ---------------------------------------------------------------------------------------
 # Sortering en logging
 # ---------------------------------------------------------------------------------------
+def _geen_vraagprijs(rij: dict, b: dict) -> bool:
+    """Geen vraagprijs: 'prijs_onbekend' van de rapportrij, anders financiering.koopsom None, anders de poort."""
+    if "prijs_onbekend" in rij:
+        return bool(rij["prijs_onbekend"])
+    fin = b.get("financiering")
+    if isinstance(fin, dict) and "koopsom" in fin:
+        return fin.get("koopsom") is None
+    return b.get("poort") == "PRIJS ONBEKEND"
+
+
 def sorteer_sleutel(rij: dict) -> tuple:
-    """(poort_rang, twijfel, -score). Werkt op een rapportrij (met 'beoordeling') of op de beoordeling zelf."""
+    """(geen vraagprijs, poort_rang, twijfel, -score). Werkt op een rapportrij (met 'beoordeling') of op
+    de beoordeling zelf. Zonder vraagprijs altijd achteraan, ook als een harde eis (veiling) de woning
+    op PAST NIET zet."""
     b = rij.get("beoordeling") if isinstance(rij.get("beoordeling"), dict) else rij
-    return (POORT_RANG.get(b.get("poort"), len(POORT_RANG)), bool(b.get("twijfel")), -float(b.get("score") or 0))
+    return (_geen_vraagprijs(rij, b), POORT_RANG.get(b.get("poort"), len(POORT_RANG)), bool(b.get("twijfel")),
+            -float(b.get("score") or 0))
 
 
 def sorteer(rijen: list[dict]) -> list[dict]:
-    """Poort, dan twijfel onderaan binnen de poort, dan score aflopend. Sorteert in place."""
+    """Zonder vraagprijs achteraan, dan poort, twijfel onderaan binnen de poort, score aflopend. In place."""
     rijen.sort(key=sorteer_sleutel)
     return rijen
 

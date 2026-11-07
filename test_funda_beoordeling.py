@@ -689,8 +689,57 @@ def test_erfpacht_fixronde() -> bool:
     return ok
 
 
+# Eindreview: een ontkenning telt alleen als hij direct vóór 'erfpacht' staat. 'Niet in eigendom
+# maar in erfpacht' is erfpacht; het 'niet' hoort bij 'eigendom'. FICTIEVE advertentiezinnen.
+ERFPACHT_ONTKENNING = [   # (zin, (status, canon_jaar, eind))
+    ("De grond is niet in eigendom maar in erfpacht bij de gemeente Den Haag, canon € 1.200 per jaar.",
+     ("erfpacht_onduidelijk", 1200, None)),
+    ("Geen VvE-bijdrage, wel erfpacht.", ("erfpacht_onduidelijk", None, None)),
+    ("Niet afgekocht: erfpacht loopt tot 2045.", ("erfpacht_onduidelijk", None, None)),
+    ("Geen lift aanwezig en erfpacht canon € 412 per jaar.", ("erfpacht_onduidelijk", 412, None)),
+    ("De VvE is niet groot en erfpacht canon bedraagt € 1.250 per jaar.", ("erfpacht_onduidelijk", 1250, None)),
+    ("Geen eigen grond maar erfpacht, canon € 500 per jaar.", ("erfpacht_onduidelijk", 500, None)),
+    ("Niet op eigen grond maar erfpacht van de gemeente, canon € 500 per jaar.", ("erfpacht_onduidelijk", 500, None)),
+    # Echte ontkenningen blijven eigen grond.
+    ("Het appartement staat op eigen grond, geen erfpacht.", ("eigen", None, None)),
+    ("Het appartement is niet belast met erfpacht.", ("eigen", None, None)),
+    ("Het appartement is niet belast met de erfpacht van de gemeente.", ("eigen", None, None)),
+    ("Appartement zonder erfpacht.", ("eigen", None, None)),
+    ("De grond is niet in erfpacht uitgegeven.", ("eigen", None, None)),
+    ("Er is geen sprake van erfpacht.", ("eigen", None, None)),
+    ("Geen erfpachtcanon, de grond is van de VvE.", ("eigen", None, None)),
+]
+
+
+def test_erfpacht_ontkenning() -> bool:
+    print("test: erfpacht (ontkenning alleen direct ervoor: 'niet in eigendom maar in erfpacht' is erfpacht)")
+    ok = True
+    fout = []
+    for zin, v in ERFPACHT_ONTKENNING:
+        i = fb.erfpacht({}, zin)
+        if (i["status"], i["canon_jaar"], i["eind"]) != v:
+            fout.append((zin, i))
+    ok &= check(f"{len(ERFPACHT_ONTKENNING) - len(fout)}/{len(ERFPACHT_ONTKENNING)} zinnen goed", not fout, str(fout[:3]))
+
+    # Door het hele model, zonder kenmerk 'Eigendomssituatie': de canon blijft in de woonlasten.
+    fx = _fixture()
+    profiel = fx["meta"]["profiel"]
+    cfg = fb.laad_config(dict(profiel, beoordeling={"max_woonlasten_netto": GRENS_FICTIEF}))
+    w = next(x for x in fx["woningen"] if x["fixture"]["id"] == "w02")
+    d, details, routes, twijfel = invoer(w, fx)
+    ch = {k: v for k, v in (d.get("characteristics") or {}).items() if k != "Eigendomssituatie"}
+    d = dict(d, characteristics=ch,
+             description="De grond is niet in eigendom maar in erfpacht bij de gemeente Den Haag, canon € 1.200 per jaar.")
+    b = fb.beoordeel(d, d, routes, twijfel, profiel, cfg, _verrijking("w02"), vandaag=VANDAAG)
+    canon = b["financiering"]["opbouw"].get("canon_maand") or 0
+    ok &= check("canon € 100 per maand in de woonlasten", round(canon) == 100, str(canon))
+    ok &= check("geen pluspunt 'eigen grond'",
+                not any(i["onderdeel"] == "erfpacht" for i in b["pluspunten"]), str(b["pluspunten"]))
+    return ok
+
+
 def test_sortering() -> bool:
-    print("test: sortering (poort, twijfel, -score)")
+    print("test: sortering (geen vraagprijs, poort, twijfel, -score)")
     ok = True
     rijen = [
         {"id": "a", "beoordeling": {"poort": "KRAP", "twijfel": [], "score": 9.0}},
@@ -705,6 +754,21 @@ def test_sortering() -> bool:
     ok &= check("POORT_RANG", fb.POORT_RANG == {"PAST": 0, "KRAP": 1, "PAST NIET": 2, "PRIJS ONBEKEND": 3})
     kaal = [r["beoordeling"] for r in rijen]
     ok &= check("werkt ook op de beoordeling zelf", [fb.sorteer_sleutel(b) for b in kaal] == [fb.sorteer_sleutel(r) for r in rijen])
+    # Eindreview: zonder vraagprijs altijd achteraan, ook als een harde eis (veiling) hem op PAST NIET zet.
+    zonder = {"koopsom": None, "netto": None}
+    met = {"koopsom": 250000, "netto": 1300}
+    rijen2 = [
+        {"id": "veiling", "beoordeling": {"poort": "PAST NIET", "twijfel": [], "score": 5.0, "financiering": zonder}},
+        {"id": "gewoon", "beoordeling": {"poort": "PAST NIET", "twijfel": [], "score": 3.5, "financiering": met}},
+        {"id": "onbekend", "beoordeling": {"poort": "PRIJS ONBEKEND", "twijfel": [], "score": 9.9, "financiering": zonder}},
+        {"id": "past", "beoordeling": {"poort": "PAST", "twijfel": ["Twijfelbuurt X (jouw lijst)."], "score": 1.0,
+                                       "financiering": met}},
+        # Rapportrij (funda_rapport.bouw_rij): prijs_onbekend gaat voor.
+        {"id": "rij", "prijs_onbekend": True, "beoordeling": {"poort": "PAST NIET", "twijfel": [], "score": 9.0}},
+    ]
+    volg2 = [r["id"] for r in fb.sorteer(rijen2)]
+    ok &= check("zonder vraagprijs achteraan, ook op PAST NIET door een harde eis",
+                volg2 == ["past", "gewoon", "rij", "veiling", "onbekend"], str(volg2))
     return ok
 
 
@@ -949,7 +1013,7 @@ def main() -> int:
         schrijf_verwacht()
         return 0
     resultaten = [test_leentoets(), test_kosten_koper_en_koopsom(), test_scenarios(), test_rente(), test_poort(),
-                  test_harde_eisen(), test_score(), test_parsers(), test_erfpacht_fixronde(), test_sortering(), test_contract(),
+                  test_harde_eisen(), test_score(), test_parsers(), test_erfpacht_fixronde(), test_erfpacht_ontkenning(), test_sortering(), test_contract(),
                   test_geen_bevolkingskenmerken(), test_verrijking_vormen(), test_rommelige_invoer(), test_fixture_verwachting(),
                   test_log_kenmerk_labels(), test_kansen_en_info(), test_import_zonder_personal()]
     print()

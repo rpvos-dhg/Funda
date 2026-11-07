@@ -18,7 +18,9 @@ Regels (CLAUDE.md, huisverklikker.md par. 2):
 - Al het netwerk loopt via één injecteerbare functie `http(url, timeout=, headers=)`
   die `(status, body_bytes)` teruggeeft; de tests geven een nep-functie mee.
 - Eerlijke user-agent (`EERLIJKE_UA` uit funda_zoek, of als parameter), time-outs,
-  sequentieel met een pauze, robots.txt per host eerst (30 dagen gecacht).
+  sequentieel met een pauze, robots.txt per host eerst. Vers op de dag van ophalen (RFC 9309
+  par. 2.4: hooguit 24 uur); de laatste goede versie (hooguit 30 dagen) alleen als terugval
+  wanneer robots.txt onbereikbaar is (time-out of 5xx).
 - Per host stoppen bij 401/403/429/5xx. Een weigering wordt nooit omzeild: geen andere
   user-agent, host of client. Na een weigering blijft de host een dag dicht.
 - Budget per run (standaard 60 verzoeken). Past en Krap eerst, daarna op score.
@@ -122,8 +124,13 @@ STANDAARD = {
     "fout_opnieuw_na_dagen": 1,
     "fouten_op_rij_stop": 3,
     "bewaar_dagen": {"bag": 180, "fundering": 365, "geluid": 365, "buurtcode": 365, "leefbaarometer": 30,
-                     "tevredenheid": 90, "robots": 30},
+                     "tevredenheid": 90, "robots": 1},
 }
+# RFC 9309 par. 2.4: een gecachete robots.txt niet langer dan 24 uur gebruiken, tenzij hij onbereikbaar
+# is. Vers = opgehaald op dezelfde dag (twee runs per dag: hooguit één verzoek per host per dag).
+# Onbereikbaar (time-out, 5xx): de laatste goede versie, hooguit ROBOTS_TERUGVAL_DAGEN oud.
+ROBOTS_DAGEN = 1
+ROBOTS_TERUGVAL_DAGEN = 30
 # Zelfde waarden als beoordeling-onderzoek/model_config.json (sleutel drempels), met _herkomst daar.
 DREMPELS = {
     "vve_klein_max_woningen": 4,
@@ -376,7 +383,8 @@ class Sessie:
 
     def __init__(self, cache: dict, vandaag, http=None, ua: str | None = None, max_verzoeken: int = 60,
                  timeout_s: float = 10, pauze_s: float = 0.25, fout_opnieuw_na_dagen: int = 1,
-                 fouten_op_rij_stop: int = 3, robots_dagen: int = 30, slaap=time.sleep):
+                 fouten_op_rij_stop: int = 3, robots_dagen: int = ROBOTS_DAGEN,
+                 robots_terugval_dagen: int = ROBOTS_TERUGVAL_DAGEN, slaap=time.sleep):
         self.cache = cache
         self.vandaag = _datum(vandaag).isoformat()
         self.http = http or standaard_http
@@ -387,7 +395,10 @@ class Sessie:
         self.pauze_s = pauze_s
         self.fout_opnieuw_na_dagen = fout_opnieuw_na_dagen
         self.fouten_op_rij_stop = fouten_op_rij_stop
-        self.robots_dagen = robots_dagen
+        # Nooit langer dan een dag, ook niet met een oude config (bewaar_dagen.robots 30); 0 = elke run.
+        self.robots_dagen = max(0, min(int(robots_dagen), ROBOTS_DAGEN))
+        self.robots_terugval_dagen = int(robots_terugval_dagen)
+        self.robots_run: dict[str, list] = {}       # host -> regels, deze run (één robots-verzoek per host)
         self.slaap = slaap
         self.gedaan = 0
         self.per_host: Counter = Counter()          # (host, status) -> aantal
@@ -420,25 +431,57 @@ class Sessie:
         self.per_host[(host, status)] += 1
         return status, body or b""
 
-    def _robots_ok(self, host: str, pad: str) -> None:
-        data, st = cache_lees(self.cache, "robots", host,
-                              {"fout_opnieuw_na_dagen": self.fout_opnieuw_na_dagen,
-                               "bewaar_dagen": {"robots": self.robots_dagen}}, self.vandaag)
-        if st == "fout_vers":
-            raise HostGestopt("robots.txt was niet te lezen")
-        if st != "vers":
+    def _robots_regels(self, host: str) -> list:
+        """De regels voor host: uit deze run, vers uit de cache (zelfde dag) of opnieuw opgehaald.
+
+        Onbereikbaar (time-out of 5xx) met een goede versie van hooguit robots_terugval_dagen oud:
+        die versie, en de cache blijft zoals hij was (de volgende run probeert het opnieuw). Een
+        weigering (401/403/429) is geen onbereikbaarheid: de host stopt, zonder terugval."""
+        if host in self.robots_run:
+            return self.robots_run[host]
+        e = (self.cache.get("robots") or {}).get(host)
+        dagen, oud = None, None
+        if isinstance(e, dict) and e.get("fetched"):
+            try:
+                dagen = _dagen(e["fetched"], self.vandaag)
+            except ValueError:
+                dagen = None
+        if dagen is not None and e.get("fout"):
+            if dagen < self.fout_opnieuw_na_dagen:
+                raise HostGestopt("robots.txt was niet te lezen")
+        elif dagen is not None and isinstance(e.get("data"), dict):
+            regels = e["data"].get("regels") or []
+            if 0 <= dagen < self.robots_dagen:
+                self.robots_run[host] = regels
+                return regels
+            if 0 <= dagen <= self.robots_terugval_dagen:
+                oud = regels
+        try:
             status, body = self._verzoek(f"https://{host}/robots.txt", "text/plain")
-            if status == 200:
-                regels = robots_regels(body.decode("utf-8", "replace"))
-            elif 400 <= status < 500 and status not in (401, 403, 429):
-                regels = []                       # geen robots.txt: alles toegestaan
-            else:
-                cache_schrijf(self.cache, "robots", host, self.vandaag, fout=f"status {status}")
-                self.dicht[host] = f"robots.txt gaf status {status}"
-                raise HostGestopt(self.dicht[host])
-            data = {"regels": regels}
-            cache_schrijf(self.cache, "robots", host, self.vandaag, data=data)
-        if not robots_mag((data or {}).get("regels") or [], pad):
+        except HostGestopt:
+            raise
+        except BronFout:
+            if oud is None:
+                raise
+            self.robots_run[host] = oud              # onbereikbaar: de laatste goede versie
+            return oud
+        if status == 200:
+            regels = robots_regels(body.decode("utf-8", "replace"))
+        elif 400 <= status < 500 and status not in (401, 403, 429):
+            regels = []                       # geen robots.txt: alles toegestaan
+        elif status >= 500 and oud is not None:
+            self.robots_run[host] = oud              # onbereikbaar: de laatste goede versie
+            return oud
+        else:
+            cache_schrijf(self.cache, "robots", host, self.vandaag, fout=f"status {status}")
+            self.dicht[host] = f"robots.txt gaf status {status}"
+            raise HostGestopt(self.dicht[host])
+        cache_schrijf(self.cache, "robots", host, self.vandaag, data={"regels": regels})
+        self.robots_run[host] = regels
+        return regels
+
+    def _robots_ok(self, host: str, pad: str) -> None:
+        if not robots_mag(self._robots_regels(host), pad):
             self.dicht[host] = "robots.txt staat dit pad niet toe"
             raise HostGestopt(self.dicht[host])
 
@@ -1059,7 +1102,7 @@ def verrijk(woningen: list[dict], cache: dict, cfg: dict | None, vandaag, http=N
                     timeout_s=float(vcfg["timeout_s"]), pauze_s=float(vcfg["pauze_s"]),
                     fout_opnieuw_na_dagen=int(vcfg["fout_opnieuw_na_dagen"]),
                     fouten_op_rij_stop=int(vcfg.get("fouten_op_rij_stop", 3)),
-                    robots_dagen=int(vcfg["bewaar_dagen"].get("robots", 30)), slaap=slaap)
+                    robots_dagen=int(vcfg["bewaar_dagen"].get("robots", ROBOTS_DAGEN)), slaap=slaap)
     uit: dict[str, dict] = {}
     for i in sorted(range(len(woningen)), key=lambda j: prioriteit(woningen[j])):
         try:

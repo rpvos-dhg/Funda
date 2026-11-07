@@ -579,61 +579,100 @@ def test_twijfel_naar_rapport() -> bool:
 
 
 def test_vul_summary_aan() -> bool:
-    """Na het rapport: status en score per nieuwe woning in de run-samenvatting, voor de push."""
-    print("test: vul_summary_aan vult status en score aan, en laat het bestand anders intact")
+    """Na het rapport: poortwoord en score per nieuwe woning in de run-samenvatting, voor de push.
+
+    Eindreview: de statusregel bevat bedragen die van het profiel afhangen ('€ 65 onder de norm
+    (bruto)' geeft met de publieke code het bruto inkomen terug, '€ 26.610 eigen geld te weinig'
+    het eigen geld). In de samenvatting komt daarom alleen `status_push`: het poortwoord."""
+    print("test: vul_summary_aan zet poortwoord en score, geen bedragen, en laat het bestand anders intact")
     fz = maak_stub_funda(lambda _n: [])
     basis = {"city": "Den Haag", "neighbourhood": "Bomenbuurt", "living_area": 60, "energy_label": "C"}
     a = {**basis, "global_id": 11, "title": "Teststraat 11", "price": 250000}
     b = {**basis, "global_id": 12, "title": "Teststraat 12", "price": None}
-    fz.schrijf_run_summary([a, b], [], [])
+    c = {**basis, "global_id": 13, "title": "Teststraat 13", "price": 265000}
+    d = {**basis, "global_id": 14, "title": "Teststraat 14", "price": 240000}
+    e = {**basis, "global_id": 15, "title": "Teststraat 15", "price": 230000}
+    fz.schrijf_run_summary([a, b, c, d, e], [], [])
     voor = fz.SUMMARY_FILE.read_bytes()
     ok = check("zonder beoordeling: 0 aangevuld en bestand ongewijzigd",
-               fz.vul_summary_aan([a, b]) == 0 and fz.SUMMARY_FILE.read_bytes() == voor)
+               fz.vul_summary_aan([a, b, c, d, e]) == 0 and fz.SUMMARY_FILE.read_bytes() == voor)
+    # FICTIEF: statusregels in de vorm van funda_beoordeling.status_kort, met bedragen.
     a["_beoordeling"] = {"poort": "PAST", "status_kort": "Past · € 196 onder je grens", "score": 8.333}
     b["_beoordeling"] = {"poort": "PRIJS ONBEKEND", "status_kort": "Prijs onbekend · geen vraagprijs, dus geen leentoets",
                          "score": 6.0}
-    n = fz.vul_summary_aan([a, b])
-    data = json.loads(fz.SUMMARY_FILE.read_text(encoding="utf-8"))
+    c["_beoordeling"] = {"poort": "KRAP", "status_kort": "Krap · € 4 boven de norm (bruto)", "score": 7.2}
+    d["_beoordeling"] = {"poort": "PAST NIET", "status_kort": "Past niet · € 26.610 eigen geld te weinig", "score": 7.4}
+    e["_beoordeling"] = {"status_kort": "Past · € 65 onder de norm (bruto)", "score": 5.0}   # zonder poort
+    n = fz.vul_summary_aan([a, b, c, d, e])
+    tekst = fz.SUMMARY_FILE.read_text(encoding="utf-8")
+    data = json.loads(tekst)
     per = {x["id"]: x for x in data["nieuw"]}
-    ok &= check("twee aangevuld", n == 2, str(n))
-    ok &= check("status en score (1 decimaal)", per["11"].get("status") == "Past · € 196 onder je grens"
+    ok &= check("vijf aangevuld", n == 5, str(n))
+    ok &= check("poortwoord en score (1 decimaal)", per["11"].get("status_push") == "Past"
                 and per["11"].get("score") == 8.3, str(per["11"]))
-    ok &= check("prijs op aanvraag: price blijft null", per["12"]["price"] is None and per["12"]["status"].startswith("Prijs onbekend"))
-    ok &= check("rest van de samenvatting blijft", data["nieuw_count"] == 2 and per["11"]["price"] == 250000)
+    ok &= check("poortwoorden Krap, Past niet, Prijs onbekend",
+                [per[i].get("status_push") for i in ("13", "14", "12")] == ["Krap", "Past niet", "Prijs onbekend"],
+                str([per[i].get("status_push") for i in ("13", "14", "12")]))
+    ok &= check("zonder poort: het poortwoord uit de statusregel", per["15"].get("status_push") == "Past", str(per["15"]))
+    ok &= check("geen statusregel met bedragen in de samenvatting", not any("status" in x for x in data["nieuw"]),
+                str([sorted(x) for x in data["nieuw"]]))
+    ok &= check("nergens een €-teken in de samenvatting", "€" not in tekst, tekst[:200])
+    ok &= check("prijs op aanvraag: price blijft null", per["12"]["price"] is None)
+    ok &= check("rest van de samenvatting blijft", data["nieuw_count"] == 5 and per["11"]["price"] == 250000)
     ok &= check("geen inkomen of eigen geld in de samenvatting",
-                not any(k in json.dumps(data) for k in ("bruto", "inkomen", "eigen_inleg", "eigen geld")))
+                not any(k in tekst for k in ("bruto", "inkomen", "eigen_inleg", "eigen geld", "norm", "grens")))
     fz.SUMMARY_FILE.unlink()
     ok &= check("zonder bestand: geen fout", fz.vul_summary_aan([a]) == 0 and not fz.SUMMARY_FILE.exists())
     return ok
 
 
 def test_pushtekst() -> bool:
-    """scripts/send_web_push.cjs: '<adres>, <stad> · <status> · <score>', anders het oude formaat."""
-    print("test: pushtekst met statusregel en score, oude vorm als terugval")
+    """scripts/send_web_push.cjs: '<adres>, <stad> · <poortwoord> · <score>', nooit een eurobedrag.
+
+    Ook niet bij een oude samenvatting: met `status` (de hele statusregel) blijft alleen het
+    poortwoord over, en zonder beoordeling valt de vraagprijs weg. Als vangnet laat het script
+    elk deel met een €-teken weg."""
+    print("test: pushtekst met poortwoord en score, nooit een eurobedrag (ook niet bij oude samenvattingen)")
     node = shutil.which("node")
     if not node:
         print("  (node niet gevonden; overgeslagen)")
         return True
     script = Path(__file__).parent / "scripts" / "send_web_push.cjs"
     homes = [
-        {"title": "Teststraat 1", "city": "Den Haag", "status": "Past · € 196 onder je grens", "score": 8.3,
+        {"title": "Teststraat 1", "city": "Den Haag", "status_push": "Past", "score": 8.3,
          "price": 265000, "living_area": 68},
         {"title": "Teststraat 2", "city": "Den Haag", "price": 265000, "living_area": 68},
         {"title": "Teststraat 3", "city": "Den Haag", "price": None, "living_area": 70},
         {"title": "Teststraat 4", "city": "Den Haag", "status": "Past · € 0 onder je grens", "score": 7},
+        # Oude samenvattingen (vóór de eindreview): de hele statusregel in `status`.
+        {"title": "Teststraat 5", "city": "Den Haag", "status": "Krap · € 4 boven de norm (bruto)", "score": 7.2},
+        {"title": "Teststraat 6", "city": "Den Haag", "status": "Past niet · € 26.610 eigen geld te weinig", "score": 7.4},
+        {"title": "Teststraat 7", "city": "Den Haag", "status": "Prijs onbekend · geen vraagprijs, dus geen leentoets",
+         "score": 6},
+        # Vangnet: een bedrag in status_push valt ook weg.
+        {"title": "Teststraat 8", "city": "Den Haag", "status_push": "Past · € 196 onder je grens", "score": 8},
+        {"title": "Teststraat 9", "city": "Den Haag", "status_push": "Past niet", "status": "Past niet · € 9.860 eigen geld te weinig"},
     ]
     code = (f"const p = require({json.dumps(str(script))});"
             f"const h = {json.dumps(homes)};"
-            "console.log(JSON.stringify({r: h.map(p.regel), t: p.payloadVoor({nieuw_count: 1, nieuw: h.slice(0, 1)})}));")
+            "console.log(JSON.stringify({r: h.map(p.regel), t: p.payloadVoor({nieuw_count: 1, nieuw: h.slice(0, 1)}),"
+            " b: [0, 3, 6].map(i => p.payloadVoor({nieuw_count: 3, nieuw: h.slice(i, i + 3)}).body)}));")
     uit = subprocess.run([node, "-e", code], capture_output=True, text=True, timeout=30)
     if uit.returncode != 0:
         return check("node draait het script", False, uit.stderr[-300:])
     data = json.loads(uit.stdout)
     r = data["r"]
-    ok = check("nieuwe vorm", r[0] == "Teststraat 1, Den Haag · Past · € 196 onder je grens · 8,3", r[0])
-    ok &= check("oude vorm zonder status", r[1] == "Teststraat 2, Den Haag - € 265.000 - 68 m2", r[1])
-    ok &= check("prijs op aanvraag in de oude vorm", r[2] == "Teststraat 3, Den Haag - prijs op aanvraag - 70 m2", r[2])
-    ok &= check("nooit € 0", r[3] == "Teststraat 4, Den Haag · Past · 7,0" and not any("€ 0" in x for x in r), r[3])
+    ok = check("nieuwe vorm", r[0] == "Teststraat 1, Den Haag · Past · 8,3", r[0])
+    ok &= check("zonder beoordeling: geen vraagprijs", r[1] == "Teststraat 2, Den Haag · 68 m2", r[1])
+    ok &= check("prijs op aanvraag zonder beoordeling", r[2] == "Teststraat 3, Den Haag · prijs op aanvraag · 70 m2", r[2])
+    ok &= check("oude samenvatting: alleen het poortwoord", r[3:7] == [
+        "Teststraat 4, Den Haag · Past · 7,0", "Teststraat 5, Den Haag · Krap · 7,2",
+        "Teststraat 6, Den Haag · Past niet · 7,4", "Teststraat 7, Den Haag · Prijs onbekend · 6,0"], str(r[3:7]))
+    ok &= check("vangnet: deel met € valt weg", r[7] == "Teststraat 8, Den Haag · Past · 8,0", r[7])
+    ok &= check("status_push gaat voor status", r[8] == "Teststraat 9, Den Haag · Past niet", r[8])
+    ok &= check("geen €-teken in een regel", not any("€" in x for x in r), str([x for x in r if "€" in x]))
+    ok &= check("geen €-teken in de body van payloadVoor", not any("€" in x for x in data["b"] + [data["t"]["body"]]),
+                str(data["b"]))
     ok &= check("titel zonder merknaam", data["t"]["title"] == "1 nieuwe woning", data["t"]["title"])
     return ok
 
