@@ -695,6 +695,11 @@ ERFPACHT_ONTKENNING = [   # (zin, (status, canon_jaar, eind))
     ("De grond is niet in eigendom maar in erfpacht bij de gemeente Den Haag, canon € 1.200 per jaar.",
      ("erfpacht_onduidelijk", 1200, None)),
     ("Geen VvE-bijdrage, wel erfpacht.", ("erfpacht_onduidelijk", None, None)),
+    # 'zonder erfpacht' als 'exclusief', met elders een canon: erfpacht, geen eigen grond.
+    ("Servicekosten € 120 per maand (zonder erfpacht). Canon € 350 per jaar.",
+     ("erfpacht_onduidelijk", 350, None)),
+    ("Zonder de erfpacht van € 600 per jaar zijn de maandlasten laag. Canon € 600 per jaar.",
+     ("erfpacht_onduidelijk", 600, None)),
     ("Niet afgekocht: erfpacht loopt tot 2045.", ("erfpacht_onduidelijk", None, None)),
     ("Geen lift aanwezig en erfpacht canon € 412 per jaar.", ("erfpacht_onduidelijk", 412, None)),
     ("De VvE is niet groot en erfpacht canon bedraagt € 1.250 per jaar.", ("erfpacht_onduidelijk", 1250, None)),

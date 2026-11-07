@@ -1000,7 +1000,9 @@ def erfpacht(ch: dict, tekst: str) -> dict:
     lasten = (ch.get("Lasten") or "").lower()
     t = (tekst or "").lower()
     info = {"status": "onbekend", "canon_jaar": None, "eind": None, "bron": "niet vermeld"}
-    erfpacht_in_tekst = _erfpacht_genoemd(t)
+    # Een canon met bedrag betekent erfpacht, ook als 'zonder erfpacht' elders 'exclusief' bedoelt
+    # ('Servicekosten € 120 (zonder erfpacht). Canon € 350 per jaar.'): dan nooit 'eigen grond'.
+    erfpacht_in_tekst = _erfpacht_genoemd(t) or bool(re.search(r"\bcanon\b.{0,60}€|€.{0,40}\bcanon\b", t))
     if eig:
         info["bron"] = "kenmerk 'Eigendomssituatie'"
         if "volle eigendom" in eig:
