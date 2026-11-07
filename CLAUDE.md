@@ -29,8 +29,9 @@ Actions en publiceert het rapport op GitHub Pages.
   Prijs onbekend) met de leentoets 2026 (`data/trhk_2026_tabel1.json`) en de
   scenario's, score 0 tot 10 met uitleg, parsers voor funda's kenmerken. Pure
   functies, geen netwerk.
-- `funda_verrijking.py` (open bronnen per woning) en `funda_rente.py` (actuele
-  hypotheekrente). Fail-soft, met budget, robots.txt en eerlijke user-agent.
+- `funda_verrijking.py` (open bronnen per woning, en de geocoding van postcodes
+  via PDOK) en `funda_rente.py` (actuele hypotheekrente). Fail-soft, met budget,
+  robots.txt en eerlijke user-agent.
 - `funda_ui.py` met `ui/app.css`, `ui/app.js` en `ui/slot.html` - de UI (lijst,
   kaart, sheets) en het slotscherm. Geen import van `funda_rapport`.
 - `.github/workflows/funda-daily.yml` - draait 2x/dag (08:30 en 16:30 UTC =
@@ -43,7 +44,7 @@ Deze leven alleen lokaal en mogen nooit gecommit worden:
 `funda_personal.json` (inkomen, postcodes, de sleutels `beoordeling` en
 `financien`), `funda_pwa_password.txt`,
 `funda_seen_ids.json`, `funda_tracking.json`, `funda_werk_coords.json`,
-`funda_blacklist.json`, `funda_log.txt`.
+`funda_thuis_coords.json`, `funda_blacklist.json`, `funda_log.txt`.
 
 Op GitHub komen dezelfde gegevens uit Secrets: `FUNDA_PERSONAL_JSON` en
 `FUNDA_PWA_PASSWORD`. Optionele PWA push gebruikt `WEB_PUSH_PUBLIC_KEY`,
@@ -124,8 +125,7 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   (`financien.rente.pct` met `datum`; de enige plek). Rentevast staat ook daar
   (`financien.rente.rentevast_jaren`, standaard 10; korter dan 10 jaar = toetsrente
   5%). `funda_rente` leest `cfg["financien"]["rente"]` zelf; er is geen
-  vertaallaag meer. Nominatim en OSRM krijgen ook
-  `EERLIJKE_UA`, zonder naam. Anders het nieuwste ASN-tariefblad (statische
+  vertaallaag meer. Anders het nieuwste ASN-tariefblad (statische
   PDF's in het rentearchief op `www.asnbank.nl`; robots.txt verbiedt daar alleen
   `/web/contentViewCounter`), anders het DNB-cijfer "rente op nieuwe hypotheken"
   via het ECB Data Portal (`data-api.ecb.europa.eu`, `/service/data` toegestaan),
@@ -155,6 +155,38 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   WOZ-waardeloket en KOOP (robots verbiedt het). De RIVM-laagnamen hebben een
   datum (`rivm_20250101_...`); verdwijnt een jaargang, dan wordt geluid
   "onbekend" tot `RIVM_LAGEN` is bijgewerkt.
+- **Geocoding en routes.** Postcodes worden punten via de BAG-collectie `adres`
+  op `api.pdok.nl` (`funda_verrijking.Geocoder`, filter op postcode, het punt
+  van het eerste adres). Dat geldt voor
+  de werkpostcodes (`funda_rapport.get_werk_coords`) en de zoekpostcode
+  (`funda_zoek.thuis_coords`, alleen als het afstandsfilter aan staat). Per
+  postcode gaat de config voor (`werk_coords` als `{postcode: [lat, lon]}`,
+  `thuis_coords` als `[lat, lon]`), dan de bestaande caches
+  `funda_werk_coords.json` en `funda_thuis_coords.json` (vorm
+  `{postcode: [lat, lon]}`, ongewijzigd), dan één poging via PDOK; een gevonden
+  punt blijft voorgoed in die cache. Een eigen `Sessie` met dezelfde regels als
+  de verrijking (robots.txt eerst, `EERLIJKE_UA`, nooit omzeilen) en **één stand
+  voor `api.pdok.nl` per run**: de Geocoder leest `funda_enrichment_cache.json`,
+  een weigering (401/403/429) komt in `verrijking_weigering` en houdt de host een
+  dag dicht voor geocoding én verrijking, een serverfout sluit hem de rest van
+  de run ook voor de verrijking, en robots.txt gaat één keer per run
+  (`genereer_rapport` geeft de stand door: `neem_cache_over` en
+  `Sessie.neem_over`). Een time-out van de geocoding gaat niet mee: dat ene
+  zware verzoek zegt niets over de lichte verzoeken van de verrijking. Traag
+  (gemeten 7 nov 2026 op de postcode van het stadhuis, 4 adressen: `limit=1` in
+  7,7 en 11,3 s, `limit=10` in 36,6 s, `limit=50` in 24 s; met minder adressen
+  dan de limit zoekt de server de hele postcode af), dus `limit=1`, time-out
+  60 s, één poging per postcode per run en na een time-out is de host die run
+  dicht voor de geocoding. Lukt het niet, dan een `::warning::` met alleen
+  aantallen en de reden (nooit de postcode): zonder thuispunt geen afstandsfilter
+  (onbekend = doorlaten, en de sitemaproute haalt dan ook woningen buiten de
+  straal vers op; zet daarom `thuis_coords` in de config), zonder werkpunt geen
+  route en dus "reisafstand onbekend" (geen minpunt). **Bewust niet:**
+  Nominatim (`nominatim.openstreetmap.org`, robots.txt verbiedt `/search`,
+  `/reverse` en `/lookup`; gelezen 7 nov 2026) en de PDOK Locatieserver
+  (robots.txt verbiedt `/bzk/locatieserver/*`). De route zelf komt van OSRM
+  (`router.project-osrm.org`, geen robots.txt; op `/robots.txt` komt een
+  JSON-fout terug), ook met `EERLIJKE_UA`, anders hemelsbreed x 1,3.
 - **Cache.** Alles in het bestaande `funda_enrichment_cache.json`, als secties:
   `price_history`, `market_insights`, `broker` (pyfunda), `bag`, `fundering`,
   `geluid`, `buurtcode`, `leefbaarometer`, `tevredenheid`, `robots`,
@@ -555,9 +587,9 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   - De straal is standaard `snap_straal(radius_km)`, dus 5 bij een ingestelde 6:
     dezelfde waarde die funda's zoekopdracht gebruikte. Instelbaar met
     `straal_nafilter_km` (0 = uit). Thuiscoördinaten komen uit `thuis_coords` in
-    de config of één Nominatim-call, gecacht in `funda_thuis_coords.json`.
-    Lukt geocoderen niet, dan slaat het afstandsfilter over (onbekend =
-    doorlaten) en staat dat in de log.
+    de config of één poging via PDOK, gecacht in `funda_thuis_coords.json` (zie
+    "Geocoding en routes"). Lukt geocoderen niet, dan slaat het afstandsfilter
+    over (onbekend = doorlaten) en staat er een `::warning::` in de log.
 - **Nafilter op woningtype.** `PRIJS_MIN`, `PRIJS_MAX`, `M2_MIN` en
   `object_type` zijn alléén zoekparameters. Staat in de bewaarde zoekopdracht
   "Woonhuis" aangevinkt, dan belandt dat bij de mailroute ongefilterd in het
@@ -803,8 +835,13 @@ python funda_zoek.py --no-open  # zonder browser
   cachesleutel van `price_history`, de waarschuwing bij oude configsleutels en
   de pushtekst (met node, anders overgeslagen; nooit een €-teken, ook niet bij een oude samenvatting), `_sitemap_overslaan` met straal, de workflow-input,
   de publieke log op Actions (`test_publieke_log`: alleen aantallen, lokaal de
-  lijst) en de eerlijke client met statuscodes (in een subproces tegen het echte
-  pyfunda, met een nep-sessie, zonder netwerk).
+  lijst), de geocoding van werk- en zoekpostcode (`test_geocoding`: config gaat
+  voor, de bestaande caches in dezelfde vorm, één poging per run via PDOK, een
+  `::warning::` zonder postcode, nooit Nominatim; in `test_rapport_testdata`: een
+  weigering bij de geocoding laat de verrijking in dezelfde run `api.pdok.nl`
+  overslaan en staat daarna in de cache) en de eerlijke client met
+  statuscodes (in een subproces tegen het echte pyfunda, met een nep-sessie,
+  zonder netwerk).
   `auto_push()` staat in deze tests uit: `main()` eindigt ermee, en een testrun
   mag nooit committen of pushen. De echte `auto_push()` wordt apart getest in
   een tijdelijke repo buiten de projectmap, met een bare repo als remote
@@ -856,7 +893,10 @@ python funda_zoek.py --no-open  # zonder browser
   bronnen en de rente met een nep-HTTP-functie en ingekorte echte antwoorden
   (`testdata/verrijking/`, `testdata/rente/`): fail-soft, robots, weigering stopt
   een host, cache en budget, allowlist, één poging per dag, de standaardrente uit
-  `funda_beoordeling.STANDAARD_RENTE`.
+  `funda_beoordeling.STANDAARD_RENTE`, en de geocoding (`test_geocode`: het
+  gemeten adres-antwoord in `testdata/verrijking/bag_adres_postcode.json`,
+  robots eerst, time-out, weigering en 5xx sluiten de host; `test_geocode_gedeelde_stand`:
+  één stand voor `api.pdok.nl` met de verrijking, in beide richtingen).
 - `python test_funda_pwa.py` - gzip vóór AES en terug (in Python), fout
   wachtwoord, placeholders, geen onversleuteld rapport in CI, service worker v5,
   manifest, slotscherm, iconen in het palet.

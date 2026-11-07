@@ -45,6 +45,8 @@ from funda_sitemap_zoek import (
     publieke_log,
 )
 
+from funda_verrijking import coord_paar
+
 try:
     from funda_rapport import genereer_rapport
 except ImportError:
@@ -665,31 +667,37 @@ _THUIS: dict[str, tuple[float, float] | None] = {}
 def thuis_coords() -> tuple[float, float] | None:
     """Coördinaten van de zoekpostcode, voor het afstandsfilter.
 
-    Volgorde: `thuis_coords` uit de config, dan de cache, dan één Nominatim-call.
-    Lukt dat allemaal niet, dan None: het afstandsfilter slaat dan over in plaats
-    van alles weg te gooien. Eén keer per run opgezocht.
+    Volgorde: `thuis_coords` uit de config, dan funda_thuis_coords.json
+    ({postcode: [lat, lon]}), dan één poging via PDOK (CLAUDE.md, "Geocoding en routes");
+    een gevonden punt komt voorgoed in dat bestand. Staat het afstandsfilter uit,
+    dan geen verzoek. Lukt het niet, dan een ::warning:: en None: het
+    afstandsfilter slaat dan over in plaats van alles weg te gooien. Eén keer per
+    run opgezocht.
     """
     if "v" in _THUIS:
         return _THUIS["v"]
-    resultaat: tuple[float, float] | None = None
-    vast = _PERSONAL.get("thuis_coords")
-    if isinstance(vast, (list, tuple)) and len(vast) == 2:
-        resultaat = (float(vast[0]), float(vast[1]))
-    else:
+    resultaat = coord_paar(_PERSONAL.get("thuis_coords"))
+    if resultaat is None:
         try:
             cache = json.loads(THUIS_CACHE.read_text(encoding="utf-8"))
         except Exception:
             cache = {}
-        if isinstance(cache.get(POSTCODE), list) and len(cache[POSTCODE]) == 2:
-            resultaat = (float(cache[POSTCODE][0]), float(cache[POSTCODE][1]))
-        else:
+        resultaat = coord_paar(cache.get(POSTCODE)) if isinstance(cache, dict) else None
+        if resultaat is None and nafilter_straal_km() is not None:
             try:
-                from funda_rapport import lookup_postcode
-                resultaat = lookup_postcode(POSTCODE)
-            except Exception:
-                resultaat = None
+                from funda_rapport import geocodeer_postcode
+                resultaat, reden = geocodeer_postcode(POSTCODE)
+            except Exception as exc:
+                resultaat, reden = None, f"interne fout ({type(exc).__name__})"
             if resultaat:
-                THUIS_CACHE.write_text(json.dumps({POSTCODE: list(resultaat)}), encoding="utf-8")
+                try:
+                    THUIS_CACHE.write_text(json.dumps({POSTCODE: list(resultaat)}), encoding="utf-8")
+                except Exception as exc:
+                    print(f"Thuiscoördinaten niet bewaard ({type(exc).__name__}).")
+            else:
+                # Zonder postcode in de melding: de Actions-log is publiek.
+                print(log_tekst(f"::warning::Afstandsfilter: zoekpostcode niet te geocoderen via PDOK ({reden}); "
+                                "deze run zonder afstandsfilter. Zet thuis_coords in de config om dit over te slaan."))
     _THUIS["v"] = resultaat
     return resultaat
 

@@ -69,7 +69,7 @@ def main() -> int:
     from funda_sitemap_zoek import SitemapZoeker, in_doelmarkt, parse_datum
 
     fz.PRIJS_MIN, fz.PRIJS_MAX, fz.M2_MIN = PRIJS_MIN, PRIJS_MAX, M2_MIN
-    fz.genereer_rapport = None  # geen rapport, dus ook geen nominatim/OSRM-calls
+    fz.genereer_rapport = None  # geen rapport, dus geen geocoding van werkadressen en geen OSRM-calls
 
     # Alle state naar een tijdelijke map: een validatie mag de echte seen-ids,
     # tracking en run-samenvatting niet aanraken. Anders telt een woning hierna

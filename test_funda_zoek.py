@@ -106,7 +106,7 @@ def maak_stub_funda(zoek_gedrag, details=None, calls=None, faal_na=None):
     # tijdelijke repo.
     fz._echte_auto_push = fz.auto_push
     fz.auto_push = lambda: None
-    # Geen Nominatim in offline tests: zonder thuiscoördinaten slaat het
+    # Geen PDOK-verzoek in offline tests: zonder thuiscoördinaten slaat het
     # afstandsfilter over. Tests die het filter willen, zetten dit zelf.
     fz._THUIS["v"] = None
     for p in (fz.STATE_FILE, fz.TRACKING_FILE, fz.SITEMAP_CACHE_FILE):
@@ -358,7 +358,7 @@ def test_rapport_testdata() -> bool:
     postcodes = [w["listing"]["postcode"] for w in td["woningen"]] + [w["postcode"] for w in td["meta"]["werk"]]
     nieuw_ids = {str(w["listing"]["global_id"]) for w in td["woningen"] if w["fixture"].get("nieuw")}
     oud = {k: getattr(fr, k) for k in ("_PERSONAL", "UITVOER_DIR", "PWA_PASSWORD_FILE", "ENRICHMENT_CACHE",
-                                       "WERK_CACHE", "DETAIL_PAUZE_S", "osrm_route_km")}
+                                       "WERK_CACHE", "DETAIL_PAUZE_S", "osrm_route_km", "GEOCODER")}
     oud_rente, oud_verrijk = funda_rente.huidige_rente, funda_verrijking.verrijk
     oud_env = os.environ.pop("FUNDA_REQUIRE_ENCRYPTION", None)
     verzoeken: list[str] = []
@@ -397,6 +397,16 @@ def test_rapport_testdata() -> bool:
             fr.WERK_CACHE = tmp / "werk.json"
             fr.DETAIL_PAUZE_S = 0
             fr.osrm_route_km = lambda *a: None
+            # De zoekpostcode (fictief) eerder in de run: api.pdok.nl weigert de geocoding met 429.
+            geo_verzoeken: list[str] = []
+
+            def pdok_weigert(url, timeout=None, headers=None):
+                geo_verzoeken.append(url)
+                return (200, b"User-agent: *\nAllow: /\n") if url.endswith("/robots.txt") else (429, b"{}")
+
+            fr.GEOCODER = funda_verrijking.Geocoder(http=pdok_weigert, ua="test-ua/1.0 (+https://example.invalid)",
+                                                    vandaag="2026-11-06", slaap=lambda _s: None, cache={})
+            geo_punt = fr.geocodeer_postcode("1011AB")
 
             ws, log = run(tmp, http=netwerk_stuk, ua="test-ua/1.0 (+https://example.invalid)")
             ok &= check("markdown, HTML en docs/index.html geschreven",
@@ -444,6 +454,12 @@ def test_rapport_testdata() -> bool:
                             for e in cache.get("market_insights", {}).values()))
             ok &= check("rente in het bestaande cachebestand (hooguit één poging per dag)",
                         (cache.get("rente") or {}).get("laatste_poging") == "2026-11-06", str(list(cache)))
+            ok &= check("geocoding geweigerd (429): de verrijking stuurt deze run niets naar api.pdok.nl",
+                        geo_punt[0] is None and len(geo_verzoeken) == 2
+                        and not any("api.pdok.nl" in u for u in verzoeken), str(geo_punt))
+            ok &= check("en die weigering staat in funda_enrichment_cache.json (een dag dicht)",
+                        (cache.get("verrijking_weigering") or {}).get("api.pdok.nl")
+                        == {"datum": "2026-11-06", "status": 429}, str(cache.get("verrijking_weigering")))
 
             def gooi(*a, **k):
                 raise RuntimeError("kapot")
@@ -469,7 +485,7 @@ def test_rapport_testdata() -> bool:
 def test_rapport_rente_cache_ua() -> bool:
     """Rentevast alleen uit financien.rente (de oude plek beoordeling.financiering is weg, en een oude sleutel
     geeft een waarschuwing met alleen de naam), de allowlist op de hele buurtcijfercache, en de eerlijke
-    user-agent voor Nominatim en OSRM. Geen netwerk."""
+    user-agent voor OSRM (die voor PDOK: test_geocoding). Geen netwerk."""
     print("test: rente-instellingen, buurtcijfercache en user-agent van funda_rapport")
     import funda_beoordeling as fb
     import funda_rapport as fr
@@ -594,13 +610,164 @@ def test_rapport_rente_cache_ua() -> bool:
     oud_urlopen = urllib.request.urlopen
     urllib.request.urlopen = lambda req, timeout=None: (gezien.append(req.get_header("User-agent")), Antwoord())[1]
     try:
-        fr.lookup_postcode("1234 AB")
         fr.osrm_route_km(52.0, 4.3, 52.1, 4.4)
     finally:
         urllib.request.urlopen = oud_urlopen
-    ok &= check("Nominatim en OSRM krijgen de eerlijke user-agent met repo-link",
-                len(gezien) == 2 and all(ua == fr._eerlijke_ua() and "github.com/rpvos-dhg/Funda" in ua for ua in gezien),
+    ok &= check("OSRM krijgt de eerlijke user-agent met repo-link",
+                len(gezien) == 1 and all(ua == fr._eerlijke_ua() and "github.com/rpvos-dhg/Funda" in ua for ua in gezien),
                 str(gezien))
+    return ok
+
+
+def test_geocoding() -> bool:
+    """Werk- en thuiscoördinaten (CLAUDE.md, "Geocoding en routes"): de config gaat voor, dan de bestaande cachebestanden
+    in dezelfde vorm ({postcode: [lat, lon]}), dan één poging per run via PDOK BAG. Nooit Nominatim. Mislukt
+    het, dan een ::warning:: zonder postcode, geen route (reisafstand onbekend) en geen afstandsfilter.
+    Geen netwerk: een nep-HTTP-functie in de gemeten vorm (testdata/verrijking/bag_adres_postcode.json).
+    Alle postcodes hier zijn fictief."""
+    print("test: geocoding van werk- en zoekpostcode via PDOK, met config en cache")
+    import copy
+    import urllib.parse
+
+    fz = maak_stub_funda(lambda _n: [])
+    import funda_rapport as fr
+    import funda_verrijking as fv
+
+    adres = json.loads((Path(__file__).parent / "testdata" / "verrijking" / "bag_adres_postcode.json")
+                       .read_text(encoding="utf-8"))
+    punten = {"1011AB": (52.37, 4.9), "1012AB": (52.38, 4.89), "1013AB": (52.39, 4.88)}
+    calls: list[str] = []
+    koppen: list[dict] = []
+
+    def nep(url, timeout=None, headers=None):
+        calls.append(url)
+        koppen.append(dict(headers or {}))
+        d = urllib.parse.urlparse(url)
+        if d.path == "/robots.txt":
+            return 200, b"User-agent: *\nAllow: /\nDisallow: /bzk/locatieserver/*\n"
+        pc = urllib.parse.parse_qs(d.query).get("postcode", [""])[0]
+        body = copy.deepcopy(adres)
+        f = next(x for x in body["features"] if x["properties"]["status"] == "Naamgeving uitgegeven")
+        body["features"] = []
+        if pc in punten:
+            f["properties"]["postcode"] = pc
+            f["geometry"]["coordinates"] = [punten[pc][1], punten[pc][0]]
+            body["features"] = [f]
+        body["numberReturned"] = len(body["features"])
+        return 200, json.dumps(body).encode()
+
+    def nieuwe_run():
+        fr.GEOCODER = fv.Geocoder(http=nep, ua=fr._eerlijke_ua(), slaap=lambda _s: None)
+
+    def adresvragen() -> list[str]:
+        return [urllib.parse.parse_qs(urllib.parse.urlparse(u).query)["postcode"][0]
+                for u in calls if u.endswith("&f=json") and "/adres/items" in u]
+
+    ok = True
+    oud = {k: getattr(fr, k) for k in ("_PERSONAL", "WERK_CACHE", "GEOCODER", "osrm_route_km", "ENRICHMENT_CACHE")}
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            # --- werkadressen
+            fr.WERK_CACHE = tmp / "funda_werk_coords.json"
+            fr.WERK_CACHE.write_text(json.dumps({"1011AB": [51.0, 5.0], "1012AB": [52.5, 4.5], "0000XX": [52.0, 4.0]},
+                                                indent=2), encoding="utf-8")
+            fr._PERSONAL = {"werk_postcodes": [["1011AB", "a"], ["1012AB", "b"], ["1013AB", "c"], ["9999ZZ", "d"]],
+                            "werk_coords": {"1011AB": [52.0, 4.0]}}
+            nieuwe_run()
+            uit = io.StringIO()
+            with contextlib.redirect_stdout(uit):
+                coords = fr.get_werk_coords()
+            ok &= check("werk_coords in de config gaat voor op de cache", coords.get("1011AB") == (52.0, 4.0),
+                        str(coords))
+            ok &= check("bestaande cache (zelfde vorm) blijft werken, zonder verzoek", coords.get("1012AB") == (52.5, 4.5)
+                        and "1011AB" not in adresvragen() and "1012AB" not in adresvragen(), str(adresvragen()))
+            ok &= check("ontbrekende postcode via PDOK", coords.get("1013AB") == (52.39, 4.88), str(coords))
+            ok &= check("niet te vinden: geen punt", "9999ZZ" not in coords, str(coords))
+            ok &= check("robots.txt eerst, dan één vraag per ontbrekende postcode",
+                        [urllib.parse.urlparse(u).path for u in calls][0] == "/robots.txt"
+                        and adresvragen() == ["1013AB", "9999ZZ"], str(calls))
+            bewaard = json.loads(fr.WERK_CACHE.read_text(encoding="utf-8"))
+            ok &= check("gevonden punt voorgoed in funda_werk_coords.json, oude regels blijven",
+                        bewaard == {"1011AB": [51.0, 5.0], "1012AB": [52.5, 4.5], "0000XX": [52.0, 4.0],
+                                    "1013AB": [52.39, 4.88]}, str(bewaard))
+            tekst = uit.getvalue()
+            ok &= check("::warning:: met aantallen, zonder postcode of label",
+                        "::warning::" in tekst and "1 van 4" in tekst and "9999" not in tekst
+                        and "1013" not in tekst, tekst.strip())
+            fr.osrm_route_km = lambda *a: None
+            routes = fr.bereken_routes(52.07, 4.3, coords)
+            ok &= check("geen route naar het adres zonder punt (reisafstand onbekend)",
+                        [r["label"] for r in routes] == ["a", "b", "c"], str(routes))
+            n = len(calls)
+            with contextlib.redirect_stdout(io.StringIO()):
+                fr.get_werk_coords()
+            ok &= check("zelfde run: geen tweede poging", len(calls) == n, str(calls[n:]))
+            nieuwe_run()
+            with contextlib.redirect_stdout(io.StringIO()):
+                fr.get_werk_coords()
+            ok &= check("volgende run: alleen de mislukte postcode opnieuw", adresvragen()[2:] == ["9999ZZ"],
+                        str(adresvragen()))
+
+            # --- zoekpostcode (thuis)
+            fz.THUIS_CACHE = tmp / "funda_thuis_coords.json"
+            fz._PERSONAL = {k: v for k, v in fz._PERSONAL.items() if k != "thuis_coords"}
+            fz.STRAAL_NAFILTER_KM, fz.RADIUS_KM = None, 6
+            fz.POSTCODE = "1011AB"
+            fz._THUIS.clear()
+            nieuwe_run()
+            ok &= check("thuis: via PDOK", fz.thuis_coords() == (52.37, 4.9) and adresvragen()[-1] == "1011AB")
+            ok &= check("thuis: in funda_thuis_coords.json, zelfde vorm",
+                        json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {"1011AB": [52.37, 4.9]})
+            fz._THUIS.clear()
+            nieuwe_run()
+            n = len(calls)
+            ok &= check("thuis: volgende run uit de cache, geen verzoek", fz.thuis_coords() == (52.37, 4.9)
+                        and len(calls) == n)
+            fz._THUIS.clear()
+            fz._PERSONAL["thuis_coords"] = [52.1, 4.2]
+            ok &= check("thuis: thuis_coords in de config gaat voor", fz.thuis_coords() == (52.1, 4.2)
+                        and len(calls) == n)
+            del fz._PERSONAL["thuis_coords"]
+            fz._THUIS.clear()
+            fz.POSTCODE = "9999ZZ"
+            uit = io.StringIO()
+            with contextlib.redirect_stdout(uit):
+                thuis = fz.thuis_coords()
+            ok &= check("thuis: niet te vinden = None, ::warning:: zonder postcode, cache onaangeroerd",
+                        thuis is None and "::warning::" in uit.getvalue() and "9999" not in uit.getvalue()
+                        and json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {"1011AB": [52.37, 4.9]},
+                        uit.getvalue().strip())
+            ok &= check("thuis: zonder punt geen afstandsfilter",
+                        fz.buiten_zoekcriteria({"price": 280_000, "latitude": 51.0, "longitude": 4.0}, thuis,
+                                               fz.nafilter_straal_km()) is None)
+            fz._THUIS.clear()
+            fz.POSTCODE = "1012AB"
+            fz.STRAAL_NAFILTER_KM = 0
+            n = len(calls)
+            ok &= check("thuis: afstandsfilter uit = geen verzoek", fz.thuis_coords() is None and len(calls) == n)
+
+            ok &= check("alleen api.pdok.nl, met de eerlijke user-agent; nooit Nominatim of de Locatieserver",
+                        {urllib.parse.urlparse(u).hostname for u in calls} == {"api.pdok.nl"}
+                        and not any("nominatim" in u or "locatieserver" in u for u in calls)
+                        and {h.get("User-Agent") for h in koppen} == {fz.EERLIJKE_UA}, str(set(calls)))
+        bronnen = "".join((Path(__file__).parent / n).read_text(encoding="utf-8")
+                          for n in ("funda_rapport.py", "funda_zoek.py", "funda_verrijking.py"))
+        ok &= check("geen Nominatim meer in de code", "nominatim.openstreetmap.org" not in bronnen
+                    and not hasattr(fr, "lookup_postcode"))
+        fr.GEOCODER = None
+        with tempfile.TemporaryDirectory() as tmpdir:
+            weigering = {"api.pdok.nl": {"datum": "2026-11-07", "status": 429}}
+            fr.ENRICHMENT_CACHE = Path(tmpdir) / "cache.json"
+            fr.ENRICHMENT_CACHE.write_text(json.dumps({"verrijking_weigering": weigering}), encoding="utf-8")
+            ok &= check("standaard-Geocoder: eerlijke user-agent, geen verzoek voor een ongeldige postcode",
+                        fr.geocodeer_postcode("onzin") == (None, "geen geldige postcode")
+                        and fr.GEOCODER.sessie.ua == fr._eerlijke_ua() and fr.GEOCODER.sessie.gedaan == 0)
+            ok &= check("standaard-Geocoder leest funda_enrichment_cache.json (een eerdere weigering geldt ook daar)",
+                        fr.GEOCODER.sessie.cache.get("verrijking_weigering") == weigering)
+    finally:
+        for k, w in oud.items():
+            setattr(fr, k, w)
     return ok
 
 
@@ -2112,7 +2279,7 @@ def test_pool_in_run() -> bool:
 
 def main() -> int:
     resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(), test_prijs_onbekend(),
-                  test_prijs_onbekend_rapport(), test_rapport_testdata(), test_rapport_rente_cache_ua(), test_verrijking_ruwe_velden(), test_twijfel_naar_rapport(), test_vul_summary_aan(),
+                  test_prijs_onbekend_rapport(), test_rapport_testdata(), test_rapport_rente_cache_ua(), test_geocoding(), test_verrijking_ruwe_velden(), test_twijfel_naar_rapport(), test_vul_summary_aan(),
                   test_push_volgorde(), test_pushtekst(), test_auto_keten(), test_buurtfilter(), test_stadfilter(),
                   test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),

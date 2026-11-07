@@ -32,8 +32,13 @@ Regels (CLAUDE.md):
 - Logregels tonen alleen aantallen per bron en status, nooit adressen, postcodes of
   coördinaten.
 
-Niet gebruikt: het WOZ-waardeloket, de KOOP SRU-dienst (robots.txt Disallow) en de
-PDOK Locatieserver (robots.txt Disallow).
+Daarnaast de geocoding van postcodes (werkadressen en de zoekpostcode, `Geocoder`): de
+BAG-collectie adres op api.pdok.nl, met een eigen Sessie op dezelfde cache. De verrijking neemt de
+stand daarvan over (Sessie.neem_over, neem_cache_over): robots.txt één keer per run, en een
+weigering of serverfout van api.pdok.nl geldt voor beide.
+
+Niet gebruikt: het WOZ-waardeloket, de KOOP SRU-dienst (robots.txt Disallow), de
+PDOK Locatieserver (robots.txt Disallow) en Nominatim (robots.txt Disallow /search).
 """
 
 from __future__ import annotations
@@ -54,6 +59,18 @@ from datetime import date, datetime
 
 BAG_BASIS = "https://api.pdok.nl/kadaster/bag/ogc/v2/collections"
 BAG_PAND_PREFIX = BAG_BASIS + "/pand/items/"
+# Geocoding van een postcode: de collectie adres met een filter op postcode. Gemeten op 7 nov 2026 op
+# de postcode van het stadhuis (4 adressen; testdata/verrijking/meting.json): limit=1 in 7,7 s en 11,3 s,
+# limit=10 in 36,6 s, limit=50 in 24,4 s. Met minder treffers dan de limit zoekt de server de hele
+# postcode af, en met limit=1 heeft een bestaande postcode er altijd genoeg. Daarom limit=1 (één
+# adrespunt ligt binnen de postcode, genoeg voor straal en reisafstand), een time-out van 60 s (ruim
+# vijf keer de gemeten 11,3 s), één poging per postcode per run, en de aanroeper bewaart een gevonden
+# punt voorgoed.
+BAG_ADRES = BAG_BASIS + "/adres/items"
+GEOCODE_LIMIET = 1
+GEOCODE_TIMEOUT_S = 60
+GEOCODE_MAX_VERZOEKEN = 10        # robots.txt plus een handvol postcodes
+NL_KADER = (50.7, 53.7, 3.2, 7.3)  # lat_min, lat_max, lon_min, lon_max: ruim om Nederland
 PDOK_BUURTEN = "https://api.pdok.nl/cbs/wijken-en-buurten-2024/ogc/v1/collections/buurten/items"
 
 KEA_WMS = "https://cas.cloud.sogelink.com/public/data/org/gws/YWFMLMWERURF/kea_public/wms"
@@ -403,7 +420,26 @@ class Sessie:
         self.gedaan = 0
         self.per_host: Counter = Counter()          # (host, status) -> aantal
         self.dicht: dict[str, str] = {}             # host -> reden
+        # Hosts die weigerden (401/403/429) of een serverfout gaven, ook op robots.txt: die gaan met
+        # neem_over() mee naar een volgende Sessie in dezelfde run. Een time-out niet.
+        self.geweigerd: dict[str, str] = {}
         self.op_rij: Counter = Counter()
+
+    def neem_over(self, vorige: "Sessie | None") -> None:
+        """De stand per host van een eerdere Sessie in dezelfde run (de Geocoder op api.pdok.nl).
+
+        robots.txt van deze run wordt niet opnieuw gevraagd, en een host die weigerde of een
+        serverfout gaf, blijft dicht. Een time-out gaat niet mee: één zwaar postcodeverzoek dat te
+        lang duurt, zegt niets over de lichte verzoeken van de verrijking, en die stopt zelf na
+        fouten_op_rij_stop time-outs op rij. De weigering in de cache (verrijking_weigering, een
+        dag) zet neem_cache_over() over."""
+        if vorige is None or vorige is self:
+            return
+        for host, regels in vorige.robots_run.items():
+            self.robots_run.setdefault(host, regels)
+        for host, reden in vorige.geweigerd.items():
+            self.geweigerd.setdefault(host, reden)
+            self.dicht.setdefault(host, reden)
 
     # -- intern
     def _verzoek(self, url: str, accept: str) -> tuple[int, bytes]:
@@ -474,7 +510,7 @@ class Sessie:
             return oud
         else:
             cache_schrijf(self.cache, "robots", host, self.vandaag, fout=f"status {status}")
-            self.dicht[host] = f"robots.txt gaf status {status}"
+            self.dicht[host] = self.geweigerd[host] = f"robots.txt gaf status {status}"
             raise HostGestopt(self.dicht[host])
         cache_schrijf(self.cache, "robots", host, self.vandaag, data={"regels": regels})
         self.robots_run[host] = regels
@@ -505,11 +541,11 @@ class Sessie:
         self._robots_ok(host, pad)
         status, body = self._verzoek(url, accept)
         if status in (401, 403, 429):
-            self.dicht[host] = f"geweigerd (status {status})"
+            self.dicht[host] = self.geweigerd[host] = f"geweigerd (status {status})"
             self.cache.setdefault("verrijking_weigering", {})[host] = {"datum": self.vandaag, "status": status}
             raise HostGestopt(self.dicht[host])
         if status >= 500:
-            self.dicht[host] = f"serverfout (status {status})"
+            self.dicht[host] = self.geweigerd[host] = f"serverfout (status {status})"
             raise HostGestopt(self.dicht[host])
         if status != 200:
             raise BronFout(f"status {status}")
@@ -1064,10 +1100,132 @@ def _verrijk_een(w: dict, sessie: Sessie, cache: dict, vcfg: dict, dr: dict) -> 
     return res
 
 
+# ---------------------------------------------------------------- geocoding van postcodes
+
+_POSTCODE = re.compile(r"^\s*(\d{4})\s*([A-Za-z]{2})\s*$")
+BAG_UITGEGEVEN = "Naamgeving uitgegeven"
+
+
+def postcode_norm(postcode) -> str | None:
+    """'1234 ab' -> '1234AB'; geen geldige Nederlandse postcode -> None."""
+    m = _POSTCODE.match(str(postcode or ""))
+    return m.group(1) + m.group(2).upper() if m else None
+
+
+def coord_paar(waarde) -> tuple[float, float] | None:
+    """[lat, lon] uit de config of een cachebestand als (lat, lon), anders None."""
+    if isinstance(waarde, (list, tuple)) and len(waarde) == 2:
+        try:
+            return float(waarde[0]), float(waarde[1])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def postcode_url(postcode: str) -> str:
+    return f"{BAG_ADRES}?postcode={postcode}&limit={GEOCODE_LIMIET}&f=json"
+
+
+def postcode_punt_parse(antwoord: dict, postcode: str) -> tuple[float, float] | None:
+    """(lat, lon) van een postcode uit een adres-antwoord: het gemiddelde van de adrespunten.
+
+    Alleen features met precies deze postcode en een punt in Nederland. Adressen met status
+    "Naamgeving uitgegeven" gaan voor; een ingetrokken adres telt alleen als er geen ander is."""
+    uitgegeven, alle = [], []
+    for f in (antwoord or {}).get("features") or []:
+        p = f.get("properties") or {}
+        if postcode_norm(p.get("postcode")) != postcode:
+            continue
+        g = f.get("geometry") or {}
+        c = g.get("coordinates")
+        if g.get("type") != "Point" or not isinstance(c, list) or len(c) < 2:
+            continue
+        try:
+            lon, lat = float(c[0]), float(c[1])           # GeoJSON: lon, lat (CRS84)
+        except (TypeError, ValueError):
+            continue
+        if not (NL_KADER[0] <= lat <= NL_KADER[1] and NL_KADER[2] <= lon <= NL_KADER[3]):
+            continue
+        alle.append((lat, lon))
+        if p.get("status") == BAG_UITGEGEVEN:
+            uitgegeven.append((lat, lon))
+    punten = uitgegeven or alle
+    if not punten:
+        return None
+    return (round(sum(la for la, _ in punten) / len(punten), 6),
+            round(sum(lo for _, lo in punten) / len(punten), 6))
+
+
+class Geocoder:
+    """Postcode naar punt via de BAG op api.pdok.nl (CLAUDE.md, "Geocoding en routes"). Eén per run.
+
+    Eén Sessie: robots.txt van api.pdok.nl eerst (één keer per run), de eerlijke user-agent, een
+    ruime time-out, en na een time-out, weigering of 5xx is de host deze run dicht
+    (fouten_op_rij_stop=1). Eén poging per postcode per run. De aanroeper bewaart een gevonden punt
+    voorgoed (funda_werk_coords.json, funda_thuis_coords.json), dus er gaat alleen een verzoek uit
+    bij een lege cache of een nieuwe postcode. punt() gooit nooit en de reden noemt nooit de postcode.
+
+    cache: het geladen funda_enrichment_cache.json (funda_rapport geeft het mee). Dan geldt een
+    weigering die de verrijking eerder gaf (verrijking_weigering, een dag) ook hier, en komen een
+    weigering en robots.txt van hier in die cache; neem_cache_over() en Sessie.neem_over() geven
+    ze door aan de verrijking in dezelfde run. Zonder cache een lege, alleen voor deze Geocoder."""
+
+    def __init__(self, http=None, ua: str | None = None, timeout_s: float = GEOCODE_TIMEOUT_S,
+                 max_verzoeken: int = GEOCODE_MAX_VERZOEKEN, vandaag=None, slaap=time.sleep,
+                 cache: dict | None = None):
+        self.sessie = Sessie(cache if isinstance(cache, dict) else {}, vandaag or date.today(), http=http, ua=ua,
+                             max_verzoeken=max_verzoeken, timeout_s=timeout_s, fouten_op_rij_stop=1, slaap=slaap)
+        self.gedaan: dict[str, tuple] = {}
+
+    def punt(self, postcode) -> tuple[tuple[float, float] | None, str | None]:
+        """-> ((lat, lon), None) of (None, reden)."""
+        pc = postcode_norm(postcode)
+        if not pc:
+            return None, "geen geldige postcode"
+        if pc not in self.gedaan:
+            self.gedaan[pc] = self._zoek(pc)
+        return self.gedaan[pc]
+
+    def _zoek(self, pc: str) -> tuple[tuple[float, float] | None, str | None]:
+        try:
+            punt = postcode_punt_parse(self.sessie.haal_json(postcode_url(pc)), pc)
+        except GeenBudget:
+            return None, "budget voor deze run op"
+        except BronFout as exc:                           # ook HostGestopt
+            return None, str(exc)
+        except Exception as exc:  # noqa: BLE001  onverwacht antwoord: nooit de run laten vallen
+            return None, f"onverwacht antwoord ({type(exc).__name__})"
+        return (punt, None) if punt else (None, "postcode niet gevonden in de BAG")
+
+
+def neem_cache_over(cache: dict, vorige: Sessie | None) -> None:
+    """Zet robots.txt en weigeringen uit de cache van een eerdere Sessie (de Geocoder) in deze cache.
+
+    Per host de nieuwste (een datum JJJJ-MM-DD); bij gelijke datum die van de eerdere Sessie, want die
+    is van deze run. Zo komt een weigering van de geocoding in funda_enrichment_cache.json en geldt
+    hij een dag, ook als de Geocoder de cache eerder in de run los had geladen."""
+    andere = getattr(vorige, "cache", None)
+    if not isinstance(cache, dict) or not isinstance(andere, dict) or andere is cache:
+        return
+    for sectie, datumveld in (("robots", "fetched"), ("verrijking_weigering", "datum")):
+        bron = andere.get(sectie)
+        if not isinstance(bron, dict):
+            continue
+        if not isinstance(cache.get(sectie), dict):
+            cache[sectie] = {}
+        doel = cache[sectie]
+        for host, e in bron.items():
+            if not isinstance(e, dict) or not e.get(datumveld):
+                continue
+            oud = doel.get(host)
+            if not isinstance(oud, dict) or str(e[datumveld]) >= str(oud.get(datumveld) or ""):
+                doel[host] = copy.deepcopy(e)
+
+
 # ---------------------------------------------------------------- publiek
 
 def verrijk(woningen: list[dict], cache: dict, cfg: dict | None, vandaag, http=None, ua: str | None = None,
-            log=print, slaap=time.sleep) -> dict[str, dict]:
+            log=print, slaap=time.sleep, vooraf: Sessie | None = None) -> dict[str, dict]:
     """Verrijk de woningen die door alle filters kwamen. Fail-soft: gooit nooit.
 
     woningen: rijen of funda-dicts. Velden worden gezocht in de rij zelf en in
@@ -1078,6 +1236,9 @@ def verrijk(woningen: list[dict], cache: dict, cfg: dict | None, vandaag, http=N
     cache: het geladen funda_enrichment_cache.json; wordt in place bijgewerkt.
     cfg: beoordelingsconfig of hele persoonlijke config (sleutel verrijking, drempels).
     vandaag: date of "JJJJ-MM-DD".
+    vooraf: de Sessie van de Geocoder in dezelfde run (of None). Zijn robots.txt en weigeringen
+        gelden hier ook (neem_cache_over en Sessie.neem_over): geen tweede robots.txt, en een host
+        die daar weigerde of een serverfout gaf, krijgt deze run geen verzoek meer.
 
     -> {woning_sleutel: {bron: {"status": "ok"|"onbekend"|"budget"|"uit"|"niet_nodig",
                                 "data": dict|None, "reden": str|None, "uit_cache": bool,
@@ -1089,6 +1250,10 @@ def verrijk(woningen: list[dict], cache: dict, cfg: dict | None, vandaag, http=N
     vcfg, dr = instellingen(cfg)
     dag = _datum(vandaag).isoformat()
     sleutels = [woning_sleutel(w) for w in woningen]
+    try:
+        neem_cache_over(cache, vooraf)                  # ook als de verrijking uit staat: de weigering blijft
+    except Exception:  # noqa: BLE001
+        pass
     if not vcfg.get("aan", True):
         log(f"[verrijking] staat uit; {len(woningen)} woningen, 0 verzoeken.")
         return {s: {b: _uit() for b in BRONNEN} for s in sleutels}
@@ -1101,6 +1266,7 @@ def verrijk(woningen: list[dict], cache: dict, cfg: dict | None, vandaag, http=N
                     fout_opnieuw_na_dagen=int(vcfg["fout_opnieuw_na_dagen"]),
                     fouten_op_rij_stop=int(vcfg.get("fouten_op_rij_stop", 3)),
                     robots_dagen=int(vcfg["bewaar_dagen"].get("robots", ROBOTS_DAGEN)), slaap=slaap)
+    sessie.neem_over(vooraf)
     uit: dict[str, dict] = {}
     for i in sorted(range(len(woningen)), key=lambda j: prioriteit(woningen[j])):
         try:
