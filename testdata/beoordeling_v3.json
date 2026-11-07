@@ -1,5 +1,5 @@
 {
- "_doc": "FICTIEF. Uitvoer van beoordelingsmodel v3 op de 13 testwoningen (testdata/woningen.json), in de vorm van het contract uit de docstring van funda_beoordeling.py, plus de scenario-uitbreiding (financiering.scenarios, planning, scenario_tekst). Volgorde = rapportvolgorde. De scenario's zijn verzonnen verhoudingen (nu 6% minder leenruimte, met cao 3% meer) rond het planningsscenario jan 2027; de poort volgt het planningsscenario. Vaste invoer voor test_funda_ui.py, los van het model; de uitvoer van funda_beoordeling.py zelf staat in testdata/beoordeling_verwacht.json.",
+ "_doc": "FICTIEF. Uitvoer van beoordelingsmodel v3 op de 13 testwoningen (testdata/woningen.json), in de vorm van het contract uit de docstring van funda_beoordeling.py, plus de scenario-uitbreiding (financiering.scenarios, planning, scenario_tekst). Volgorde = rapportvolgorde. De scenario's (nu, later en het voorwaardelijke later_extra) zijn verzonnen verhoudingen (nu 6% minder leenruimte, later_extra 3% meer) rond het planningsscenario later; de poort volgt het planningsscenario. Vaste invoer voor test_funda_ui.py, los van het model; de uitvoer van funda_beoordeling.py zelf staat in testdata/beoordeling_verwacht.json.",
  "meta": {
   "tijdstip": "2026-11-06T10:34:00+01:00",
   "rente": {
@@ -69,7 +69,7 @@
       "onderdeel": "reisafstand",
       "groep": "let_op",
       "oordeel": "let_op",
-      "label": "Werk vanaf 2027",
+      "label": "Werk B",
       "waarde": "12,2 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 12,2 km",
@@ -119,7 +119,7 @@
       "onderdeel": "reisafstand",
       "groep": "plus",
       "oordeel": "goed",
-      "label": "Werk huidig",
+      "label": "Werk A",
       "waarde": "2,1 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 2,1 km",
@@ -313,21 +313,21 @@
        "past": true
       },
       {
-       "id": "2027_01",
-       "label": "Vanaf jan 2027",
+       "id": "later",
+       "label": "Later",
        "max_hypotheek": 279043,
        "max_koopsom": 279063,
        "past": true
       },
       {
-       "id": "2027_01_met_cao",
-       "label": "Vanaf jan 2027 met cao",
+       "id": "later_extra",
+       "label": "Met bonus",
        "max_hypotheek": 287414,
        "max_koopsom": 287434,
        "past": true
       }
      ],
-     "planning": "2027_01",
+     "planning": "later",
      "scenario_tekst": "Past nu"
     },
     "verrijking": {
@@ -375,7 +375,7 @@
       "onderdeel": "reisafstand",
       "groep": "let_op",
       "oordeel": "let_op",
-      "label": "Werk vanaf 2027",
+      "label": "Werk B",
       "waarde": "11,2 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 11,2 km",
@@ -437,7 +437,7 @@
       "onderdeel": "reisafstand",
       "groep": "plus",
       "oordeel": "goed",
-      "label": "Werk huidig",
+      "label": "Werk A",
       "waarde": "3,2 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 3,2 km",
@@ -621,22 +621,22 @@
        "past": false
       },
       {
-       "id": "2027_01",
-       "label": "Vanaf jan 2027",
+       "id": "later",
+       "label": "Later",
        "max_hypotheek": 274043,
        "max_koopsom": 273983,
        "past": true
       },
       {
-       "id": "2027_01_met_cao",
-       "label": "Vanaf jan 2027 met cao",
+       "id": "later_extra",
+       "label": "Met bonus",
        "max_hypotheek": 282264,
        "max_koopsom": 282204,
        "past": true
       }
      ],
-     "planning": "2027_01",
-     "scenario_tekst": "Past vanaf jan 2027"
+     "planning": "later",
+     "scenario_tekst": "Past later"
     },
     "verrijking": {
      "bag": "ok",
@@ -822,7 +822,7 @@
       "onderdeel": "reisafstand",
       "groep": "info",
       "oordeel": "neutraal",
-      "label": "Werk huidig",
+      "label": "Werk A",
       "waarde": "4,3 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 4,3 km",
@@ -834,7 +834,7 @@
       "onderdeel": "reisafstand",
       "groep": "info",
       "oordeel": "neutraal",
-      "label": "Werk vanaf 2027",
+      "label": "Werk B",
       "waarde": "8,8 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 8,8 km",
@@ -944,21 +944,21 @@
        "past": true
       },
       {
-       "id": "2027_01",
-       "label": "Vanaf jan 2027",
+       "id": "later",
+       "label": "Later",
        "max_hypotheek": 279043,
        "max_koopsom": 279007,
        "past": true
       },
       {
-       "id": "2027_01_met_cao",
-       "label": "Vanaf jan 2027 met cao",
+       "id": "later_extra",
+       "label": "Met bonus",
        "max_hypotheek": 287414,
        "max_koopsom": 287378,
        "past": true
       }
      ],
-     "planning": "2027_01",
+     "planning": "later",
      "scenario_tekst": "Past nu"
     },
     "verrijking": {
@@ -1008,7 +1008,7 @@
       "onderdeel": "reisafstand",
       "groep": "let_op",
       "oordeel": "let_op",
-      "label": "Werk vanaf 2027",
+      "label": "Werk B",
       "waarde": "10,4 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 10,4 km",
@@ -1070,7 +1070,7 @@
       "onderdeel": "reisafstand",
       "groep": "plus",
       "oordeel": "goed",
-      "label": "Werk huidig",
+      "label": "Werk A",
       "waarde": "2,5 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 2,5 km",
@@ -1268,21 +1268,21 @@
        "past": true
       },
       {
-       "id": "2027_01",
-       "label": "Vanaf jan 2027",
+       "id": "later",
+       "label": "Later",
        "max_hypotheek": 269043,
        "max_koopsom": 269035,
        "past": true
       },
       {
-       "id": "2027_01_met_cao",
-       "label": "Vanaf jan 2027 met cao",
+       "id": "later_extra",
+       "label": "Met bonus",
        "max_hypotheek": 277114,
        "max_koopsom": 277106,
        "past": true
       }
      ],
-     "planning": "2027_01",
+     "planning": "later",
      "scenario_tekst": "Past nu"
     },
     "verrijking": {
@@ -1410,7 +1410,7 @@
       "onderdeel": "reisafstand",
       "groep": "plus",
       "oordeel": "goed",
-      "label": "Werk huidig",
+      "label": "Werk A",
       "waarde": "3,8 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 3,8 km",
@@ -1497,7 +1497,7 @@
       "onderdeel": "reisafstand",
       "groep": "info",
       "oordeel": "neutraal",
-      "label": "Werk vanaf 2027",
+      "label": "Werk B",
       "waarde": "8,3 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 8,3 km",
@@ -1595,21 +1595,21 @@
        "past": true
       },
       {
-       "id": "2027_01",
-       "label": "Vanaf jan 2027",
+       "id": "later",
+       "label": "Later",
        "max_hypotheek": 269043,
        "max_koopsom": 269047,
        "past": true
       },
       {
-       "id": "2027_01_met_cao",
-       "label": "Vanaf jan 2027 met cao",
+       "id": "later_extra",
+       "label": "Met bonus",
        "max_hypotheek": 277114,
        "max_koopsom": 277118,
        "past": true
       }
      ],
-     "planning": "2027_01",
+     "planning": "later",
      "scenario_tekst": "Past nu"
     },
     "verrijking": {
@@ -1806,7 +1806,7 @@
       "onderdeel": "reisafstand",
       "groep": "info",
       "oordeel": "neutraal",
-      "label": "Werk huidig",
+      "label": "Werk A",
       "waarde": "5,3 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 5,3 km",
@@ -1818,7 +1818,7 @@
       "onderdeel": "reisafstand",
       "groep": "info",
       "oordeel": "neutraal",
-      "label": "Werk vanaf 2027",
+      "label": "Werk B",
       "waarde": "8,9 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 8,9 km",
@@ -1915,21 +1915,21 @@
        "past": true
       },
       {
-       "id": "2027_01",
-       "label": "Vanaf jan 2027",
+       "id": "later",
+       "label": "Later",
        "max_hypotheek": 274043,
        "max_koopsom": 274127,
        "past": true
       },
       {
-       "id": "2027_01_met_cao",
-       "label": "Vanaf jan 2027 met cao",
+       "id": "later_extra",
+       "label": "Met bonus",
        "max_hypotheek": 282264,
        "max_koopsom": 282348,
        "past": true
       }
      ],
-     "planning": "2027_01",
+     "planning": "later",
      "scenario_tekst": "Past nu"
     },
     "verrijking": {
@@ -2009,7 +2009,7 @@
       "onderdeel": "reisafstand",
       "groep": "let_op",
       "oordeel": "let_op",
-      "label": "Werk vanaf 2027",
+      "label": "Werk B",
       "waarde": "10,2 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 10,2 km",
@@ -2095,7 +2095,7 @@
       "onderdeel": "reisafstand",
       "groep": "plus",
       "oordeel": "goed",
-      "label": "Werk huidig",
+      "label": "Werk A",
       "waarde": "3,1 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 3,1 km",
@@ -2234,22 +2234,22 @@
        "past": false
       },
       {
-       "id": "2027_01",
-       "label": "Vanaf jan 2027",
+       "id": "later",
+       "label": "Later",
        "max_hypotheek": 274043,
        "max_koopsom": 273947,
        "past": true
       },
       {
-       "id": "2027_01_met_cao",
-       "label": "Vanaf jan 2027 met cao",
+       "id": "later_extra",
+       "label": "Met bonus",
        "max_hypotheek": 282264,
        "max_koopsom": 282168,
        "past": true
       }
      ],
-     "planning": "2027_01",
-     "scenario_tekst": "Past vanaf jan 2027"
+     "planning": "later",
+     "scenario_tekst": "Past later"
     },
     "verrijking": {
      "bag": "ok",
@@ -2332,7 +2332,7 @@
       "onderdeel": "reisafstand",
       "groep": "let_op",
       "oordeel": "let_op",
-      "label": "Werk vanaf 2027",
+      "label": "Werk B",
       "waarde": "11,0 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 11,0 km",
@@ -2445,7 +2445,7 @@
       "onderdeel": "reisafstand",
       "groep": "info",
       "oordeel": "neutraal",
-      "label": "Werk huidig",
+      "label": "Werk A",
       "waarde": "5,1 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 5,1 km",
@@ -2543,21 +2543,21 @@
        "past": true
       },
       {
-       "id": "2027_01",
-       "label": "Vanaf jan 2027",
+       "id": "later",
+       "label": "Later",
        "max_hypotheek": 257984,
        "max_koopsom": 258028,
        "past": true
       },
       {
-       "id": "2027_01_met_cao",
-       "label": "Vanaf jan 2027 met cao",
+       "id": "later_extra",
+       "label": "Met bonus",
        "max_hypotheek": 265724,
        "max_koopsom": 265768,
        "past": true
       }
      ],
-     "planning": "2027_01",
+     "planning": "later",
      "scenario_tekst": "Past nu"
     },
     "verrijking": {
@@ -2636,7 +2636,7 @@
       "onderdeel": "reisafstand",
       "groep": "let_op",
       "oordeel": "let_op",
-      "label": "Werk vanaf 2027",
+      "label": "Werk B",
       "waarde": "11,7 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 11,7 km",
@@ -2686,7 +2686,7 @@
       "onderdeel": "reisafstand",
       "groep": "plus",
       "oordeel": "goed",
-      "label": "Werk huidig",
+      "label": "Werk A",
       "waarde": "2,3 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 2,3 km",
@@ -2870,22 +2870,22 @@
        "past": false
       },
       {
-       "id": "2027_01",
-       "label": "Vanaf jan 2027",
+       "id": "later",
+       "label": "Later",
        "max_hypotheek": 279043,
        "max_koopsom": 278887,
        "past": false
       },
       {
-       "id": "2027_01_met_cao",
-       "label": "Vanaf jan 2027 met cao",
+       "id": "later_extra",
+       "label": "Met bonus",
        "max_hypotheek": 287414,
        "max_koopsom": 287258,
        "past": true
       }
      ],
-     "planning": "2027_01",
-     "scenario_tekst": "Alleen met cao-verhoging"
+     "planning": "later",
+     "scenario_tekst": "Past alleen met bonus"
     },
     "verrijking": {
      "bag": "ok",
@@ -2960,7 +2960,7 @@
       "onderdeel": "reisafstand",
       "groep": "let_op",
       "oordeel": "let_op",
-      "label": "Werk vanaf 2027",
+      "label": "Werk B",
       "waarde": "10,4 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 10,4 km",
@@ -3046,7 +3046,7 @@
       "onderdeel": "reisafstand",
       "groep": "plus",
       "oordeel": "goed",
-      "label": "Werk huidig",
+      "label": "Werk A",
       "waarde": "2,2 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 2,2 km",
@@ -3207,21 +3207,21 @@
        "past": false
       },
       {
-       "id": "2027_01",
-       "label": "Vanaf jan 2027",
+       "id": "later",
+       "label": "Later",
        "max_hypotheek": 252511,
        "max_koopsom": 252435,
        "past": false
       },
       {
-       "id": "2027_01_met_cao",
-       "label": "Vanaf jan 2027 met cao",
+       "id": "later_extra",
+       "label": "Met bonus",
        "max_hypotheek": 260086,
        "max_koopsom": 260010,
        "past": false
       }
      ],
-     "planning": "2027_01",
+     "planning": "later",
      "scenario_tekst": "Past in geen scenario"
     },
     "verrijking": {
@@ -3378,7 +3378,7 @@
       "onderdeel": "reisafstand",
       "groep": "plus",
       "oordeel": "goed",
-      "label": "Werk huidig",
+      "label": "Werk A",
       "waarde": "2,4 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 2,4 km",
@@ -3441,7 +3441,7 @@
       "onderdeel": "reisafstand",
       "groep": "info",
       "oordeel": "neutraal",
-      "label": "Werk vanaf 2027",
+      "label": "Werk B",
       "waarde": "8,4 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 8,4 km",
@@ -3562,21 +3562,21 @@
        "past": false
       },
       {
-       "id": "2027_01",
-       "label": "Vanaf jan 2027",
+       "id": "later",
+       "label": "Later",
        "max_hypotheek": 289043,
        "max_koopsom": 288823,
        "past": false
       },
       {
-       "id": "2027_01_met_cao",
-       "label": "Vanaf jan 2027 met cao",
+       "id": "later_extra",
+       "label": "Met bonus",
        "max_hypotheek": 297714,
        "max_koopsom": 297494,
        "past": false
       }
      ],
-     "planning": "2027_01",
+     "planning": "later",
      "scenario_tekst": "Past in geen scenario"
     },
     "verrijking": {
@@ -3722,7 +3722,7 @@
       "onderdeel": "reisafstand",
       "groep": "let_op",
       "oordeel": "let_op",
-      "label": "Werk vanaf 2027",
+      "label": "Werk B",
       "waarde": "11,2 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 11,2 km",
@@ -3772,7 +3772,7 @@
       "onderdeel": "reisafstand",
       "groep": "plus",
       "oordeel": "goed",
-      "label": "Werk huidig",
+      "label": "Werk A",
       "waarde": "1,5 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 1,5 km",
@@ -3887,21 +3887,21 @@
        "past": false
       },
       {
-       "id": "2027_01",
-       "label": "Vanaf jan 2027",
+       "id": "later",
+       "label": "Later",
        "max_hypotheek": 269043,
        "max_koopsom": 269103,
        "past": false
       },
       {
-       "id": "2027_01_met_cao",
-       "label": "Vanaf jan 2027 met cao",
+       "id": "later_extra",
+       "label": "Met bonus",
        "max_hypotheek": 277114,
        "max_koopsom": 277174,
        "past": false
       }
      ],
-     "planning": "2027_01",
+     "planning": "later",
      "scenario_tekst": "Past in geen scenario"
     },
     "verrijking": {
@@ -3959,7 +3959,7 @@
       "onderdeel": "reisafstand",
       "groep": "let_op",
       "oordeel": "let_op",
-      "label": "Werk vanaf 2027",
+      "label": "Werk B",
       "waarde": "13,2 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 13,2 km",
@@ -4021,7 +4021,7 @@
       "onderdeel": "reisafstand",
       "groep": "plus",
       "oordeel": "goed",
-      "label": "Werk huidig",
+      "label": "Werk A",
       "waarde": "3,6 km",
       "bron": "route (fixture: hemelsbreed x 1,27)",
       "kort": "werk 3,6 km",
@@ -4178,7 +4178,7 @@
      "rente_datum": null,
      "rentevast_jaren": null,
      "scenarios": [],
-     "planning": "2027_01",
+     "planning": "later",
      "scenario_tekst": null
     },
     "verrijking": {

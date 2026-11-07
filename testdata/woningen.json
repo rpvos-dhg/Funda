@@ -14,11 +14,11 @@
       "werk_postcodes": [
         [
           "2511AA",
-          "huidig"
+          "A"
         ],
         [
           "2611AA",
-          "vanaf 2027"
+          "B"
         ]
       ],
       "prijs_min": 230000,
@@ -30,13 +30,13 @@
     "werk": [
       {
         "postcode": "2511AA",
-        "label": "huidig",
+        "label": "A",
         "lat": 52.0786,
         "lon": 4.315
       },
       {
         "postcode": "2611AA",
-        "label": "vanaf 2027",
+        "label": "B",
         "lat": 52.0116,
         "lon": 4.3571
       }
