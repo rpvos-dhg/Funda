@@ -1,0 +1,92 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": "risicoverschilzetting_2050hoog.1039",
+   "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+     [
+      [
+       [
+        4.3155703,
+        52.0855846
+       ],
+       [
+        4.3162961,
+        52.0848254
+       ],
+       [
+        4.3165018,
+        52.0845837
+       ],
+       [
+        4.317064,
+        52.0840144
+       ]
+      ]
+     ]
+    ]
+   },
+   "geometry_name": "geom",
+   "properties": {
+    "buurtcode": "BU05182812",
+    "buurtnaam": "Voorhout",
+    "gemeenteco": "GM0518",
+    "gemeentena": "'s-Gravenhage",
+    "sterke_c_1": 1.17771023303,
+    "geom_lengt": 3426.2586338,
+    "geom_area": 621219.171339
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "risicopaalrot_2050hoog.1039",
+   "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+     [
+      [
+       [
+        4.3155703,
+        52.0855846
+       ],
+       [
+        4.3162961,
+        52.0848254
+       ],
+       [
+        4.3165018,
+        52.0845837
+       ],
+       [
+        4.317064,
+        52.0840144
+       ]
+      ]
+     ]
+    ]
+   },
+   "geometry_name": "geom",
+   "properties": {
+    "buurtcode": "BU05182812",
+    "buurtnaam": "Voorhout",
+    "gemeenteco": "GM0518",
+    "gemeentena": "'s-Gravenhage",
+    "sterke_c_2": 0.0871327254306,
+    "geom_lengt": 3426.2586338,
+    "geom_area": 621219.171339
+   }
+  }
+ ],
+ "totalFeatures": "unknown",
+ "numberReturned": 2,
+ "timeStamp": "2026-11-07T00:16:29.522Z",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "urn:ogc:def:crs:CRS::84"
+  }
+ }
+}
