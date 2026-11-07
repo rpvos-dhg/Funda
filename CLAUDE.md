@@ -97,7 +97,8 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   id's en labels staan alleen in de secret; code, tests, fixtures en de
   voorbeeldconfig gebruiken fictieve (`nu`, `later`, `later_extra`; werk A en
   B). `test_funda_beoordeling.py::test_geen_scenarionamen` weigert de oude
-  namen in elk bijgehouden bestand buiten `docs/`. De logica kent geen id's
+  namen in elk bijgehouden bestand buiten `docs/`, ook als datum of
+  uitgeschreven maand (met een eigen controle op die patronen). De logica kent geen id's
   behalve `nu`: scenario's staan op datum (`datum`, anders uit een id
   `JJJJ_MM`, anders vandaag), op dezelfde datum een voorwaardelijk scenario
   (`"voorwaardelijk": true`) na het gewone. De poort volgt `planning`; zonder

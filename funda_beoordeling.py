@@ -614,7 +614,11 @@ def _scenario_datum(sid: str, vandaag: date) -> date:
 
 def _scenario_label(sid: str) -> str:
     """Label als de config er geen geeft: "nu" wordt "Nu", een id JJJJ_MM wordt "Vanaf <maand jaar>"
-    (wat erna in het id staat komt er met spaties achter), anders het id met spaties."""
+    (wat erna in het id staat komt er met spaties achter), anders het id met spaties.
+
+    De rest van het id blijft bewust staan: zonder die rest krijgen twee scenario's in dezelfde maand
+    (een gewoon en een voorwaardelijk) hetzelfde label, ook in de budgettabel van het rapport. Het is
+    tekst uit de config, geen naam in de code."""
     if sid == "nu":
         return "Nu"
     m = re.match(r"^(\d{4})[_-](\d{1,2})(?:[_-](.*))?$", sid)
@@ -628,7 +632,10 @@ def _scenario_label(sid: str) -> str:
 def _standaard_planning(lijst: list[dict]) -> str:
     """Zonder (geldige) planning: het eerste scenario na "nu" op datum, of het enige.
 
-    Een voorwaardelijk scenario alleen als er geen gewoon scenario na "nu" is. lijst staat al op datum."""
+    Een voorwaardelijk scenario alleen als er geen gewoon scenario na "nu" is: de poort rust niet op een
+    onzeker scenario zolang er een zeker is (zo deed de vaste standaard het ook: het gewone scenario, niet
+    het voorwaardelijke). Het verschil met "het eerste op datum" telt alleen als het voorwaardelijke eerder
+    valt. lijst staat al op datum."""
     na_nu = [s for s in lijst if s["id"] != "nu"]
     gewoon = [s for s in na_nu if not s.get("voorwaardelijk")]
     return (gewoon or na_nu or lijst)[0]["id"]

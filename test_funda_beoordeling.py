@@ -425,10 +425,27 @@ def test_scenario_regels() -> bool:
 def test_geen_scenarionamen() -> bool:
     """Eigen scenarionamen staan alleen in de secret, niet in de publieke repo (CLAUDE.md, "Config").
 
-    De woorden zelf staan hier in stukken, anders weigert de test zichzelf. docs/ (alleen de bot schrijft er,
-    versleuteld) en de git-historie vallen erbuiten; niet bijgehouden bestanden ook (funda_personal.json)."""
+    Niet alleen het id, ook dezelfde maand in een andere vorm: als datum (jaar-maand of dag-maand-jaar, met
+    streepje, liggend streepje, schuine streep of punt), uitgeschreven (kort, met punt, voluit, Engels) of als
+    date(...)-aanroep. De woorden zelf staan hier in stukken of achter regex-tekens, anders weigert de test
+    zichzelf. docs/ (alleen de bot schrijft er, versleuteld) en de git-historie vallen erbuiten; niet
+    bijgehouden bestanden ook (funda_personal.json)."""
     print("test: geen eigen scenarionamen in code, tests, fixtures en voorbeeldconfig")
-    patronen = [re.compile(p, re.IGNORECASE) for p in (r"(?<![a-z])ca" + r"o(?![a-z])", "2027" + "_01", "jan " + "2027")]
+    patronen = [re.compile(p, re.IGNORECASE) for p in (
+        r"(?<![a-z])ca" + r"o(?![a-z])",
+        r"collectieve\s+arbeidsovereenkomst",
+        r"(?<!\d)2027[-_/.]0?1(?!\d)",
+        r"(?<!\d)0?1[-_/.]2027(?!\d)",
+        r"(?<![a-z])jan(?:uari|uary)?\.?\s*2027",
+        r"(?<!\d)2027\s*,\s*0?1(?!\d)",
+    )]
+    raak = lambda s: any(p.search(s) for p in patronen)  # noqa: E731
+    # Controle op de patronen zelf: varianten die geweigerd moeten worden, en fictieve waarden die mogen.
+    geweigerd = ["Met CA" + "O-verhoging", "x_2027" + "_01_y", "vanaf Jan" + " 2027", "vanaf janu" + "ari 2027",
+                 "januar" + "y 2027", "jan." + " 2027", '"datum": "2027' + '-01-01"', "per 01-" + "2027",
+                 "1-1-" + "2027", "date(2027" + ", 1, 1)", "2027/" + "1"]
+    toegestaan = ["2027-07-01", "2027-03-01", "2027-09-01", "2027-10-01", "2027-11-30", "11-2027", "21-2027",
+                  "{2026: 555_000, 2027: 615_000}", "later_extra", "Met bonus", "cacao", "jaarwissel op 1 januari"]
     try:
         uit = subprocess.run(["git", "ls-files", "-z"], cwd=HIER, capture_output=True, check=True)
         bestanden = [HIER / n for n in uit.stdout.decode("utf-8").split("\0") if n]
@@ -446,6 +463,10 @@ def test_geen_scenarionamen() -> bool:
         treffers += [f"{rel}: {p.pattern}" for p in patronen if p.search(tekst)]
     namen = {f.relative_to(HIER).as_posix() for f in bestanden}
     return all([
+        check("patronen weigeren de varianten", all(raak(s) for s in geweigerd),
+              "; ".join(s for s in geweigerd if not raak(s))),
+        check("patronen laten fictieve waarden staan", not any(raak(s) for s in toegestaan),
+              "; ".join(s for s in toegestaan if raak(s))),
         check("bestanden gevonden (code, tests, fixtures, voorbeeldconfig)",
               {"funda_beoordeling.py", "test_funda_beoordeling.py", "funda_personal.example.json",
                "testdata/woningen.json"} <= namen, str(len(namen))),
