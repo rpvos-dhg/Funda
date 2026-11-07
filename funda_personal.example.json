@@ -48,5 +48,88 @@
   "mail_host": "imap.gmail.com",
   "mail_map": "",
   "_doc_mail": "Mailroute, geldt alleen bij zoek_methode=mail (zit niet in auto): funda mailt nieuw aanbod uit een bewaarde zoekopdracht. mail_dagen_terug, mail_gebruiker, mail_host en mail_map doen alleen dan iets. Het app-wachtwoord hoort NIET hier maar in de omgeving (FUNDA_MAIL_PASSWORD).",
-  "_doc_mail_map": "Alleen bij zoek_methode=mail. Leeg laten: dan wordt de 'alle mail'-map zelf opgezocht via de \\All-vlag. Zet er GEEN INBOX in, want een gearchiveerde mail zit daar niet meer in."
+  "_doc_mail_map": "Alleen bij zoek_methode=mail. Leeg laten: dan wordt de 'alle mail'-map zelf opgezocht via de \\All-vlag. Zet er GEEN INBOX in, want een gearchiveerde mail zit daar niet meer in.",
+  "beoordeling": {
+    "_doc": "Beoordelingsmodel (funda_beoordeling.py). Alles optioneel; ontbreekt een sleutel, dan geldt de standaard uit de code. max_woonlasten_netto is je grens voor de netto woonlasten per maand (null = 33% van het bruto maandinkomen, bruto vergeleken). Krap tot krap_marge euro boven die grens, daarboven Past niet.",
+    "max_woonlasten_netto": 1450,
+    "krap_marge": 150,
+    "m2_wens": 70,
+    "max_woonlaag_zonder_lift": 2,
+    "fiets_kmu": 15,
+    "lang_op_funda_dagen": 90,
+    "financiering": {
+      "alleenstaand": true,
+      "rentevast_jaren": 30,
+      "rente_max_dagen": 60,
+      "overbod_pct": 0.0,
+      "kk_onzekerheid": 1500,
+      "eigen_geld_tekort_past_niet": 5000
+    },
+    "harde_eisen": {
+      "veiling": true,
+      "kluswoning": false,
+      "slapende_vve": false,
+      "max_woonlaag_zonder_lift": null
+    },
+    "werk": {
+      "gewicht": null,
+      "km_goed": 4,
+      "km_slecht": 10
+    },
+    "gewichten": {
+      "parkeren": 0
+    },
+    "verrijking": {
+      "aan": true,
+      "max_calls_per_run": 60,
+      "bronnen": {
+        "bag": true,
+        "fundering": true,
+        "geluid": true,
+        "buurt": true,
+        "tevredenheid": true
+      }
+    }
+  },
+  "_doc_beoordeling_verrijking": "Verrijking uit open bronnen (BAG via PDOK, Klimaateffectatlas, RIVM-geluidkaarten, Leefbaarometer, RIVM-gezondheidsmonitor via CBS). Fail-soft, robots.txt per host, eerlijke user-agent, hooguit max_calls_per_run verzoeken per run; cache in funda_enrichment_cache.json. aan: false = geen enkel verzoek.",
+  "financien": {
+    "alleenstaand": true,
+    "starter_tot": null,
+    "planning": "2027_01",
+    "scenarios": {
+      "nu": {
+        "bruto_jaar": 48000,
+        "label": "Nu"
+      },
+      "2027_01": {
+        "bruto_jaar": 50000,
+        "label": "Vanaf jan 2027"
+      },
+      "2027_01_met_cao": {
+        "bruto_jaar": 53000,
+        "label": "Met cao-verhoging"
+      }
+    },
+    "studieschuld": {
+      "maandlast": 0
+    },
+    "bkr": [],
+    "eigen_geld": {
+      "nu": 12000,
+      "datum": "2026-11-01",
+      "per_maand": 300,
+      "buffer": 2000
+    },
+    "kosten_koper": {
+      "vast": 6000,
+      "nhg_pct": 0.4
+    },
+    "rente": {
+      "pct": null,
+      "datum": null,
+      "rentevast_jaren": 10,
+      "bron": "auto"
+    }
+  },
+  "_doc_financien": "Persoonlijke cijfers voor de leentoets 2026, alleen in funda_personal.json en de secret, nooit in de repo. scenarios: toetsinkomen per moment (nu, 2027_01 = vanaf 1 januari 2027, ..._met_cao); de poort volgt planning (standaard 2027_01). Per scenario mag ook datum en eigen_geld. eigen_geld op een scenariodatum = nu + per_maand x hele maanden sinds datum, min buffer. starter_tot: datum tot wanneer de startersvrijstelling geldt (leeg = leeftijd onder 35). bkr: [{limiet, opgezegd}] of [{maandlast}]. kosten_koper.nhg_pct in procent. rente.pct leeg = actuele rente ophalen (ASN, anders DNB; bron auto, asn, dnb of uit); een getal gaat altijd voor (zet dan ook rente.datum). Zonder dit blok rekent het model met bruto_jaar, eigen_inleg, duo_maandlast en leeftijd hierboven, zonder scenario's."
 }
