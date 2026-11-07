@@ -38,11 +38,9 @@ jobs:
 
       - name: Offline tests
         run: |
-          python test_funda_html.py
-          python test_funda_zoek.py
-          python test_funda_mail.py
-          python test_funda_mail_ophalen.py
-          python test_funda_sitemap.py
+          # Elk test_*.py-bestand draait vanzelf mee; nieuwe tests hoeven
+          # deze workflow dus niet aan te passen.
+          for t in test_*.py; do echo "== $t"; python "$t" || exit 1; done
 
   funda-live:
     runs-on: ubuntu-latest

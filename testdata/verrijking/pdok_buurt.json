@@ -1,0 +1,38 @@
+{
+ "type": "FeatureCollection",
+ "timeStamp": "2026-11-07T00:17:32Z",
+ "links": [
+  {
+   "rel": "self",
+   "title": "This document as GeoJSON",
+   "type": "application/geo+json",
+   "href": "https://api.pdok.nl/cbs/wijken-en-buurten-2024/ogc/v1/collections/buurten/items?bbox=4.31329%2C52.07944%2C4.31331%2C52.07946&f=json"
+  }
+ ],
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "buurtcode": "BU05182812",
+    "buurtnaam": "Voorhout",
+    "gemeentenaam": "'s-Gravenhage",
+    "gemeentecode": "GM0518",
+    "wijkcode": "WK051828",
+    "jaar": 2024,
+    "aantal_inwoners": 2645,
+    "gemiddelde_woningwaarde": 523,
+    "percentage_koopwoningen": 27,
+    "percentage_met_herkomstland_buiten_europa": -1,
+    "percentage_met_herkomstland_nederland": -1,
+    "perc_geb_buiten_nl_met_herkomstlnd_buiten_europa": -1,
+    "gemiddeld_inkomen_per_inwoner": -1,
+    "opleidingsniveau_laag": -1,
+    "percentage_huishoudens_met_kinderen": -1
+   },
+   "geometry": null,
+   "id": "13c03aa8-bd65-57dc-917b-0aea77658fbd"
+  }
+ ],
+ "numberReturned": 1,
+ "_aantal_velden_gemeten": 244
+}

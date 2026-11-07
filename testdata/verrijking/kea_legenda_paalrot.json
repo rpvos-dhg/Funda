@@ -1,0 +1,30 @@
+{
+ "Legend": [
+  {
+   "layerName": "risicopaalrot_2050hoog",
+   "title": "risicopaalrot_2050hoog",
+   "rules": [
+    {
+     "name": "Zeer laag",
+     "filter": "[sterke_c_2 >= '0' AND sterke_c_2 <= '0.80000000000000004']"
+    },
+    {
+     "name": "Laag",
+     "filter": "[sterke_c_2 > '0.80000000000000004' AND sterke_c_2 <= '3']"
+    },
+    {
+     "name": "Matig",
+     "filter": "[sterke_c_2 > '3' AND sterke_c_2 <= '6']"
+    },
+    {
+     "name": "Hoog",
+     "filter": "[sterke_c_2 > '6' AND sterke_c_2 <= '15']"
+    },
+    {
+     "name": "Zeer hoog",
+     "filter": "[sterke_c_2 > '15' AND sterke_c_2 <= '100']"
+    }
+   ]
+  }
+ ]
+}

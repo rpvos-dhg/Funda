@@ -12,6 +12,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -224,44 +225,57 @@ def test_prijs_onbekend() -> bool:
     return ok
 
 
+RENTE_TEST = {"pct": 4.11, "bron": "standaard", "datum": "2026-07-06", "oud": True, "melding": None}
+
+
 def test_prijs_onbekend_rapport() -> bool:
     """Geen vraagprijs: niet als € 0 bovenaan met budget PAST.
 
     Gezien in e2e-run 42273695515: "€ 0 | 145 m2" stond bovenaan, met budget
-    PAST en de hoogste score. Dit gaat door het echte bouw_rij en de rendering,
-    niet door een gestubde genereer_rapport.
+    PAST en de hoogste score. Dit gaat door het echte bouw_rij (het model uit
+    funda_beoordeling) en de rendering van funda_ui, niet door een gestubde
+    genereer_rapport.
     """
     print("test: prijs op aanvraag in rapport, tracking en pushmelding")
     fz = maak_stub_funda(lambda _n: [])
     import funda_rapport as fr
+    import funda_ui
 
     basis = {"city": "Den Haag", "neighbourhood": "Bomenbuurt", "living_area": 145,
-             "energy_label": "C", "detail_url": "/detail/koop/den-haag/appartement-a-1/44500001/"}
+             "energy_label": "C", "detail_url": "/detail/koop/den-haag/appartement-a-1/44500001/",
+             "description": "Ruim appartement met balkon."}
+    cfg = fr.laad_config()
 
     def rij(d):
-        r = fr.bouw_rij(dict(d), None, "Ruim appartement met balkon.")
-        r.update(is_nieuw=True, foto_url=None, routes=[])
+        r = fr.bouw_rij(dict(d), None, [], cfg=cfg, rente=RENTE_TEST, vandaag="2026-11-06")
+        r["is_nieuw"] = True
         return r
 
     onbekend = rij({**basis, "price": None, "title": "Zonder prijs", "global_id": 1})
     bekend = rij({**basis, "price": 299500, "title": "Met prijs", "global_id": 2})
-    ok = check("budget PRIJS ONBEKEND in plaats van PAST",
-               onbekend["budget"] == "PRIJS ONBEKEND" and not onbekend["in_max"], onbekend["budget"])
-    ok &= check("score alleen uit voor- en nadelen, niets op prijs 0",
-                onbekend["score"] == 2.0 * (len(onbekend["pros"]) - len(onbekend["cons"])),
-                str(onbekend["score"]))
+    b = onbekend["beoordeling"]
+    ok = check("poort PRIJS ONBEKEND in plaats van PAST", b["poort"] == "PRIJS ONBEKEND", b["poort"])
+    ok &= check("geen leentoets en geen woonlasten",
+                b["financiering"]["netto"] is None and b["financiering"]["max_hypotheek"] is None)
+    ok &= check("statusregel zegt waarom", b["status_kort"] == "Prijs onbekend · geen vraagprijs, dus geen leentoets",
+                b["status_kort"])
+    ok &= check("beoordeling ook op de dict (voor de pushmelding)", onbekend["d"]["_beoordeling"] is b)
     rijen = [onbekend, bekend]
     fr.sorteer_rijen(rijen)
     ok &= check("in het rapport achteraan", [r["d"]["title"] for r in rijen] == ["Met prijs", "Zonder prijs"])
-    kaart = fr._card_html(onbekend)
-    ok &= check("kaart: prijs op aanvraag, geen € 0, geen maandlast",
-                "Prijs op aanvraag" in kaart and "€ 0" not in kaart and "lasten-totaal" not in kaart)
-    ok &= check("kaart: lege sorteerwaarden (de JS zet die achteraan)",
-                'data-prijs=""' in kaart and 'data-score=""' in kaart and 'data-maandlast=""' in kaart)
-    ok &= check("kaart: eigen budgetklasse", "budget-ONBEKEND" in kaart)
+    body = funda_ui.render_report_body(rijen, {"rente": RENTE_TEST})
+    kaart = body[body.index('data-id="1"'):]
+    kaart = kaart[:kaart.index("</article>")]
+    ok &= check("kaart: op aanvraag en onbekend, geen € 0",
+                "op aanvraag" in kaart and "onbekend" in kaart and not re.search(r"€[ \u00a0]0(?![\d.])", kaart))
+    data = json.loads(body.split('id="woning-data">', 1)[1].split("</script>", 1)[0])
+    per = {w["id"]: w for w in data["woningen"]}
+    ok &= check("woning-data: prijs en woonlasten leeg (de JS zet ze achteraan)",
+                per["1"]["prijs"] is None and per["1"]["netto"] is None, str(per["1"]["prijs"]))
     md = fr.render_markdown(rijen)
-    ok &= check("markdown: prijs op aanvraag, geen € 0",
-                "Zonder prijs — prijs op aanvraag" in md and "| € 0 |" not in md)
+    ok &= check("markdown: prijs op aanvraag, statusregel en score, geen € 0",
+                "### 2. Zonder prijs, Den Haag" in md and "prijs op aanvraag" in md
+                and "Prijs onbekend · geen vraagprijs, dus geen leentoets · score" in md and "€ 0" not in md)
 
     tracking = {}
     fz.update_tracking(tracking, "x", 280000, None)
@@ -274,6 +288,392 @@ def test_prijs_onbekend_rapport() -> bool:
     fz.schrijf_run_summary([{**basis, "price": None, "title": "Zonder prijs"}], [], [])
     ok &= check("pushmelding: price null in plaats van 0",
                 json.loads(fz.SUMMARY_FILE.read_text(encoding="utf-8"))["nieuw"][0]["price"] is None)
+    return ok
+
+
+class StubClientTestdata:
+    """pyfunda zoals de fictieve testdata hem beschrijft: detail, prijshistorie, buurtcijfer, makelaar."""
+
+    def __init__(self, td):
+        self.per_id = {str(w["listing"]["global_id"]): w for w in td["woningen"]}
+        self.markt, self.makelaars = td["markt"], td["makelaars"]
+        self.calls = Counter()
+
+    def get_listing(self, lid):
+        self.calls["detail"] += 1
+        return StubListing(json.loads(json.dumps(self.per_id[str(lid)]["listing"])))
+
+    def get_price_history(self, listing):
+        ph = self.per_id[str(listing.data["global_id"])]["price_history"]
+        if isinstance(ph, dict):
+            raise LookupError(ph.get("_fout") or "geen prijshistorie")
+        return json.loads(json.dumps(ph))
+
+    def get_market_insights(self, city, buurt):
+        m = self.markt.get(f"{city}|{buurt}".lower())
+        if not m:
+            raise LookupError("geen buurtcijfer")
+        return dict(m)
+
+    def _mk(self, bid, deel):
+        v = (self.makelaars.get(str(bid)) or {}).get(deel)
+        if isinstance(v, dict) and "_fout" in v:
+            raise LookupError(v["_fout"])
+        return v
+
+    def get_broker_info(self, bid):
+        return self._mk(bid, "info")
+
+    def get_broker_reviews(self, bid):
+        return self._mk(bid, "reviews")
+
+    def get_broker_listings(self, bid):
+        n = (self.makelaars.get(str(bid)) or {}).get("listings_aantallen") or {}
+        return [{"status": st} for st, k in n.items() for _ in range(int(k))]
+
+
+def test_rapport_testdata() -> bool:
+    """Eén run door het echte genereer_rapport() op de 13 fictieve woningen (bouwplan B5).
+
+    Schrijft markdown, HTML en een versleutelde docs/index.html in een tijdelijke map; de
+    ontsleutelde body heeft 13 woningkaarten in de volgorde van funda_beoordeling.sorteer().
+    Rente en verrijking krijgen een netwerk dat altijd faalt (en daarna een module die gooit):
+    dat mag de run nooit laten falen. Geen echt netwerk: werkcoördinaten uit de testdata, OSRM uit.
+    """
+    print("test: genereer_rapport op testdata, versleuteld, met falende rente en verrijking")
+    fz = maak_stub_funda(lambda _n: [])
+    import funda_beoordeling as fb
+    import funda_rapport as fr
+    import funda_rente
+    import funda_verrijking
+    from test_funda_pwa import ontsleutel
+
+    td = json.loads((Path(__file__).parent / "testdata" / "woningen.json").read_text(encoding="utf-8"))
+    profiel = dict(td["meta"]["profiel"])   # fictief
+    profiel["beoordeling"] = {"max_woonlasten_netto": 1450, "verrijking": {"pauze_s": 0}}
+    profiel["financien"] = {"planning": "2027_01",
+                            "scenarios": {"nu": 62000, "2027_01": 64000, "2027_01_met_cao": 68000},
+                            "eigen_geld": {"nu": 7000, "datum": "2026-11-01", "per_maand": 300}}
+    titels = [w["listing"]["title"] for w in td["woningen"]]
+    postcodes = [w["listing"]["postcode"] for w in td["woningen"]] + [w["postcode"] for w in td["meta"]["werk"]]
+    nieuw_ids = {str(w["listing"]["global_id"]) for w in td["woningen"] if w["fixture"].get("nieuw")}
+    oud = {k: getattr(fr, k) for k in ("_PERSONAL", "UITVOER_DIR", "PWA_PASSWORD_FILE", "ENRICHMENT_CACHE",
+                                       "WERK_CACHE", "DETAIL_PAUZE_S", "osrm_route_km")}
+    oud_rente, oud_verrijk = funda_rente.huidige_rente, funda_verrijking.verrijk
+    oud_env = os.environ.pop("FUNDA_REQUIRE_ENCRYPTION", None)
+    verzoeken: list[str] = []
+
+    def netwerk_stuk(url, timeout=None, headers=None):
+        verzoeken.append(url)
+        raise OSError("geen netwerk in de test")
+
+    def woningen():
+        uit = []
+        for w in td["woningen"]:
+            d = json.loads(json.dumps(w["listing"]))
+            d["_track"] = dict(w["track"])
+            d["_twijfel"] = fz.twijfel_redenen(d)
+            uit.append(d)
+        return uit
+
+    def run(tmp: Path, **kw) -> tuple[list[dict], str]:
+        fr.UITVOER_DIR = tmp
+        fr.ENRICHMENT_CACHE = tmp / "cache.json"
+        ws = woningen()
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log):
+            fr.genereer_rapport(StubClientTestdata(td), ws, set(nieuw_ids), vandaag=datetime(2026, 11, 6).date(), **kw)
+        return ws, log.getvalue()
+
+    ok = True
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            (tmp / "pw.txt").write_text("test-wachtwoord", encoding="utf-8")
+            (tmp / "werk.json").write_text(json.dumps({w["postcode"]: [w["lat"], w["lon"]] for w in td["meta"]["werk"]}),
+                                           encoding="utf-8")
+            fr._PERSONAL = profiel
+            fr.PWA_PASSWORD_FILE = tmp / "pw.txt"
+            fr.WERK_CACHE = tmp / "werk.json"
+            fr.DETAIL_PAUZE_S = 0
+            fr.osrm_route_km = lambda *a: None
+
+            ws, log = run(tmp, http=netwerk_stuk, ua="test-ua/1.0 (+https://example.invalid)")
+            ok &= check("markdown, HTML en docs/index.html geschreven",
+                        all((tmp / n).exists() for n in ("funda_rapport.md", "funda_rapport.html", "docs/index.html",
+                                                          "docs/manifest.json", "docs/service-worker.js")))
+            index = (tmp / "docs" / "index.html").read_text(encoding="utf-8")
+            ok &= check("index.html versleuteld (geen adres leesbaar)", not any(t in index for t in titels))
+            body = ontsleutel(index, "test-wachtwoord")
+            artikelen = re.findall(r'<article class="woning"[^>]*data-id="([^"]+)"', body)
+            ok &= check("13 article.woning", len(artikelen) == 13, str(len(artikelen)))
+            volgorde = [str(d["global_id"]) for d in sorted(ws, key=lambda d: fb.sorteer_sleutel(d["_beoordeling"]))]
+            data = json.loads(body.split('id="woning-data">', 1)[1].split("</script>", 1)[0])
+            ok &= check("woning-data in de volgorde van sorteer()", [w["id"] for w in data["woningen"]] == volgorde)
+            ok &= check("kaarten: eerst nieuw, dan per poort, elk in die volgorde",
+                        artikelen == [i for i in volgorde if i in nieuw_ids] + [i for i in volgorde if i not in nieuw_ids])
+            ok &= check("elke woning beoordeeld (d['_beoordeling'])", all(d.get("_beoordeling", {}).get("poort") for d in ws))
+            ok &= check("verrijking faalde: onbekend, geen woning minder",
+                        all(d["_beoordeling"]["verrijking"]["bag"] == "onbekend" for d in ws), str(len(verzoeken)))
+            ok &= check("verzoeken alleen via de meegegeven http", bool(verzoeken)
+                        and all(u.startswith("https://") and "funda" not in u for u in verzoeken))
+            ok &= check("rente: standaardwaarde met melding", 'id="rente-melding"' in body and "dagen oud" in body)
+            ok &= check("scenario's zichtbaar (fictief)", "Vanaf jan 2027" in body and "(planning)" in body)
+            ok &= check("WOZ met peildatum uit het ISO-tijdstip van de prijshistorie", "(peildatum 1 januari 2026)" in body
+                        and "jan, 2026)" not in body)
+            md = (tmp / "funda_rapport.md").read_text(encoding="utf-8")
+            alles = body + md + (tmp / "funda_rapport.html").read_text(encoding="utf-8")
+            ok &= check("nergens € 0 (ook niet met harde spatie)", not re.search(r"€[ \u00a0]0(?![\d.])", alles))
+            ok &= check("geen inkomen in de uitvoer", "62.000" not in alles and "64.000" not in alles and "bruto_jaar" not in alles)
+            logregels = [r for r in log.splitlines() if r.startswith(("[rapport]", "[verrijking]", "[rente]"))]
+            ok &= check("log: kenmerklabels en aantallen per poort",
+                        any(r.startswith("[rapport] Kenmerklabels") and "Bijdrage VvE" in r for r in logregels)
+                        and any(r.startswith("[rapport] Per poort: Past ") for r in logregels))
+            ok &= check("log: geen adressen of postcodes",
+                        not any(t in r for r in logregels for t in titels + postcodes))
+            cache = json.loads((tmp / "cache.json").read_text(encoding="utf-8"))
+            ok &= check("buurtcijfer: alleen de vraagprijs per m² in de cache",
+                        all(set((e.get("data") or {})) <= {"avg_asking_price_per_m2", "_error"}
+                            for e in cache.get("market_insights", {}).values()))
+            ok &= check("rente in het bestaande cachebestand (hooguit één poging per dag)",
+                        (cache.get("rente") or {}).get("laatste_poging") == "2026-11-06", str(list(cache)))
+
+            def gooi(*a, **k):
+                raise RuntimeError("kapot")
+
+            funda_rente.huidige_rente = gooi
+            funda_verrijking.verrijk = gooi
+            (tmp / "docs" / "index.html").unlink()
+            ws, log = run(tmp)
+            body = ontsleutel((tmp / "docs" / "index.html").read_text(encoding="utf-8"), "test-wachtwoord")
+            ok &= check("rente- en verrijkingsmodule die gooien: toch 13 woningen",
+                        len(re.findall(r'<article class="woning"', body)) == 13)
+            ok &= check("en een logregel zonder details",
+                        "[rapport] Rente niet opgehaald (RuntimeError)" in log and "[rapport] Verrijking overgeslagen" in log)
+    finally:
+        for k, v in oud.items():
+            setattr(fr, k, v)
+        funda_rente.huidige_rente, funda_verrijking.verrijk = oud_rente, oud_verrijk
+        if oud_env is not None:
+            os.environ["FUNDA_REQUIRE_ENCRYPTION"] = oud_env
+    return ok
+
+
+def test_rapport_rente_cache_ua() -> bool:
+    """Fixronde: rentevast en leeftijdsgrens als terugval uit beoordeling.financiering, de allowlist op de
+    hele buurtcijfercache, en de eerlijke user-agent voor Nominatim en OSRM. Geen netwerk."""
+    print("test: rente-instellingen, buurtcijfercache en user-agent van funda_rapport")
+    import funda_beoordeling as fb
+    import funda_rapport as fr
+    import funda_rente
+    import urllib.request
+
+    ok = True
+    cfg = fb.laad_config({"beoordeling": {"financiering": {"rentevast_jaren": 5, "rente_max_dagen": 45}}})
+    r = fr._rente_cfg(cfg)["financien"]["rente"]
+    ok &= check("beoordeling.financiering.rentevast_jaren als terugval", r.get("rentevast_jaren") == 5, str(r))
+    ok &= check("beoordeling.financiering.rente_max_dagen als terugval", r.get("max_dagen") == 45, str(r))
+    cfg2 = fb.laad_config({"beoordeling": {"financiering": {"rentevast_jaren": 5}},
+                           "financien": {"rente": {"rentevast_jaren": 20}}})
+    ok &= check("financien.rente gaat voor", fr._rente_cfg(cfg2)["financien"]["rente"]["rentevast_jaren"] == 20)
+    cfg3 = fb.laad_config({"beoordeling": {"financiering": {"rente": 0.039, "rente_datum": "2026-10-30"}},
+                           "financien": {"rente": {"pct": None, "datum": None}}})
+    r3 = fr._rente_cfg(cfg3)["financien"]["rente"]
+    ok &= check("rente_datum ook als financien.rente.datum null is", r3.get("datum") == "2026-10-30", str(r3))
+    ok &= check("zonder eigen sleutels geen rentevast uit de standaard", "rentevast_jaren" not in
+                fr._rente_cfg(fb.laad_config({}))["financien"]["rente"])
+
+    oud_rente = funda_rente.huidige_rente
+    funda_rente.huidige_rente = lambda *a, **k: {"pct": 3.9, "bron": "ASN", "datum": "2026-11-06", "oud": False,
+                                                 "melding": None}
+    try:
+        rente = fr.haal_rente(cfg, {}, datetime(2026, 11, 7).date())
+        ok &= check("haal_rente: rentevast 5 jaar uit de terugval", rente.get("rentevast_jaren") == 5, str(rente))
+        ok &= check("toets rekent met 5 jaar vast, dus de AFM-toetsrente", fb._rentevast(rente, cfg) == 5
+                    and fb.toetsrente(0.039, 5) == 0.05)
+        standaard = fr.haal_rente(fb.laad_config({}), {}, datetime(2026, 11, 7).date())
+        ok &= check("zonder instelling: 10 jaar vast (funda_rente)", standaard.get("rentevast_jaren") == 10, str(standaard))
+    finally:
+        funda_rente.huidige_rente = oud_rente
+
+    oud_cache = fr.ENRICHMENT_CACHE
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fr.ENRICHMENT_CACHE = Path(tmpdir) / "cache.json"
+        try:
+            fr.ENRICHMENT_CACHE.write_text(json.dumps({"market_insights": {
+                f"teststad|buurt{i}": {"fetched": "2026-10-01", "data": {"avg_asking_price_per_m2": 5000 + i,
+                                                                         "inhabitants": 1000 + i,
+                                                                         "families_with_children_pct": 20}}
+                for i in range(3)}}), encoding="utf-8")
+            cache = fr.load_enrichment_cache()
+            velden = [set(e["data"]) for e in cache["market_insights"].values()]
+            ok &= check("alle buurten in de cache door de allowlist bij laden",
+                        velden == [{"avg_asking_price_per_m2"}] * 3, str(velden))
+            cache["market_insights"]["teststad|nieuw"] = {"fetched": "2026-11-07",
+                                                          "data": {"avg_asking_price_per_m2": 1, "inhabitants": 9}}
+            fr.save_enrichment_cache(cache)
+            opgeslagen = json.loads(fr.ENRICHMENT_CACHE.read_text(encoding="utf-8"))
+            ok &= check("en bij opslaan", "inhabitants" not in json.dumps(opgeslagen))
+        finally:
+            fr.ENRICHMENT_CACHE = oud_cache
+
+    gezien = []
+
+    class Antwoord:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"[]"
+
+    oud_urlopen = urllib.request.urlopen
+    urllib.request.urlopen = lambda req, timeout=None: (gezien.append(req.get_header("User-agent")), Antwoord())[1]
+    try:
+        fr.lookup_postcode("1234 AB")
+        fr.osrm_route_km(52.0, 4.3, 52.1, 4.4)
+    finally:
+        urllib.request.urlopen = oud_urlopen
+    ok &= check("Nominatim en OSRM krijgen de eerlijke user-agent met repo-link",
+                len(gezien) == 2 and all(ua == fr._eerlijke_ua() and "github.com/rpvos-dhg/Funda" in ua for ua in gezien),
+                str(gezien))
+    return ok
+
+
+def test_twijfel_naar_rapport() -> bool:
+    """Twijfel bereikt het rapport: d["_twijfel"] met korte zinnen, de woning blijft staan."""
+    print("test: twijfelbuurt en Leidschendam-Voorburg krijgen _twijfel")
+
+    def listing(gid, stad, buurt):
+        return StubListing({"global_id": gid, "city": stad, "neighbourhood": buurt, "price": 250000,
+                            "living_area": 60, "title": f"Teststraat {gid}"})
+
+    def gedrag(n):
+        if n == 1:
+            return [listing("g1", "Den Haag", "Bomenbuurt"), listing("g2", "Den Haag", "Leyenburg"),
+                    listing("g3", "Leidschendam-Voorburg", "Damsigt")]
+        return []
+
+    fz = maak_stub_funda(gedrag)
+    gezien = {}
+
+    def rapport(_client, goed, _nieuw):
+        gezien.update({d["global_id"]: d.get("_twijfel") for d in goed})
+        return Path("rapport.html")
+
+    fz.genereer_rapport = rapport
+    with contextlib.redirect_stdout(io.StringIO()):
+        fz.main()
+    ok = check("alle drie in het rapport (twijfel is geen filter)", sorted(gezien) == ["g1", "g2", "g3"], str(gezien))
+    ok &= check("gewone buurt: lege lijst", gezien.get("g1") == [], str(gezien.get("g1")))
+    ok &= check("twijfelbuurt: korte zin met de buurt", gezien.get("g2") == ["Twijfelbuurt Leyenburg (jouw lijst)."],
+                str(gezien.get("g2")))
+    ok &= check("gemeente Leidschendam-Voorburg: stad onduidelijk",
+                gezien.get("g3") == ["Stad onduidelijk: Leidschendam of Voorburg? Funda geeft alleen de gemeente."],
+                str(gezien.get("g3")))
+    ok &= check("geen 'Onderaan gezet.' (dat zet het rapport erachter)",
+                not any("Onderaan" in t for v in gezien.values() for t in (v or [])))
+    return ok
+
+
+def test_vul_summary_aan() -> bool:
+    """Na het rapport: poortwoord en score per nieuwe woning in de run-samenvatting, voor de push.
+
+    Eindreview: de statusregel bevat bedragen die van het profiel afhangen ('€ 65 onder de norm
+    (bruto)' geeft met de publieke code het bruto inkomen terug, '€ 26.610 eigen geld te weinig'
+    het eigen geld). In de samenvatting komt daarom alleen `status_push`: het poortwoord."""
+    print("test: vul_summary_aan zet poortwoord en score, geen bedragen, en laat het bestand anders intact")
+    fz = maak_stub_funda(lambda _n: [])
+    basis = {"city": "Den Haag", "neighbourhood": "Bomenbuurt", "living_area": 60, "energy_label": "C"}
+    a = {**basis, "global_id": 11, "title": "Teststraat 11", "price": 250000}
+    b = {**basis, "global_id": 12, "title": "Teststraat 12", "price": None}
+    c = {**basis, "global_id": 13, "title": "Teststraat 13", "price": 265000}
+    d = {**basis, "global_id": 14, "title": "Teststraat 14", "price": 240000}
+    e = {**basis, "global_id": 15, "title": "Teststraat 15", "price": 230000}
+    fz.schrijf_run_summary([a, b, c, d, e], [], [])
+    voor = fz.SUMMARY_FILE.read_bytes()
+    ok = check("zonder beoordeling: 0 aangevuld en bestand ongewijzigd",
+               fz.vul_summary_aan([a, b, c, d, e]) == 0 and fz.SUMMARY_FILE.read_bytes() == voor)
+    # FICTIEF: statusregels in de vorm van funda_beoordeling.status_kort, met bedragen.
+    a["_beoordeling"] = {"poort": "PAST", "status_kort": "Past · € 196 onder je grens", "score": 8.333}
+    b["_beoordeling"] = {"poort": "PRIJS ONBEKEND", "status_kort": "Prijs onbekend · geen vraagprijs, dus geen leentoets",
+                         "score": 6.0}
+    c["_beoordeling"] = {"poort": "KRAP", "status_kort": "Krap · € 4 boven de norm (bruto)", "score": 7.2}
+    d["_beoordeling"] = {"poort": "PAST NIET", "status_kort": "Past niet · € 26.610 eigen geld te weinig", "score": 7.4}
+    e["_beoordeling"] = {"status_kort": "Past · € 65 onder de norm (bruto)", "score": 5.0}   # zonder poort
+    n = fz.vul_summary_aan([a, b, c, d, e])
+    tekst = fz.SUMMARY_FILE.read_text(encoding="utf-8")
+    data = json.loads(tekst)
+    per = {x["id"]: x for x in data["nieuw"]}
+    ok &= check("vijf aangevuld", n == 5, str(n))
+    ok &= check("poortwoord en score (1 decimaal)", per["11"].get("status_push") == "Past"
+                and per["11"].get("score") == 8.3, str(per["11"]))
+    ok &= check("poortwoorden Krap, Past niet, Prijs onbekend",
+                [per[i].get("status_push") for i in ("13", "14", "12")] == ["Krap", "Past niet", "Prijs onbekend"],
+                str([per[i].get("status_push") for i in ("13", "14", "12")]))
+    ok &= check("zonder poort: het poortwoord uit de statusregel", per["15"].get("status_push") == "Past", str(per["15"]))
+    ok &= check("geen statusregel met bedragen in de samenvatting", not any("status" in x for x in data["nieuw"]),
+                str([sorted(x) for x in data["nieuw"]]))
+    ok &= check("nergens een €-teken in de samenvatting", "€" not in tekst, tekst[:200])
+    ok &= check("prijs op aanvraag: price blijft null", per["12"]["price"] is None)
+    ok &= check("rest van de samenvatting blijft", data["nieuw_count"] == 5 and per["11"]["price"] == 250000)
+    ok &= check("geen inkomen of eigen geld in de samenvatting",
+                not any(k in tekst for k in ("bruto", "inkomen", "eigen_inleg", "eigen geld", "norm", "grens")))
+    fz.SUMMARY_FILE.unlink()
+    ok &= check("zonder bestand: geen fout", fz.vul_summary_aan([a]) == 0 and not fz.SUMMARY_FILE.exists())
+    return ok
+
+
+def test_pushtekst() -> bool:
+    """scripts/send_web_push.cjs: '<adres>, <stad> · <poortwoord> · <score>', nooit een eurobedrag.
+
+    Ook niet bij een oude samenvatting: met `status` (de hele statusregel) blijft alleen het
+    poortwoord over, en zonder beoordeling valt de vraagprijs weg. Als vangnet laat het script
+    elk deel met een €-teken weg."""
+    print("test: pushtekst met poortwoord en score, nooit een eurobedrag (ook niet bij oude samenvattingen)")
+    node = shutil.which("node")
+    if not node:
+        print("  (node niet gevonden; overgeslagen)")
+        return True
+    script = Path(__file__).parent / "scripts" / "send_web_push.cjs"
+    homes = [
+        {"title": "Teststraat 1", "city": "Den Haag", "status_push": "Past", "score": 8.3,
+         "price": 265000, "living_area": 68},
+        {"title": "Teststraat 2", "city": "Den Haag", "price": 265000, "living_area": 68},
+        {"title": "Teststraat 3", "city": "Den Haag", "price": None, "living_area": 70},
+        {"title": "Teststraat 4", "city": "Den Haag", "status": "Past · € 0 onder je grens", "score": 7},
+        # Oude samenvattingen (vóór de eindreview): de hele statusregel in `status`.
+        {"title": "Teststraat 5", "city": "Den Haag", "status": "Krap · € 4 boven de norm (bruto)", "score": 7.2},
+        {"title": "Teststraat 6", "city": "Den Haag", "status": "Past niet · € 26.610 eigen geld te weinig", "score": 7.4},
+        {"title": "Teststraat 7", "city": "Den Haag", "status": "Prijs onbekend · geen vraagprijs, dus geen leentoets",
+         "score": 6},
+        # Vangnet: een bedrag in status_push valt ook weg.
+        {"title": "Teststraat 8", "city": "Den Haag", "status_push": "Past · € 196 onder je grens", "score": 8},
+        {"title": "Teststraat 9", "city": "Den Haag", "status_push": "Past niet", "status": "Past niet · € 9.860 eigen geld te weinig"},
+    ]
+    code = (f"const p = require({json.dumps(str(script))});"
+            f"const h = {json.dumps(homes)};"
+            "console.log(JSON.stringify({r: h.map(p.regel), t: p.payloadVoor({nieuw_count: 1, nieuw: h.slice(0, 1)}),"
+            " b: [0, 3, 6].map(i => p.payloadVoor({nieuw_count: 3, nieuw: h.slice(i, i + 3)}).body)}));")
+    uit = subprocess.run([node, "-e", code], capture_output=True, text=True, timeout=30)
+    if uit.returncode != 0:
+        return check("node draait het script", False, uit.stderr[-300:])
+    data = json.loads(uit.stdout)
+    r = data["r"]
+    ok = check("nieuwe vorm", r[0] == "Teststraat 1, Den Haag · Past · 8,3", r[0])
+    ok &= check("zonder beoordeling: geen vraagprijs", r[1] == "Teststraat 2, Den Haag · 68 m2", r[1])
+    ok &= check("prijs op aanvraag zonder beoordeling", r[2] == "Teststraat 3, Den Haag · prijs op aanvraag · 70 m2", r[2])
+    ok &= check("oude samenvatting: alleen het poortwoord", r[3:7] == [
+        "Teststraat 4, Den Haag · Past · 7,0", "Teststraat 5, Den Haag · Krap · 7,2",
+        "Teststraat 6, Den Haag · Past niet · 7,4", "Teststraat 7, Den Haag · Prijs onbekend · 6,0"], str(r[3:7]))
+    ok &= check("vangnet: deel met € valt weg", r[7] == "Teststraat 8, Den Haag · Past · 8,0", r[7])
+    ok &= check("status_push gaat voor status", r[8] == "Teststraat 9, Den Haag · Past niet", r[8])
+    ok &= check("geen €-teken in een regel", not any("€" in x for x in r), str([x for x in r if "€" in x]))
+    ok &= check("geen €-teken in de body van payloadVoor", not any("€" in x for x in data["b"] + [data["t"]["body"]]),
+                str(data["b"]))
+    ok &= check("titel zonder merknaam", data["t"]["title"] == "1 nieuwe woning", data["t"]["title"])
     return ok
 
 
@@ -1373,7 +1773,8 @@ def test_pool_in_run() -> bool:
 
 def main() -> int:
     resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(), test_prijs_onbekend(),
-                  test_prijs_onbekend_rapport(), test_auto_keten(), test_buurtfilter(), test_stadfilter(),
+                  test_prijs_onbekend_rapport(), test_rapport_testdata(), test_rapport_rente_cache_ua(), test_twijfel_naar_rapport(), test_vul_summary_aan(),
+                  test_pushtekst(), test_auto_keten(), test_buurtfilter(), test_stadfilter(),
                   test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),
                   test_geen_dubbele_detail_calls(), test_pool_404_bovenaan(), test_pool_404_beeindigt_reeks(),

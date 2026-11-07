@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Woningrapport</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1e293b">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Woningen">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+__MAP_HEAD__
+<style>
+__APP_CSS__
+/* Slotscherm: publiek leesbaar. Geen naam, geen merkvorm. */
+#content[hidden],.slot[hidden]{display:none}
+.slot{min-height:100vh;display:grid;place-items:center;background:var(--background-color-page);
+  padding:calc(var(--spacing-300) + env(safe-area-inset-top)) var(--spacing-200) calc(var(--spacing-300) + env(safe-area-inset-bottom))}
+.slot-tegel{width:min(22.5rem,100%);padding:var(--spacing-300);border-radius:var(--radius-200);background:var(--background-color-default);
+  border:1px solid var(--border-color-subtle);display:grid;gap:var(--spacing-200)}
+.slot-merk{width:3rem;height:3rem;border-radius:var(--radius-200);display:grid;place-items:center;
+  background:var(--background-color-strong);color:var(--foreground-color-on-strong)}
+.slot-merk .ic{width:1.75rem;height:1.75rem}
+.slot h1{font:var(--heading-medium);color:var(--foreground-color-strong)}
+.slot-intro,.slot-hint{font:var(--paragraph-body-small);color:var(--foreground-color-subtle);margin-top:var(--spacing-50)}
+.slot-hint{font:var(--paragraph-body-xsmall);margin:calc(var(--spacing-150) * -1) 0 0 calc(1.375rem + var(--spacing-150))}
+.slot-form{display:grid;gap:var(--spacing-150)}
+.pw-rij{position:relative}
+.pw-rij input{padding-right:calc(var(--tap) + var(--spacing-100))}
+.pw-rij .icoonknop{position:absolute;right:var(--spacing-25);top:var(--spacing-25);color:var(--foreground-color-interactive-strong)}
+.pw-rij .icoonknop[aria-pressed="false"] .streep{display:none}
+.slot .veld input[aria-invalid="true"]{border-bottom:2px solid var(--foreground-color-feedback-negative)}
+.slot-fout{font:var(--paragraph-body-small);color:var(--foreground-color-feedback-negative);min-height:1.25rem}
+.slot-fout:empty{display:none}
+.slot .knop{width:100%}
+.slot .linkknop{justify-self:center}
+.slot-melding{position:fixed;left:var(--spacing-200);right:var(--spacing-200);margin:0 auto;width:fit-content;max-width:30rem;z-index:300;
+  bottom:calc(var(--onder-h) + env(safe-area-inset-bottom) + var(--spacing-150));padding:var(--spacing-100) var(--spacing-200);
+  border-radius:var(--radius-200);font:var(--paragraph-body-small)}
+.draai{width:1rem;height:1rem;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:draai .8s linear infinite}
+@keyframes draai{to{transform:rotate(360deg)}}
+</style>
+__APP_SCRIPTS__
+</head>
+<body>
+<main id="slot" class="slot">
+  <div class="slot-tegel">
+    <div class="slot-merk" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg></div>
+    <div>
+      <h1>Woningrapport</h1>
+      <p class="slot-intro">Vul je wachtwoord in. Het rapport wordt op dit apparaat ontsleuteld; je wachtwoord gaat nergens heen.</p>
+    </div>
+    <form id="slot-form" class="slot-form" novalidate>
+      <div class="veld">
+        <label for="pw">Wachtwoord</label>
+        <div class="pw-rij">
+          <input id="pw" type="password" autocomplete="current-password" aria-describedby="err" required>
+          <button type="button" class="icoonknop" id="pw-toon" aria-controls="pw" aria-pressed="false" aria-label="Toon wachtwoord">
+            <svg class="ic" aria-hidden="true" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/><path class="streep" d="M4 4l16 16"/></svg>
+          </button>
+        </div>
+        <p id="err" class="slot-fout" role="alert" aria-live="assertive"></p>
+      </div>
+      <label class="keuze" for="remember"><input id="remember" type="checkbox" aria-describedby="remember-uitleg"> Onthoud op dit apparaat</label>
+      <p id="remember-uitleg" class="slot-hint">Bewaart een sleutel op dit apparaat, nooit je wachtwoord. 30 dagen geldig.</p>
+      <button id="btn" type="submit" class="knop knop-sec">Ontgrendelen</button>
+      <button id="vergeet" type="button" class="linkknop" hidden>Vergeet dit apparaat</button>
+    </form>
+  </div>
+</main>
+<div id="content" hidden></div>
+<p id="slot-melding" class="slot-melding context-strong" role="status" hidden></p>
+<script>
+const SALT = "__SALT__";
+const IV   = "__IV__";
+const CT   = "__CT__";
+const ITERS = __ITERS__;
+const GZ = __GZ__;   // 1 = body is vóór het versleutelen met gzip ingepakt
+/* Onthoud op dit apparaat: de PBKDF2-basissleutel als niet-exporteerbare CryptoKey in IndexedDB, nooit
+   het wachtwoord. Die sleutel hangt niet af van het zout, dus hij werkt ook na een run met een nieuw zout. */
+const DB = "funda_rapport_slot", BAK = "sleutels", ID = "basis", DAGEN = 30;
+const OUD_PW = "funda_pw_persist_v1";   // vroeger: het wachtwoord leesbaar in localStorage
+const TE_OUD = "Deze browser kan het rapport niet openen. Werk je iPhone bij naar iOS 16.4 of nieuwer.";
+const $ = (id) => document.getElementById(id);
+function b64(s){const b=atob(s),a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a;}
+class TeOud extends Error {}
+function basisSleutel(pw){ return crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveKey"]); }
+async function decrypt(basis){
+  if(GZ && typeof DecompressionStream === "undefined") throw new TeOud();
+  const key = await crypto.subtle.deriveKey({name:"PBKDF2", salt:b64(SALT), iterations:ITERS, hash:"SHA-256"}, basis, {name:"AES-GCM", length:256}, false, ["decrypt"]);
+  const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv:b64(IV)}, key, b64(CT));  // fout wachtwoord = fout hier
+  if(!GZ) return new TextDecoder().decode(pt);
+  return await new Response(new Blob([pt]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
+}
+function db(modus, werk){
+  return new Promise((ok, nee) => {
+    if(!window.indexedDB) return nee(new Error("geen IndexedDB"));
+    const r = indexedDB.open(DB, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(BAK);
+    r.onerror = () => nee(r.error); r.onblocked = () => nee(new Error("geblokkeerd"));
+    r.onsuccess = () => {
+      const d = r.result; let uit;
+      try {
+        const tx = d.transaction(BAK, modus), q = werk(tx.objectStore(BAK));
+        q.onsuccess = () => { uit = q.result; };
+        tx.oncomplete = () => { d.close(); ok(uit); };
+        tx.onerror = tx.onabort = () => { d.close(); nee(tx.error || new Error("afgebroken")); };
+      } catch(e){ d.close(); nee(e); }   // bijv. DataCloneError: deze browser bewaart geen CryptoKey
+    };
+  });
+}
+const bewaar = (sleutel) => db("readwrite", (s) => s.put({sleutel, tot: Date.now() + DAGEN * 864e5}, ID));
+const haal = () => db("readonly", (s) => s.get(ID));
+const wis = () => db("readwrite", (s) => s.delete(ID));
+function onthouden(ja){ window.fundaApparaat.onthouden = ja; $("vergeet").hidden = !ja; }
+window.fundaApparaat = {onthouden: false, vergeet: async () => { await wis(); onthouden(false); }};
+function melding(tekst){
+  const m = $("slot-melding"); m.textContent = tekst; m.hidden = false;
+  clearTimeout(melding.t); melding.t = setTimeout(() => { m.hidden = true; }, 8000);
+}
+function toon(html){
+  const c = $("content"); c.hidden = false; c.innerHTML = html;
+  $("slot").hidden = true;
+  if(window.fundaAfterReportLoad) window.fundaAfterReportLoad();
+}
+$("pw-toon").addEventListener("click", function(){
+  const pw = $("pw"), zicht = pw.type === "password";
+  pw.type = zicht ? "text" : "password";
+  this.setAttribute("aria-pressed", String(zicht)); this.setAttribute("aria-label", zicht ? "Verberg wachtwoord" : "Toon wachtwoord");
+});
+$("vergeet").addEventListener("click", async () => {
+  try { await window.fundaApparaat.vergeet(); melding("Dit apparaat is vergeten."); } catch(_){ melding("Vergeten lukte niet."); }
+});
+$("slot-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const pw = $("pw"), btn = $("btn"), err = $("err");
+  err.textContent = ""; pw.removeAttribute("aria-invalid");
+  btn.disabled = true; btn.innerHTML = '<span class="draai" aria-hidden="true"></span> Ontgrendelen';
+  try {
+    await new Promise(r => setTimeout(r, 50));
+    const basis = await basisSleutel(pw.value);
+    const html = await decrypt(basis);
+    pw.value = "";
+    if($("remember").checked){
+      try { await bewaar(basis); onthouden(true); }
+      catch(_){ melding("Onthouden lukt niet in deze browser. Vul je wachtwoord de volgende keer opnieuw in."); }
+    }
+    toon(html);
+  } catch(ex){
+    if(ex instanceof TeOud){ err.textContent = TE_OUD; }
+    else { pw.setAttribute("aria-invalid", "true"); err.textContent = "Dit wachtwoord klopt niet. Probeer het opnieuw."; }
+    btn.disabled = false; btn.textContent = "Ontgrendelen"; pw.focus();
+  }
+});
+(async () => {
+  // Migratie: een oud, leesbaar bewaard wachtwoord wordt een sleutel en verdwijnt uit de opslag.
+  let oud = "", bewaard = null, basis = null;
+  try { const d = JSON.parse(localStorage.getItem(OUD_PW) || "null"); if(d && d.pw && Date.now() <= d.expires) oud = d.pw; } catch(_){}
+  try { localStorage.removeItem(OUD_PW); } catch(_){}
+  try { sessionStorage.removeItem("funda_pw"); } catch(_){}
+  try { bewaard = await haal(); } catch(_){}
+  if(bewaard && bewaard.sleutel && Date.now() <= bewaard.tot) basis = bewaard.sleutel;
+  else if(bewaard){ try { await wis(); } catch(_){} bewaard = null; }
+  if(!basis && oud){ try { basis = await basisSleutel(oud); } catch(_){} }
+  if(!basis) return;
+  onthouden(!!bewaard);
+  try {
+    const html = await decrypt(basis);
+    if(!bewaard){ try { await bewaar(basis); onthouden(true); } catch(_){} }
+    toon(html);
+  } catch(ex){
+    if(ex instanceof TeOud){ $("err").textContent = TE_OUD; return; }
+    if(bewaard){ try { await wis(); } catch(_){} }   // nieuw wachtwoord: de oude sleutel past niet meer
+    onthouden(false);
+    $("err").textContent = "De onthouden sleutel werkt niet meer. Vul je wachtwoord opnieuw in.";
+  }
+})();
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js', {scope:'./'}).catch(()=>{}));
+}
+</script>
+</body>
+</html>

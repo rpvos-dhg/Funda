@@ -1,0 +1,97 @@
+{
+ "type": "FeatureCollection",
+ "timeStamp": "2026-11-07T00:15:46Z",
+ "links": [
+  {
+   "rel": "self",
+   "title": "This document as GeoJSON",
+   "type": "application/geo+json",
+   "href": "https://api.pdok.nl/kadaster/bag/ogc/v2/collections/verblijfsobject/items?bbox=4.31634%2C52.07739%2C4.31694%2C52.07779&f=json&limit=100"
+  }
+ ],
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "bronhouder_identificatie": "0518",
+    "bronhouder_naam": "'s-Gravenhage",
+    "documentdatum": "2017-02-21",
+    "documentnummer": "VMG20173049",
+    "gebruiksdoel": "kantoorfunctie",
+    "geconstateerd": "N",
+    "hoofdadres_identificatie": "0518200000747446",
+    "hoofdadres_status": "Naamgeving uitgegeven",
+    "huisletter": null,
+    "huisnummer": 70,
+    "identificatie": "0518010000747448",
+    "openbare_ruimte_identificatie": "0518300000200766",
+    "openbare_ruimte_naam": "Spui",
+    "openbare_ruimte_naam_kort": null,
+    "openbare_ruimte_status": "Naamgeving uitgegeven",
+    "oppervlakte": 63425,
+    "pand.href": [
+     "https://api.pdok.nl/kadaster/bag/ogc/v2/collections/pand/items/a04ea5fb-563d-5407-a667-a82899887d19"
+    ],
+    "postcode": "2511BT",
+    "provincie_afkorting": "ZH",
+    "provincie_naam": "Zuid-Holland",
+    "rdf_seealso": "http://bag.basisregistraties.overheid.nl/bag/id/verblijfsobject/0518010000747448",
+    "status": "Verblijfsobject in gebruik",
+    "toevoeging": null,
+    "woonplaats_identificatie": "1245",
+    "woonplaats_naam": "'s-Gravenhage",
+    "woonplaats_status": "Woonplaats aangewezen"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4.316639546892423,
+     52.07759119684573
+    ]
+   },
+   "id": "16d4c8d6-68ee-59a1-ba14-1c98ba0ddae9"
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "bronhouder_identificatie": "0518",
+    "bronhouder_naam": "'s-Gravenhage",
+    "documentdatum": "2013-09-18",
+    "documentnummer": "VMG20130368",
+    "gebruiksdoel": "overige gebruiksfunctie",
+    "geconstateerd": "J",
+    "hoofdadres_identificatie": "0518200001651252",
+    "hoofdadres_status": "Naamgeving uitgegeven",
+    "huisletter": "F",
+    "huisnummer": 70,
+    "identificatie": "0518010001651251",
+    "openbare_ruimte_identificatie": "0518300000200766",
+    "openbare_ruimte_naam": "Spui",
+    "openbare_ruimte_naam_kort": null,
+    "openbare_ruimte_status": "Naamgeving uitgegeven",
+    "oppervlakte": 8,
+    "pand.href": [
+     "https://api.pdok.nl/kadaster/bag/ogc/v2/collections/pand/items/c4a56869-0a89-5c31-9dc5-c1ec1e8ecfcf"
+    ],
+    "postcode": null,
+    "provincie_afkorting": "ZH",
+    "provincie_naam": "Zuid-Holland",
+    "rdf_seealso": "http://bag.basisregistraties.overheid.nl/bag/id/verblijfsobject/0518010001651251",
+    "status": "Verblijfsobject in gebruik",
+    "toevoeging": null,
+    "woonplaats_identificatie": "1245",
+    "woonplaats_naam": "'s-Gravenhage",
+    "woonplaats_status": "Woonplaats aangewezen"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4.316411701775646,
+     52.0775834635095
+    ]
+   },
+   "id": "9c7436a9-b811-59cd-ae75-44b8f1324213"
+  }
+ ],
+ "numberReturned": 2
+}

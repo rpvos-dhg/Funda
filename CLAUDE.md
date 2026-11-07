@@ -22,8 +22,17 @@ Actions en publiceert het rapport op GitHub Pages.
   op Actions de bron die werkt) en `funda_mail_bron.py` + `funda_mail_ophalen.py`
   (notificatiemails; sinds 6 nov 2026 alleen nog met `zoek_methode: mail`, niet
   in `auto`). `kies_zoeker()` kiest; zie hieronder.
-- `funda_rapport.py` - bouwt markdown/HTML/PWA. Rekent maandlasten, hypotheek
-  (NHG, starter), reisafstand naar werk, erfpacht, energielabel, pros/cons.
+- `funda_rapport.py` - bouwt het rapport: detail-call, reisafstand naar werk,
+  beoordeling, verrijking en rente per woning, en schrijft markdown, HTML en de
+  versleutelde PWA in `docs/`. Zie "Rapport, beoordeling en PWA" hieronder.
+- `funda_beoordeling.py` - het beoordelingsmodel: poort (Past, Krap, Past niet,
+  Prijs onbekend) met de leentoets 2026 (`data/trhk_2026_tabel1.json`) en de
+  scenario's, score 0 tot 10 met uitleg, parsers voor funda's kenmerken. Pure
+  functies, geen netwerk.
+- `funda_verrijking.py` (open bronnen per woning) en `funda_rente.py` (actuele
+  hypotheekrente). Fail-soft, met budget, robots.txt en eerlijke user-agent.
+- `funda_ui.py` met `ui/app.css`, `ui/app.js` en `ui/slot.html` - de UI (lijst,
+  kaart, sheets) en het slotscherm. Geen import van `funda_rapport`.
 - `.github/workflows/funda-daily.yml` - draait 2x/dag (08:30 en 16:30 UTC =
   10:30 en 18:30 NL), genereert het rapport en pusht `docs/`.
 - `funda_personal.example.json` - template voor de privé-config.
@@ -31,7 +40,8 @@ Actions en publiceert het rapport op GitHub Pages.
 ## Privébestanden (NIET op git, staan in .gitignore)
 
 Deze leven alleen lokaal en mogen nooit gecommit worden:
-`funda_personal.json` (inkomen, postcodes), `funda_pwa_password.txt`,
+`funda_personal.json` (inkomen, postcodes, de sleutels `beoordeling` en
+`financien`), `funda_pwa_password.txt`,
 `funda_seen_ids.json`, `funda_tracking.json`, `funda_werk_coords.json`,
 `funda_blacklist.json`, `funda_log.txt`.
 
@@ -42,6 +52,126 @@ Op GitHub komen dezelfde gegevens uit Secrets: `FUNDA_PERSONAL_JSON` en
 secrets mogen weg. De state (seen-ids, tracking,
 werk-coords, verrijkingscache en `funda_sitemap_cache.json`) staat in de
 Actions-cache, niet in de repo.
+
+## Rapport, beoordeling en PWA (bouwronde nov 2026)
+
+Ontwerp en besluiten: eigen palet (geen huisstijl van een merk), verrijking aan,
+financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
+
+- **Volgorde in `genereer_rapport()`.** Per woning: detail-call (in `funda_zoek`
+  gecacht, dus geen extra funda-verkeer), pyfunda-verrijking (prijshistorie,
+  buurtcijfer, makelaar), **eerst de routes** (de reisafstand telt mee in de
+  score), dan een voorlopige beoordeling. Daarna de verrijking uit open bronnen
+  (Past en Krap eerst, binnen het budget) en de definitieve beoordeling.
+  Sorteren op `(geen vraagprijs, poort, twijfel, -score)`: zonder vraagprijs altijd
+  achteraan, ook een veiling op PAST NIET (`funda_beoordeling.sorteer`, dezelfde
+  sleutel als "Aanbevolen" in de UI). De beoordeling staat in `rij["beoordeling"]`
+  en in `d["_beoordeling"]` (contract: docstring van `funda_beoordeling.py`).
+- **Twijfel en push (`funda_zoek.py`).** `d["_twijfel"]` = korte zinnen
+  (`twijfel_redenen`: twijfelbuurt van je lijst, gemeente Leidschendam-Voorburg);
+  de woning blijft staan, onderaan in zijn groep. Leefbaarometer zwak komt uit de
+  verrijking. Na het rapport zet `vul_summary_aan()` per nieuwe woning
+  `status_push` (alleen het poortwoord: Past, Krap, Past niet of Prijs onbekend)
+  en `score` in `funda_run_summary.json`; `scripts/send_web_push.cjs` toont dan
+  "<adres>, <stad> · Past · 8,3", zonder beoordeling "<adres>, <stad> · 68 m2".
+  **Nooit een eurobedrag in de push** (eindreview PR #19): de statusregel
+  ("€ 65 onder de norm (bruto)", "€ 26.610 eigen geld te weinig") geeft met de
+  publieke code en de publieke woningdata het bruto inkomen of het eigen geld
+  terug, en een melding staat leesbaar op het vergrendelscherm. De bedragen staan
+  alleen in het versleutelde rapport. Vangnet in het script: elk deel met een
+  €-teken valt weg, ook bij een oude samenvatting met `status`.
+- **Config.** `beoordeling` (grens `max_woonlasten_netto`, `krap_marge`,
+  gewichten, harde eisen, `verrijking`) en `financien` (scenario's `nu`,
+  `2027_01`, `2027_01_met_cao` met toetsinkomen, eigen geld, studieschuld, BKR,
+  kosten koper, rente) in `funda_personal.json` en de secret
+  `FUNDA_PERSONAL_JSON`. Alles optioneel; de standaard staat in de code
+  (`funda_beoordeling.STANDAARD`). Voorbeeld met fictieve waarden in
+  `funda_personal.example.json`. De poort volgt het planningsscenario (standaard
+  `2027_01`); per woning staat erbij of hij past nu, vanaf jan 2027 of alleen
+  met cao. Zonder `financien` rekent het model met `bruto_jaar`, `eigen_inleg`,
+  `duo_maandlast` en `leeftijd`, zonder scenario's. Inkomen komt nooit in het
+  rapport, de log of de pushmelding.
+- **Rente (`funda_rente.py`).** Een handmatige rente gaat altijd voor
+  (`financien.rente.pct` met `datum`; ook `rente.handmatig` of de oude plek
+  `beoordeling.financiering.rente`). Rentevast staat ook daar
+  (`financien.rente.rentevast_jaren`, standaard 10; korter dan 10 jaar = toetsrente
+  5%). De oude sleutels `beoordeling.financiering.rentevast_jaren` en
+  `rente_max_dagen` hebben geen standaard meer en werken alleen als terugval als je
+  ze zelf zet (`funda_rapport._rente_cfg`). Nominatim en OSRM krijgen ook
+  `EERLIJKE_UA`, zonder naam. Anders het nieuwste ASN-tariefblad (statische
+  PDF's in het rentearchief op `www.asnbank.nl`; robots.txt verbiedt daar alleen
+  `/web/contentViewCounter`), anders het DNB-cijfer "rente op nieuwe hypotheken"
+  via het ECB Data Portal (`data-api.ecb.europa.eu`, `/service/data` toegestaan),
+  anders 4,11% van 6 juli 2026 met een melding. Hooguit één poging per dag. Bron
+  en peildatum staan in "Jouw budget"; ouder dan 30 dagen = melding bovenaan.
+  **Bewust niet gebruikt:** de eigen API achter de rentepagina van ASN (vraagt een
+  sleutel uit hun JavaScript-bundel) en de API van DNB (abonnementssleutel).
+- **Verrijking (`funda_verrijking.py`).** Aan (`beoordeling.verrijking.aan`).
+  Bronnen en robots (gemeten 7 nov 2026): BAG en CBS-buurten via `api.pdok.nl`
+  (robots verbiedt alleen de Locatieserver, die niet gebruikt wordt),
+  Klimaateffectatlas (`cas.cloud.sogelink.com`, geen robots.txt), RIVM-
+  geluidkaarten (`data.rivm.nl`, geen robots.txt), Leefbaarometer 3.0
+  (`geo.leefbaarometer.nl`, lege robots.txt) en de RIVM-gezondheidsmonitor via
+  CBS (`dataderden.cbs.nl`, geen robots.txt). robots.txt per host eerst, vers op
+  de dag van ophalen (RFC 9309 par. 2.4: hooguit 24 uur; ook voor `funda_rente`);
+  de laatste goede versie (hooguit 30 dagen) alleen als terugval bij een time-out
+  of 5xx, nooit bij een weigering. `EERLIJKE_UA`, sequentieel met pauze, time-out 10 s, budget 60
+  verzoeken per run (± 5 per nieuwe woning; daarna bijna alles uit de cache).
+  Per host stoppen bij 401/403/429/5xx en die host een dag dicht laten; nooit
+  omzeilen. Een fout geeft "onbekend" in het rapport, nooit exit 2 en nooit een
+  woning minder. Allowlist van velden: herkomst, nationaliteit, inkomen en andere
+  bevolkingskenmerken worden nooit gelezen, bewaard of getoond. Ook van funda's
+  buurtcijfers wordt alleen de vraagprijs per m² bewaard; bij laden en opslaan
+  gaat de hele cachesectie `market_insights` door die allowlist, ook buurten die
+  deze run niet langskomen. Niet automatisch: het
+  WOZ-waardeloket en KOOP (robots verbiedt het). De RIVM-laagnamen hebben een
+  datum (`rivm_20250101_...`); verdwijnt een jaargang, dan wordt geluid
+  "onbekend" tot `RIVM_LAGEN` is bijgewerkt.
+- **Cache.** Alles in het bestaande `funda_enrichment_cache.json`, als secties:
+  `price_history`, `market_insights`, `broker` (pyfunda), `bag`, `fundering`,
+  `geluid`, `buurtcode`, `leefbaarometer`, `tevredenheid`, `robots`,
+  `verrijking_weigering` en `rente`. Adres- en puntsleutels zijn gehasht. Geen
+  nieuw cachepad (zie de valkuil over de padenlijst).
+- **Fail-soft tegenover luid falen.** Rente en verrijking mogen een run nooit
+  laten falen (`haal_rente`, `verrijk_rijen`). De funda-checks die een run met
+  exit 2 stoppen (zoekbron stuk, detail-endpoint dicht) blijven in `main()`.
+- **PWA.** De body wordt eerst met gzip ingepakt (niveau 9, mtime 0) en daarna
+  versleuteld met AES-256-GCM (PBKDF2-SHA256, 100.000 iteraties, 16 byte zout,
+  12 byte IV, ongewijzigd). Ciphertext comprimeert niet, dus zonder gzip vooraf
+  kan Pages hem niet kleiner maken (fixture: 98 kB op schijf, 38 kB gzip). Het
+  slotscherm is `ui/slot.html` (`funda_ui.vul_slot`); zonder
+  `DecompressionStream` (iOS ouder dan 16.4) zegt het dat, in plaats van "fout
+  wachtwoord". "Onthoud op dit apparaat" bewaart een niet-exporteerbare
+  PBKDF2-sleutel in IndexedDB (30 dagen), nooit het wachtwoord; een oud bewaard
+  wachtwoord wordt bij openen omgezet en gewist. Service worker cache
+  `funda-shortlist-v5` (ophogen bij elke nieuwe wrapper, anders blijft een
+  geïnstalleerde PWA de oude tonen). Manifest "Woningrapport" / "Woningen"
+  (geen voornaam: het staat publiek), kleuren `funda_ui.THEME_COLOR` en
+  `funda_ui.ACHTERGROND`, iconen in hetzelfde palet. "Nieuw" geldt per apparaat en
+  telt pas als gezien als de kaart minstens half een seconde in beeld was, tussen
+  de vaste top- en onderbalk.
+- **Huisstijl: eigen palet "Inkt en blauw", bewust geen ANWB-huisstijl.** Kleuren,
+  stylesheet, iconen en fonts van het ANWB-designsysteem zijn merkeigendom van de
+  ANWB (merkrecht), en de CSS van het slotscherm staat buiten de versleuteling
+  publiek op GitHub Pages. Daarom een eigen palet met dezelfde opbouw (tokens
+  licht en donker, feedbackkleuren alleen voor feedback, WCAG AA gemeten).
+  Tokens en regels: `.interface-design/system.md`. `test_funda_ui.py` weigert
+  ANWB-blauw `#003d86`, geel `#ffcd00` en de merk- en fontnamen. Het eerdere
+  paarse palet "Lavendel" is op 7 nov 2026 door de eigenaar afgewezen; de test
+  weigert ook paarse tokens en pint topbalk `#0f172a`, knop `#2563eb`, link
+  `#1d4ed8` en pagina `#f4f6f9` vast.
+- **Log.** Alleen aantallen: labelnamen van funda's `characteristics` met hoe
+  vaak ze voorkwamen (om de parsers te kalibreren), aantallen per poort,
+  verrijking per bron en status, rente met bron. Nooit adressen, postcodes of
+  bedragen van het profiel.
+- **Jaarwissel.** `test_funda_beoordeling.py` faalt op 1 januari zolang tabel 1
+  niet van het lopende jaar is: dan `data/trhk_2026_tabel1.json` (tabel 1 en de
+  labelbedragen), de NHG-grens en de startersgrens in `funda_beoordeling.py`
+  bijwerken. Rente: zet je eigen rente in `financien.rente` als je een offerte
+  hebt; anders volgt het rapport ASN.
+- **Fixture-render.** De 13 fictieve woningen in `testdata/woningen.json` gaan in
+  `test_funda_zoek.py::test_rapport_testdata` door het echte
+  `genereer_rapport()` (stub-client, tijdelijke map, ontsleutelen in Python).
 
 ## Belangrijke valkuilen (eerder tegengekomen)
 
@@ -250,12 +380,13 @@ Actions-cache, niet in de repo.
     komen ze terug, en dan geldt het volgende. Daarvoor lieten de sitemap- en
     mailroute ze door (onbekend = doorlaten). Het rapport rekende dan met prijs 0: budget "PAST", minimale
     maandlast, hoogste score, dus bovenaan (e2e-run 42273695515: "€ 0 | 145 m2").
-    Nu: budget "PRIJS ONBEKEND", geen maandlast of financierbaarheid, score
-    alleen uit voor- en nadelen, altijd achteraan (ook bij client-side
-    sorteren: lege `data-*`-waarden), "prijs op aanvraag" in kaart, markdown en
+    Nu: poort "Prijs onbekend", geen leentoets en geen woonlasten, score alleen
+    uit onderdelen die niet van de prijs afhangen, altijd achteraan (ook bij
+    client-side sorteren: prijs en woonlasten zijn leeg in `#woning-data`), "op
+    aanvraag" en "onbekend" in de kerncijfers, "prijs op aanvraag" in markdown en
     pushmelding, en in de tracking geen prijs 0 (anders een "prijsdaling" van
     100%). Vastgepind in `test_funda_zoek.py::test_prijs_onbekend_rapport`, door
-    het echte `bouw_rij`.
+    het echte `bouw_rij` en `funda_ui`.
   - Valideren tegen de echte site: `scripts/funda_sitemap_validatie.py`
     (end-to-end door `main()`, zonder rapport of push) en
     `scripts/funda_sitemap_probe.py` (robots en sitemaps meten).
@@ -538,7 +669,9 @@ Actions-cache, niet in de repo.
   `C:\dev\Funda`. Houd de repo buiten OneDrive.
 - **Encryptie verplicht in CI.** `funda_rapport.py` weigert een onversleuteld
   rapport te schrijven als `FUNDA_REQUIRE_ENCRYPTION=1` (gezet in de workflow),
-  zodat er nooit per ongeluk leesbare data publiek komt.
+  zodat er nooit per ongeluk leesbare data publiek komt. Die check staat vóór het
+  schrijven: dan verandert er ook verder niets in `docs/`. Gzip vóór AES
+  verandert hier niets aan (`test_funda_pwa.py`).
 - **Verander de padenlijst van de Actions-cache nooit zonder migratie.** De
   versie van een cache hangt af van de exacte lijst `path`-regels. PR #13 voegde
   `funda_thuis_coords.json` en `funda_sitemap_cache.json` toe, en daarna vond
@@ -588,7 +721,10 @@ python funda_zoek.py --no-open  # zonder browser
   `sitemap_max_verkennen`, exit 2 bij een kapotte sitemapbron en bij een endpoint dat
   halverwege dichtgaat, geen dubbele detail-calls tussen sitemapzoeker en pool
   (twee runs door `main()`), vijf 404's bovenaan de pool, prijs op aanvraag
-  door het echte `bouw_rij`, `_sitemap_overslaan` met straal, de workflow-input
+  door het echte `bouw_rij`, een volledige run door `genereer_rapport()` op de
+  13 fictieve woningen (versleuteld, ontsleuteld in Python, volgorde gelijk aan
+  `sorteer()`, rente en verrijking die falen), `_twijfel`, `vul_summary_aan` en
+  de pushtekst (met node, anders overgeslagen; nooit een €-teken, ook niet bij een oude samenvatting), `_sitemap_overslaan` met straal, de workflow-input
   en de eerlijke client met statuscodes (in een subproces tegen het echte
   pyfunda, met een nep-sessie, zonder netwerk).
   `auto_push()` staat in deze tests uit: `main()` eindigt ermee, en een testrun
@@ -622,8 +758,24 @@ python funda_zoek.py --no-open  # zonder browser
   nagebouwd op echte markup, dus geen netwerk nodig.
 - `python scripts/funda_html_validatie.py` - controleert diezelfde parser tegen
   de échte funda.nl. Dit is de test die afgaat als funda hun HTML verandert.
-- `test_funda.py` (indien aanwezig) stubt de funda-library en test
-  band-splitsing, tracking, prijsdaling-detectie en rapport-rendering offline.
+- `python test_funda_beoordeling.py` - het model: leentoets 2026 (tabel 1,
+  labelbedragen, alleenstaandenbedrag, studieschuld, BKR), scenario's, poort- en
+  statusregels (ook "precies op je grens", nooit "€ 0"), harde eisen, score en
+  begrenzing, parsers (52 zinnen), sortering, contract, golden file
+  `testdata/beoordeling_verwacht.json` (bijwerken: `--schrijf-verwacht`) en de
+  jaartest (faalt op 1 januari, bewust).
+- `python test_funda_ui.py` - de UI op `testdata/beoordeling_v3.json`: id's en
+  data-attributen die `ui/app.js` gebruikt, statusregels, prijs onbekend,
+  geldige `#woning-data`, contrast van 51 tokenparen, hex alleen in de
+  tokenblokken, geen verboden merk- of fontnamen, groottes en het slotscherm.
+- `python test_funda_verrijking.py` en `python test_funda_rente.py` - de open
+  bronnen en de rente met een nep-HTTP-functie en ingekorte echte antwoorden
+  (`testdata/verrijking/`, `testdata/rente/`): fail-soft, robots, weigering stopt
+  een host, cache en budget, allowlist, één poging per dag.
+- `python test_funda_pwa.py` - gzip vóór AES en terug (in Python), fout
+  wachtwoord, placeholders, geen onversleuteld rapport in CI, service worker v5,
+  manifest, slotscherm, iconen in het palet.
+- De workflow "Funda API debug" (job **tests**) draait elk `test_*.py` vanzelf.
 
 ## Kernfeatures (waarom de code is zoals hij is)
 
@@ -636,4 +788,10 @@ python funda_zoek.py --no-open  # zonder browser
   (geen token nodig, dus veilig op een publieke pagina).
 - **iOS PWA push** werkt zonder vaste backend: de webapp toont een subscription
   JSON, die als GitHub Secret `WEB_PUSH_SUBSCRIPTION` wordt opgeslagen. Actions
-  stuurt daarna met `scripts/send_web_push.cjs` een Web Push bij nieuwe woningen.
+  stuurt daarna met `scripts/send_web_push.cjs` een Web Push bij nieuwe woningen,
+  met per woning het poortwoord en de score (geen bedragen). Het blok "Meldingen op deze iPhone"
+  verdwijnt zodra dit toestel een abonnement heeft.
+- **Financiering is een poort, geen punt.** Eerst: kun je het lenen en wil je
+  het elke maand betalen (netto woonlasten tegenover je grens)? Dat bepaalt de
+  groep; pas daarbinnen telt de score. Onbekend is geen minpunt, twijfel zet een
+  woning onderaan maar nooit weg.
