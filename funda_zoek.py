@@ -45,7 +45,10 @@ from funda_sitemap_zoek import (
     publieke_log,
 )
 
-from funda_verrijking import coord_paar
+# Hoe deze client zich bij funda's API-hosts meldt: als zichzelf, met een link naar de (publieke)
+# repo. Geen browser, geen app. EERLIJKE_UA staat in funda_verrijking (één bron) en wordt hier
+# opnieuw geëxporteerd: de Funda-subklasse gebruikt hem, en scripts lezen hem als funda_zoek.EERLIJKE_UA.
+from funda_verrijking import EERLIJKE_UA, coord_paar
 
 try:
     from funda_rapport import genereer_rapport
@@ -53,9 +56,6 @@ except ImportError:
     genereer_rapport = None
 
 
-# Hoe deze client zich bij funda's API-hosts meldt: als zichzelf, met een link
-# naar de (publieke) repo. Geen browser, geen app.
-EERLIJKE_UA = "funda-dagelijkse-check/1.0 (+https://github.com/rpvos-dhg/Funda)"
 # Statussen waarmee een endpoint zegt "jij niet" of "nu even niet". pyfunda maakt
 # van élke status behalve 200 een LookupError; zonder dit onderscheid lijkt een
 # blokkade halverwege de run op een handvol verkochte woningen.

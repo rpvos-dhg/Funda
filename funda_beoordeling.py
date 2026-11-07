@@ -94,7 +94,8 @@ scenario". Nooit een inkomensbedrag. None zonder scenario's.
 Config
 ======
 Sleutel "beoordeling" in funda_personal.json (in Actions: secret FUNDA_PERSONAL_JSON).
-Alles is optioneel; de standaard staat in STANDAARD hieronder.
+Alles is optioneel; de standaard staat in STANDAARD hieronder, die van "verrijking" in
+funda_verrijking.STANDAARD (de enige plek).
 
     "beoordeling": {
       "score_basis": 5, "m2_wens": 70, "max_woonlaag_zonder_lift": 2,
@@ -109,7 +110,8 @@ Alles is optioneel; de standaard staat in STANDAARD hieronder.
                       "max_woonlaag_zonder_lift": null},
       "werk": {"gewicht": null, "km_goed": 4, "km_slecht": 10},
       "gewichten": {"woonlasten": 1, ..., "parkeren": 0},
-      "drempels": {...}, "verrijking": {...}     (zie STANDAARD)
+      "drempels": {...},                       (zie STANDAARD)
+      "verrijking": {...}                      (zie funda_verrijking.STANDAARD)
     }
 
 Sleutel "financien" in funda_personal.json (naast "beoordeling"; persoonlijke cijfers,
@@ -270,17 +272,15 @@ STANDAARD: dict = {
         "inhoud_per_m2_hoog": 3.3,
         "bouwjaar_verschil_bag_funda": 5,
     },
-    "verrijking": {
-        "aan": True,
-        "bronnen": {"bag": True, "fundering": True, "geluid": True, "buurt": True, "tevredenheid": True},
-        "max_calls_per_run": 60, "timeout_s": 10, "pauze_s": 0.25, "fout_opnieuw_na_dagen": 1,
-        "bewaar_dagen": {"bag": 180, "fundering": 365, "geluid": 365, "buurtcode": 365,
-                         "leefbaarometer": 30, "tevredenheid": 90},
-    },
+    # Geen "verrijking": de standaard daarvan staat alleen in funda_verrijking.STANDAARD. Een blok
+    # beoordeling.verrijking uit de config komt via _merge ongewijzigd in cfg["verrijking"], en
+    # funda_verrijking.instellingen() legt het over die standaard heen.
 }
 
 OORDEEL_GROEP = {"sterk": "let_op", "let_op": "let_op", "goed": "plus", "neutraal": "info",
                  "onbekend": "onbekend", "kans": "kans"}
+# Klassen van de Leefbaarometer en van de funderingsrisico's (Klimaateffectatlas). Eén bron:
+# funda_verrijking importeert ze hier vandaan, niet andersom (deze module importeert geen projectmodules).
 LBM_KLASSE = {1: "zeer onvoldoende", 2: "ruim onvoldoende", 3: "onvoldoende", 4: "zwak", 5: "voldoende",
               6: "ruim voldoende", 7: "goed", 8: "zeer goed", 9: "uitstekend"}
 FUND_KLASSE = ["zeer laag", "laag", "matig", "hoog", "zeer hoog"]
