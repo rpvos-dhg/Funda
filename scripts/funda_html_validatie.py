@@ -39,7 +39,8 @@ M2_MIN = 52
 VERPLICHT = ("global_id", "city", "neighbourhood", "price", "living_area")
 
 # Mag ontbreken: niet elke funda-advertentie heeft een energielabel. De rest van
-# de code toont dan "?" en slaat de NHG-check over.
+# de code toont dan "?" of "onbekend"; de beoordeling zoekt het label nog in de
+# kenmerken en de advertentietekst en telt het anders als onbekend, niet als minpunt.
 OPTIONEEL = ("energy_label", "bedrooms", "rooms")
 
 

@@ -204,8 +204,8 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
 - **Zoekpagina geeft sinds 8 okt 2026 een 403 vanaf GitHub Actions.** Daarmee
   ligt ook de HTML-route eruit; de dagelijkse run faalt luid en publiceert niets.
   Gemeten op 9 oktober met `scripts/funda_403_probe.py` (script verwijderd in
-  de opruimronde, nov 2026; staat in git op
-  79d17b0b364eb1b1d44ee1ad7a078c7fc283c813): zes TLS-profielen
+  de opruimronde, nov 2026; terug te vinden met
+  `git log -- scripts/funda_403_probe.py`): zes TLS-profielen
   (safari15_5/17_0, chrome120/124/131, firefox133) x drie headersets (minimaal,
   browser-achtig, met referer) plus twee varianten die eerst de homepage
   bezoeken - **alle twintig 403**, body ~536 bytes. De blokkade zit dus op het
@@ -213,16 +213,16 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   profielen aanpassen helpt niet. Upstream pyfunda v3.1.5 voegde juist dat toe
   (chrome124 + roteren bij 403 + backoff), dus upgraden lost dit óók niet op.
   Gemeten per pad (`scripts/funda_bronnen_probe.py`, script verwijderd in de
-  opruimronde, nov 2026; staat in git op
-  79d17b0b364eb1b1d44ee1ad7a078c7fc283c813): zoekpagina met én zonder
+  opruimronde, nov 2026; terug te vinden met
+  `git log -- scripts/funda_bronnen_probe.py`): zoekpagina met én zonder
   slash 403, Nuxt-payload 403, **detailpagina als HTML ook 403**, sitemap 404
   (alleen `/sitemap.xml`; de echte staat op `/sitemap_index.xml/` en geeft 200,
   zie de sitemaproute), robots.txt 200, homepage 200. Vrijwel heel `www.funda.nl` is dus dicht voor de
   runner; de homepage komt alleen door omdat die uit Akamai's statische cache
   komt. De aparte API-host `listing-detail-page.funda.io` geeft nog wél 200.
   Ook gemeten: pyfunda **v3.1.5** (`scripts/funda_v315_probe.py`, script
-  verwijderd in de opruimronde, nov 2026; staat in git op
-  79d17b0b364eb1b1d44ee1ad7a078c7fc283c813), die in augustus
+  verwijderd in de opruimronde, nov 2026; terug te vinden met
+  `git log -- scripts/funda_v315_probe.py`), die in augustus
   een webroute toevoegde. `search()` geeft `curl (92) HTTP/2 stream reset by
   server`. Upgraden helpt dus niet, en kost ook de incompatibele v3-rewrite.
   Zoeken vereist een ander uitgaand IP (self-hosted runner op een eigen netwerk,

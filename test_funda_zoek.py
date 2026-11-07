@@ -406,6 +406,13 @@ def test_rapport_testdata() -> bool:
             volgorde = [str(d["global_id"]) for d in sorted(ws, key=lambda d: fb.sorteer_sleutel(d["_beoordeling"]))]
             data = json.loads(body.split('id="woning-data">', 1)[1].split("</script>", 1)[0])
             ok &= check("woning-data in de volgorde van sorteer()", [w["id"] for w in data["woningen"]] == volgorde)
+            fotos = {str(w["listing"]["global_id"]): w["listing"].get("photo_urls") or [] for w in td["woningen"]}
+            kaart_foto = {i: re.findall(r'<img src="([^"]+)"', a.split("</article>", 1)[0])[:1]
+                          for i, a in zip(artikelen, body.split('<article class="woning"')[1:])}
+            ok &= check("foto-paden uit de testdata ongewijzigd in het rapport (kaart: de eerste, ook zonder foto)",
+                        kaart_foto == {i: f[:1] for i, f in fotos.items()}
+                        and set(re.findall(r'<img src="(fotos/[^"]+)"', body)) == {u for f in fotos.values() for u in f},
+                        str(sorted(kaart_foto.items())[:2]))
             ok &= check("kaarten: eerst nieuw, dan per poort, elk in die volgorde",
                         artikelen == [i for i in volgorde if i in nieuw_ids] + [i for i in volgorde if i not in nieuw_ids])
             ok &= check("elke woning beoordeeld (d['_beoordeling'])", all(d.get("_beoordeling", {}).get("poort") for d in ws))

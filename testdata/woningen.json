@@ -1,5 +1,5 @@
 {
-  "_doc": "Fictieve testdata voor het Funda-rapport. Geen echte woningen, adressen, makelaars of personen. Per woning: listing = pyfunda v2.9.0 Listing.data (zoals _parse_listing), track = flags van funda_zoek.update_tracking, price_history = get_price_history() of {_fout}. markt = get_market_insights per 'stad|buurt' (ontbreekt = LookupError). makelaars = get_broker_info/_reviews per broker_id ({_fout} = LookupError). photo_urls zijn fictieve, relatieve paden zonder bestand erachter: het rapport neemt ze ongewijzigd over, de tests kijken alleen of ze doorkomen.",
+  "_doc": "Fictieve testdata voor het Funda-rapport. Geen echte woningen, adressen, makelaars of personen. Per woning: listing = pyfunda v2.9.0 Listing.data (zoals _parse_listing), track = flags van funda_zoek.update_tracking, price_history = get_price_history() of {_fout}. markt = get_market_insights per 'stad|buurt' (ontbreekt = LookupError). makelaars = get_broker_info/_reviews per broker_id ({_fout} = LookupError). photo_urls zijn fictieve, relatieve paden zonder bestand erachter: het rapport neemt ze ongewijzigd over, test_funda_zoek.py::test_rapport_testdata kijkt of ze ongewijzigd in de kaart en de foto-strook staan.",
   "meta": {
     "vandaag": "2026-11-06",
     "nu_tekst": "6 november 2026 om 10:34",
