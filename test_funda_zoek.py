@@ -327,13 +327,9 @@ class StubClientTestdata:
     def get_broker_reviews(self, bid):
         return self._mk(bid, "reviews")
 
-    def get_broker_listings(self, bid):
-        n = (self.makelaars.get(str(bid)) or {}).get("listings_aantallen") or {}
-        return [{"status": st} for st, k in n.items() for _ in range(int(k))]
-
 
 def test_rapport_testdata() -> bool:
-    """Eén run door het echte genereer_rapport() op de 13 fictieve woningen (bouwplan B5).
+    """Eén run door het echte genereer_rapport() op de 13 fictieve woningen (CLAUDE.md, "Fixture-render").
 
     Schrijft markdown, HTML en een versleutelde docs/index.html in een tijdelijke map; de
     ontsleutelde body heeft 13 woningkaarten in de volgorde van funda_beoordeling.sorteer().
@@ -410,6 +406,13 @@ def test_rapport_testdata() -> bool:
             volgorde = [str(d["global_id"]) for d in sorted(ws, key=lambda d: fb.sorteer_sleutel(d["_beoordeling"]))]
             data = json.loads(body.split('id="woning-data">', 1)[1].split("</script>", 1)[0])
             ok &= check("woning-data in de volgorde van sorteer()", [w["id"] for w in data["woningen"]] == volgorde)
+            fotos = {str(w["listing"]["global_id"]): w["listing"].get("photo_urls") or [] for w in td["woningen"]}
+            kaart_foto = {i: re.findall(r'<img src="([^"]+)"', a.split("</article>", 1)[0])[:1]
+                          for i, a in zip(artikelen, body.split('<article class="woning"')[1:])}
+            ok &= check("foto-paden uit de testdata ongewijzigd in het rapport (kaart: de eerste, ook zonder foto)",
+                        kaart_foto == {i: f[:1] for i, f in fotos.items()}
+                        and set(re.findall(r'<img src="(fotos/[^"]+)"', body)) == {u for f in fotos.values() for u in f},
+                        str(sorted(kaart_foto.items())[:2]))
             ok &= check("kaarten: eerst nieuw, dan per poort, elk in die volgorde",
                         artikelen == [i for i in volgorde if i in nieuw_ids] + [i for i in volgorde if i not in nieuw_ids])
             ok &= check("elke woning beoordeeld (d['_beoordeling'])", all(d.get("_beoordeling", {}).get("poort") for d in ws))
@@ -514,6 +517,42 @@ def test_rapport_rente_cache_ua() -> bool:
             fr.save_enrichment_cache(cache)
             opgeslagen = json.loads(fr.ENRICHMENT_CACHE.read_text(encoding="utf-8"))
             ok &= check("en bij opslaan", "inhabitants" not in json.dumps(opgeslagen))
+            # Het aanbod van een makelaar (vroeger get_broker_listings) hield adressen van
+            # andere woningen; een oude cache verliest dat bij laden, naam en reviews blijven.
+            fr.ENRICHMENT_CACHE.write_text(json.dumps({"broker": {"900001": {"fetched": "2026-10-01", "data": {
+                "info": {"name": "Testmakelaar"}, "reviews": {"average": 9.0},
+                "listings": [{"status": "sold", "address": "Teststraat 1"}]}}}}), encoding="utf-8")
+            cache = fr.load_enrichment_cache()
+            mk = cache["broker"]["900001"]["data"]
+            ok &= check("makelaar: aanbod weg uit de cache, naam en reviews blijven",
+                        "listings" not in mk and mk["info"]["name"] == "Testmakelaar" and mk["reviews"]["average"] == 9.0,
+                        str(mk))
+
+            # En het aanbod wordt niet meer opgehaald: geen extra verzoek naar funda per makelaar.
+            aanroepen = []
+
+            class Makelaarclient:
+                def get_broker_info(self, bid):
+                    aanroepen.append("info")
+                    return {"name": "Testmakelaar"}
+
+                def get_broker_reviews(self, bid):
+                    aanroepen.append("reviews")
+                    return {"average": 9.0, "number_of_reviews": 3}
+
+                def get_broker_listings(self, bid):
+                    aanroepen.append("listings")
+                    return []
+
+            oud_slaap = fr.time.sleep
+            fr.time.sleep = lambda _s: None
+            try:
+                enr = fr.verrijk_woning(Makelaarclient(), {"global_id": 1, "broker_id": 900009}, None, {})
+            finally:
+                fr.time.sleep = oud_slaap
+            ok &= check("makelaar: alleen info en reviews, nooit get_broker_listings",
+                        aanroepen == ["info", "reviews"] and enr["broker"]["name"] == "Testmakelaar"
+                        and enr["broker"]["review_count"] == 3, str(aanroepen))
         finally:
             fr.ENRICHMENT_CACHE = oud_cache
 

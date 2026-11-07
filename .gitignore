@@ -30,5 +30,9 @@ subscription.json
 .test_tmp/
 .test_tmp_sitemap*/
 
-# Tijdelijke map van de cache-migratie in funda-daily.yml
+# Tijdelijke map voor scripts/state_migratie.py (oude Actions-cache, apart opgehaald).
+# De migratiestappen zijn weer uit funda-daily.yml; het script en deze regel blijven.
 oude_state/
+
+# Lokale npm install (web-push voor scripts/send_web_push.cjs)
+node_modules/

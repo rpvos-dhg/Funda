@@ -1,9 +1,8 @@
 """Beoordelingsmodel voor het woningrapport: poort, score, uitleg en sortering.
 
 Pure functies: geen netwerk, geen bestanden behalve de tabel in data/, geen import van
-funda_rapport of funda_zoek. Importeren kan zonder funda_personal.json. Ontwerp:
-beoordeling.md (model v3) met de 23 auditfixes uit paragraaf 12 en de besluiten van de
-eigenaar van 7 november 2026.
+funda_rapport of funda_zoek. Importeren kan zonder funda_personal.json. Ontwerp en
+besluiten: CLAUDE.md, sectie "Rapport, beoordeling en PWA".
 
 Drie lagen
 ==========
@@ -19,12 +18,12 @@ laad_config(personal) -> dict
     Standaardwaarden (STANDAARD) samengevoegd met personal["beoordeling"]; het blok
     personal["financien"] komt ongewijzigd mee als cfg["financien"].
 beoordeel(d, details, routes, twijfel, profiel, config, verrijking=None, *, rente=None, vandaag=None) -> dict
-    De beoordeling van één woning volgens het datacontract (beoordeling.md par. 9).
+    De beoordeling van één woning volgens het datacontract (zie "Uitvoer" hieronder).
 poort(woning, cfg, fin) -> dict
     Harde eisen plus de financiële uitkomst: {"poort", "redenen", "harde"}.
 poort_financieel(tekort, over, cfg) -> str
     Alleen de drempels: PAST, KRAP of PAST NIET.
-status_kort(poort, fin, harde, cfg) -> str     'Past · € 196 onder je grens' (spec.md 4.2)
+status_kort(poort, fin, harde, cfg) -> str     'Past · € 196 onder je grens'
 uitleg_regel(score, onderdelen, n_onbekend, max_len=96, begrensd=False) -> str
 financiering(woning, cfg, profiel, rente=None, vandaag=None) -> dict
     Leentoets per scenario, kosten koper, tekort, woonlasten en de financiële poort.
@@ -64,13 +63,22 @@ avg_asking_price_per_m2, broker met name, review_average, review_count) en _twij
 routes: [{"label", "km", "soort": "weg"|"schatting"}]. twijfel: korte zinnen uit
 funda_zoek (bijv. "Twijfelbuurt Leyenburg (jouw lijst)."). verrijking: per bron
 {"status": "ok"|"onbekend"|"budget"|"uit"|"niet_nodig", "data": {...}, "reden": str}
-of direct de data (vorm van verrijking_stub.json). rente: dict uit
+of direct de data (kaal, zonder status). rente: dict uit
 funda_rente.huidige_rente(): {"pct", "bron", "datum", "oud", "melding"}. Zonder rente:
 de rente uit de config (financien.rente, dan beoordeling.financiering.rente), anders
 STANDAARD_RENTE (4,11%, 6 juli 2026).
 
-Uitvoer (naast beoordeling.md par. 9)
-=====================================
+Uitvoer (het datacontract)
+==========================
+beoordeel() geeft precies deze sleutels (vastgepind in test_funda_beoordeling.py,
+test_contract): poort, poort_redenen, status_kort, twijfel, score (0 tot 10, één
+decimaal), onderdelen, uitleg_regel (hooguit 96 tekens), let_op, pluspunten, onbekend,
+info, kansen, zelf_nagaan (hooguit 6), financiering en verrijking (status per bron).
+Een item in let_op, pluspunten, onbekend, info of kansen heeft onderdeel, groep, oordeel,
+label (hooguit 24 tekens), waarde (hooguit 32), bron, punten, kort, vraag en uitleg.
+financiering heeft max_hypotheek, marge_lenen, kosten_koper, kk_soort, tekort, netto,
+bruto, grens, grens_soort, opbouw (None bij Prijs onbekend), rente, rente_datum,
+rentevast_jaren, en daarnaast:
 financiering["scenarios"]: [{"id", "label", "max_hypotheek", "max_koopsom", "past"}], alleen
 voor de scenario's uit financien.scenarios, met het energielabel en de erfpachtcanon van deze
 woning. past = tekort aan eigen geld (na buffer) hooguit kk_onzekerheid; de woonlasten tellen
@@ -151,7 +159,7 @@ from pathlib import Path
 TABEL_PAD = Path(__file__).resolve().parent / "data" / "trhk_2026_tabel1.json"
 
 # ---------------------------------------------------------------------------------------
-# Rekenregels en aannames, met bron en status (beoordeling.md par. 8). Eén blok.
+# Rekenregels en aannames, met bron en status. Eén blok.
 # ---------------------------------------------------------------------------------------
 # Uit de Staatscourant (data/trhk_2026_tabel1.json, gecontroleerd 6 nov 2026): tabel 1,
 # bedragen per energielabel, alleenstaandenbedrag.
@@ -290,7 +298,7 @@ def _merge(basis: dict, extra: dict) -> dict:
 def laad_config(personal: dict | None) -> dict:
     """personal["beoordeling"] over STANDAARD heen; ontbrekend = standaard.
 
-    Oude plekken uit beoordeling.md par. 10 werken ook: financiering.max_woonlasten_netto
+    Oude plekken werken ook: financiering.max_woonlasten_netto
     en financiering.woonlasten_marge_past_niet. De nieuwe plek gaat voor. Het blok
     personal["financien"] komt mee als cfg["financien"] (of None).
     """
@@ -868,7 +876,7 @@ def financiering(woning: dict, cfg: dict, profiel: dict | None, rente: dict | No
 
 
 def poort(woning: dict, cfg: dict, fin: dict) -> dict:
-    """Harde eisen (beoordeling.md 3.2) boven op de financiële poort. Nooit onzichtbaar.
+    """Harde eisen boven op de financiële poort. Nooit onzichtbaar.
 
     woning: samengevoegde listing met characteristics, description en de vlaggen."""
     ch = woning.get("characteristics") or {}
@@ -894,7 +902,7 @@ def poort(woning: dict, cfg: dict, fin: dict) -> dict:
 
 
 def status_kort(poort_: str, fin: dict, harde: list[str], cfg: dict) -> str:
-    """'Past · € 196 onder je grens' (spec.md 4.2)."""
+    """'Past · € 196 onder je grens'."""
     naam = POORT_NAAM[poort_]
     if poort_ == "PRIJS ONBEKEND" and not harde:
         return f"{naam} · geen vraagprijs, dus geen leentoets"
@@ -1054,7 +1062,9 @@ def buitenruimte(d: dict, ch: dict, tekst: str) -> dict:
 
     Kenmerken eerst; in tekst woordgrenzen en ontkenning; een frans balkon is geen buitenruimte.
     Zonligging: de richting na balkon/terras/tuin, niet de eerste richting in de tekst.
-    zeker=False: niets gevonden, dus onbekend (geen minpunt)."""
+    zeker=False: niets gevonden, dus onbekend (geen minpunt).
+    Bewust geen harde filter in funda_zoek: funda's boolean (has_balcony) is onbetrouwbaar,
+    dus buitenruimte telt hier mee in de score en wijst geen woning af."""
     kenm = (ch.get("Balkon/dakterras") or "").lower()
     m2 = _getal(ch.get("Gebouwgebonden buitenruimte")) if ch.get("Gebouwgebonden buitenruimte") else None
     tuin_k = (ch.get("Tuin") or "").lower()
@@ -1239,7 +1249,7 @@ def _prijs_van(change: dict) -> int | None:
 def prijshistorie(changes) -> dict:
     """Vraagprijzen na de laatste verkoop (op tijd gesorteerd), de hoogste daarvan en de nieuwste WOZ.
 
-    Een piek uit een eerdere verkoopperiode telt niet als prijsdaling (auditfix)."""
+    Een piek uit een eerdere verkoopperiode telt niet als prijsdaling."""
     rijen = [c for c in (changes or []) if isinstance(c, dict)]
     rijen.sort(key=_tijd)
     verkocht = [c for c in rijen if str(c.get("status") or "").lower() == "sold"]
@@ -1336,7 +1346,7 @@ def _twijfel_item(zin: str) -> dict:
 def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list | None, profiel: dict | None,
               config: dict | None, verrijking: dict | None = None, *, rente: dict | None = None,
               vandaag=None) -> dict:
-    """Beoordeling van één woning volgens het datacontract (beoordeling.md par. 9)."""
+    """Beoordeling van één woning volgens het datacontract ("Uitvoer" in de moduledocstring)."""
     vandaag = _datum(vandaag, date.today())
     profiel = profiel or {}
     cfg = config if isinstance(config, dict) and "gewichten" in config else laad_config(profiel)

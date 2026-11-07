@@ -1,4 +1,4 @@
-"""Actuele hypotheekrente voor het woningrapport (besluiten.md punt 5).
+"""Actuele hypotheekrente voor het woningrapport (CLAUDE.md, "Rente").
 
 Volgorde, de eerste die lukt:
 1. handmatig: financien.rente.pct (met financien.rente.datum) in de config. Gaat altijd

@@ -16,8 +16,11 @@ C. Kosten van de opstart: op welke plek (nieuwste lastmod eerst) staan de
    steekproef uit het oudere aanbod om te schatten welk deel nog beschikbaar
    is en in de doelmarkt valt.
 
-Print alleen publieke funda-gegevens. Leest geen funda_personal.json: de
-doelmarkt staat hieronder als publieke zoekcriteria, de postcode blijft de dummy.
+Print alleen publieke funda-gegevens. Let op: `import funda_zoek` leest
+funda_personal.json als dat bestand er staat (lokaal). Prijs en m2 overschrijft
+dit script met de publieke zoekcriteria hieronder, maar de postcode, de straal
+en de rest van de config komen dan uit dat bestand. Zonder dat bestand blijft
+de postcode de dummy uit funda_zoek.
 Publiceert niets: genereer_rapport staat uit en main() krijgt --no-push.
 """
 
@@ -106,7 +109,8 @@ def main() -> int:
     if nieuwste:
         print(f"Nieuwste lastmod in de doelsteden: {nieuwste.isoformat()} = "
               f"{(nu - nieuwste).total_seconds() / 3600:.1f} uur voor deze run")
-    samenvatting = HIER / "funda_run_summary.json"
+    # De samenvatting van deze run, in de tijdelijke map (niet die van de laatste echte run).
+    samenvatting = fz.SUMMARY_FILE
     if samenvatting.exists():
         s = json.loads(samenvatting.read_text(encoding="utf-8"))
         print("Run-summary: " + json.dumps({k: (len(v) if isinstance(v, list) else v)

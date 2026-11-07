@@ -131,7 +131,10 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   `price_history`, `market_insights`, `broker` (pyfunda), `bag`, `fundering`,
   `geluid`, `buurtcode`, `leefbaarometer`, `tevredenheid`, `robots`,
   `verrijking_weigering` en `rente`. Adres- en puntsleutels zijn gehasht. Geen
-  nieuw cachepad (zie de valkuil over de padenlijst).
+  nieuw cachepad (zie de valkuil over de padenlijst). Van de makelaar alleen naam
+  en reviews: zijn aanbod (`get_broker_listings`, een extra funda-verzoek met
+  adressen van andere woningen) wordt sinds de opruimronde van nov 2026 niet meer
+  opgehaald, en bij laden en opslaan uit oude cache-elementen gehaald.
 - **Fail-soft tegenover luid falen.** Rente en verrijking mogen een run nooit
   laten falen (`haal_rente`, `verrijk_rijen`). De funda-checks die een run met
   exit 2 stoppen (zoekbron stuk, detail-endpoint dicht) blijven in `main()`.
@@ -200,20 +203,26 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   publiceert.
 - **Zoekpagina geeft sinds 8 okt 2026 een 403 vanaf GitHub Actions.** Daarmee
   ligt ook de HTML-route eruit; de dagelijkse run faalt luid en publiceert niets.
-  Gemeten op 9 oktober met `scripts/funda_403_probe.py`: zes TLS-profielen
+  Gemeten op 9 oktober met `scripts/funda_403_probe.py` (script verwijderd in
+  de opruimronde, nov 2026; terug te vinden met
+  `git log -- scripts/funda_403_probe.py`): zes TLS-profielen
   (safari15_5/17_0, chrome120/124/131, firefox133) x drie headersets (minimaal,
   browser-achtig, met referer) plus twee varianten die eerst de homepage
   bezoeken - **alle twintig 403**, body ~536 bytes. De blokkade zit dus op het
   netwerk/IP van de runner, niet op hoe de client zich voordoet; headers of TLS-
   profielen aanpassen helpt niet. Upstream pyfunda v3.1.5 voegde juist dat toe
   (chrome124 + roteren bij 403 + backoff), dus upgraden lost dit óók niet op.
-  Gemeten per pad (`scripts/funda_bronnen_probe.py`): zoekpagina met én zonder
+  Gemeten per pad (`scripts/funda_bronnen_probe.py`, script verwijderd in de
+  opruimronde, nov 2026; terug te vinden met
+  `git log -- scripts/funda_bronnen_probe.py`): zoekpagina met én zonder
   slash 403, Nuxt-payload 403, **detailpagina als HTML ook 403**, sitemap 404
   (alleen `/sitemap.xml`; de echte staat op `/sitemap_index.xml/` en geeft 200,
   zie de sitemaproute), robots.txt 200, homepage 200. Vrijwel heel `www.funda.nl` is dus dicht voor de
   runner; de homepage komt alleen door omdat die uit Akamai's statische cache
   komt. De aparte API-host `listing-detail-page.funda.io` geeft nog wél 200.
-  Ook gemeten: pyfunda **v3.1.5** (`scripts/funda_v315_probe.py`), die in augustus
+  Ook gemeten: pyfunda **v3.1.5** (`scripts/funda_v315_probe.py`, script
+  verwijderd in de opruimronde, nov 2026; terug te vinden met
+  `git log -- scripts/funda_v315_probe.py`), die in augustus
   een webroute toevoegde. `search()` geeft `curl (92) HTTP/2 stream reset by
   server`. Upgraden helpt dus niet, en kost ook de incompatibele v3-rewrite.
   Zoeken vereist een ander uitgaand IP (self-hosted runner op een eigen netwerk,
@@ -266,7 +275,10 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
     als storing). Beide klassen staan in `funda_sitemap_zoek.py`.
   - De sitemap- en HTML-zoeker gebruiken voor `www.funda.nl` elk één vast
     curl_cffi-profiel (`safari15_5`, Safari-UA). Een 401, 403 of bot-controle =
-    luid falen.
+    luid falen. Hetzelfde profiel geldt voor `links.funda.nl` (de mailroute,
+    alleen lokaal en alleen als je redirects laat volgen:
+    `funda_mail_bron.TRACKER_IMPERSONATE`, ook in `funda_mail_imap_check.py`);
+    tot nov 2026 stond daar `chrome124`.
   - **Probes.** De dagelijkse workflow draaide na een mislukte run automatisch
     `funda_api_debug.py`, en die probeerde de zoek-API met safari15_5, chrome124,
     zonder impersonate en met een nep-`x-funda-app-version`: precies het
@@ -284,7 +296,7 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   [42262032618](https://github.com/rpvos-dhg/Funda/actions/runs/42262032618)):
   - `robots.txt` (200, text/plain) staat `/detail/` en `/zoeken/` toe voor `*`
     en noemt `Sitemap: https://www.funda.nl/sitemap_index.xml/`. Let op de slash:
-    `/sitemap.xml` is 404, daarom vond `funda_bronnen_probe.py` eerder niets. De
+    `/sitemap.xml` is 404, een eerdere meting vond daardoor niets. De
     zoeker leest robots.txt elke run en stopt als `/detail/` wordt uitgesloten.
     **Maar dat is de robots.txt van `www.funda.nl`**, en de zoeker haalt daar
     nooit een `/detail/`-pagina op: de detail-calls gaan naar
@@ -511,6 +523,12 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
     juiste woord kent.
   - Prijs, oppervlak en straal hebben sinds 6 nov 2026 wél een nafilter, zie
     hierboven.
+- **Buitenruimte: bewust geen nafilter.** funda's boolean (`has_balcony`) is
+  onbetrouwbaar: een woning met balkon stond er als False in. Daarom wijst
+  `funda_zoek` nooit af op buitenruimte; het model weegt hem mee in de score
+  (`funda_beoordeling.buitenruimte()`, onbekend = geen minpunt). De oude,
+  uitgeschakelde filter (`EIS_BUITENRUIMTE`, `heeft_buitenruimte()`) is in de
+  opruimronde van nov 2026 weggehaald.
 - **Voorburg versus de gemeente Leidschendam-Voorburg.** `UITSLUIT_STEDEN` doet
   een substring-match, en Voorburg valt onder de gemeente Leidschendam-Voorburg.
   Zonder voorrangsregel matcht "Leidschendam" daarop en valt al het
@@ -745,7 +763,8 @@ python funda_zoek.py --no-open  # zonder browser
   dag waarop de tests draaien.
 - `python test_funda_mail.py` - offline tests voor de mailbron: linkextractie per
   vorm, ondoorzichtige tracking-links, redirects volgen (inclusief hoplimiet en
-  kapotte call), routekeuze van `woningen_uit_mail()`, drop-in-gedrag en cache.
+  kapotte call), routekeuze van `woningen_uit_mail()`, drop-in-gedrag, cache en
+  het vaste profiel voor `links.funda.nl` (gelijk aan dat van `www.funda.nl`).
   De opmaak van de alert-mail zelf is nog niet gemeten; valideer met
   `scripts/funda_mail_validatie.py <mail.eml>` zodra die er is.
 - `python test_funda_mail_ophalen.py` - offline tests voor het IMAP-transport:

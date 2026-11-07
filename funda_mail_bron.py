@@ -58,6 +58,16 @@ TRACKING_LINK = re.compile(r"https?://links\.funda\.nl/[^\s\"'<>)\]]+", re.IGNOR
 
 MAX_REDIRECT_HOPS = 5
 
+# Client voor links.funda.nl: hetzelfde vaste profiel als de zoekers voor
+# www.funda.nl (funda_sitemap_zoek.UA en IMPERSONATE). Eén profiel, nooit wisselen.
+# Een kopie, zodat de mailroute niet van de sitemapmodule afhangt;
+# test_funda_mail.py pint vast dat ze gelijk blijven.
+TRACKER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+)
+TRACKER_IMPERSONATE = "safari15_5"
+
 
 class MailResultaat:
     """Zelfde vorm als pyfunda's Listing: een `.data`-dict."""
@@ -140,7 +150,8 @@ def _haal_locatie(url: str) -> str | None:
         crequests = None
 
     if crequests is not None:
-        resp = crequests.get(url, impersonate="chrome124", allow_redirects=False, timeout=20)
+        resp = crequests.get(url, headers={"user-agent": TRACKER_UA}, impersonate=TRACKER_IMPERSONATE,
+                             allow_redirects=False, timeout=20)
         return resp.headers.get("location") or resp.headers.get("Location")
 
     # Zonder curl_cffi: stdlib, met een redirect-handler die niets volgt.

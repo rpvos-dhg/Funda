@@ -38,9 +38,6 @@ UA = (
 # Vue/Nuxt rendert elke woningkaart in een container met deze klasse.
 KAART_SPLITS = '<div class="@container'
 
-# funda.nl toont 15 resultaten per pagina.
-PER_PAGINA = 15
-
 # funda's zoekpagina kent alleen deze stralen. Een andere waarde (bijv. 6km)
 # geeft géén foutmelding maar gewoon een lege resultatenpagina: status 200, nul
 # kaarten. Dat kostte een productierun. Daarom snappen we naar de dichtstbijzijnde

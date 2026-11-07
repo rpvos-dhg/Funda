@@ -1,4 +1,4 @@
-"""Verrijking per woning uit open bronnen (bouwplan B2 en B2a, beoordeling.md par. 11).
+"""Verrijking per woning uit open bronnen (CLAUDE.md, "Verrijking").
 
 Vier bronnen, elk fail-soft: een kapotte bron geeft "onbekend" en de run gaat door.
 
@@ -10,11 +10,11 @@ Vier bronnen, elk fail-soft: een kapotte bron geeft "onbekend" en de run gaat do
 - buurt:     buurtcode via PDOK CBS-buurten 2024, Leefbaarometer 3.0 (2024) en de
              RIVM-gezondheidsmonitor 2024 (tevredenheid, via CBS dataderden 50150NED).
 
-Laag- en veldnamen zijn gemeten op 7 nov 2026 (B2a, ingekorte antwoorden in
+Laag- en veldnamen zijn gemeten op 7 nov 2026 (ingekorte antwoorden in
 testdata/verrijking/). Gemeten op openbare plekken (het Plein en het stadhuis in Den
 Haag), nooit op een woonadres.
 
-Regels (CLAUDE.md, huisverklikker.md par. 2):
+Regels (CLAUDE.md):
 - Al het netwerk loopt via één injecteerbare functie `http(url, timeout=, headers=)`
   die `(status, body_bytes)` teruggeeft; de tests geven een nep-functie mee.
 - Eerlijke user-agent (`EERLIJKE_UA` uit funda_zoek, of als parameter), time-outs,
@@ -131,7 +131,7 @@ STANDAARD = {
 # Onbereikbaar (time-out, 5xx): de laatste goede versie, hooguit ROBOTS_TERUGVAL_DAGEN oud.
 ROBOTS_DAGEN = 1
 ROBOTS_TERUGVAL_DAGEN = 30
-# Zelfde waarden als beoordeling-onderzoek/model_config.json (sleutel drempels), met _herkomst daar.
+# Zelfde waarden als funda_beoordeling.STANDAARD["drempels"] (dat blok is ruimer); de config kan ze overschrijven.
 DREMPELS = {
     "vve_klein_max_woningen": 4,
     "fundering_bouwjaar_voor": 1970,
@@ -585,8 +585,6 @@ def _poort(w: dict) -> str | None:
     for b in (w.get("beoordeling"), w.get("_beoordeling"), (w.get("d") or {}).get("_beoordeling")):
         if isinstance(b, dict):
             p = b.get("poort")
-            if isinstance(p, dict):
-                p = p.get("status")
             if isinstance(p, str):
                 return p.upper()
     return None
@@ -862,7 +860,7 @@ def _leefbaarometer(sessie: Sessie, cache: dict, vcfg: dict, buurtcode: str, gem
     return {"status": "onbekend", "data": None, "reden": "buurt niet in de Leefbaarometer", "uit_cache": False}
 
 
-# ---------------------------------------------------------------- signalen (huisverklikker.md par. 7)
+# ---------------------------------------------------------------- signalen
 
 def _signaal(niveau: str, tekst: str) -> dict:
     return {"niveau": niveau, "tekst": tekst}
@@ -1085,8 +1083,8 @@ def verrijk(woningen: list[dict], cache: dict, cfg: dict | None, vandaag, http=N
                                 "data": dict|None, "reden": str|None, "uit_cache": bool,
                                 "signalen": [{"niveau", "tekst"}], ...}}}
        voor bron in bag, fundering, geluid, buurt. Bij buurt ook "twijfel" (Leefbaarometer
-       zwak) en "delen" (status van buurtcode, leefbaarometer, tevredenheid). De data-
-       vorm volgt verrijking_stub.json; zie als_stub().
+       zwak) en "delen" (status van buurtcode, leefbaarometer, tevredenheid). De data is
+       wat funda_beoordeling._bron() leest (test_funda_verrijking.py, test_vorm).
     """
     vcfg, dr = instellingen(cfg)
     dag = _datum(vandaag).isoformat()
@@ -1114,27 +1112,6 @@ def verrijk(woningen: list[dict], cache: dict, cfg: dict | None, vandaag, http=N
     for regel in logregels(uit, sessie):
         log(regel)
     return uit
-
-
-def status_per_bron(woning: dict) -> dict[str, str]:
-    """{"bag": "ok", ...}: voor beoordeling["verrijking"] (contract par. 9)."""
-    return {b: (woning.get(b) or {}).get("status", "uit") for b in BRONNEN}
-
-
-def als_stub(woning: dict) -> dict:
-    """Dezelfde vorm als verrijking_stub.json: data, of "fout" / "niet_nodig" / "uit" / "budget"."""
-    uit = {}
-    for b in BRONNEN:
-        e = woning.get(b) or {}
-        st = e.get("status", "uit")
-        uit[b] = e.get("data") if st == "ok" else ("fout" if st == "onbekend" else st)
-    return uit
-
-
-def zwakke_buurten(uitvoer: dict) -> list[str]:
-    """Buurtnamen met Leefbaarometer zwak of slechter. Voor het (versleutelde) rapport, niet voor de log."""
-    return sorted({(w.get("buurt") or {}).get("data", {}).get("buurtnaam") or "?"
-                   for w in uitvoer.values() if (w.get("buurt") or {}).get("twijfel")})
 
 
 def logregels(uitvoer: dict, sessie: Sessie | None = None) -> list[str]:

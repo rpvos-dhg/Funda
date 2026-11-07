@@ -194,12 +194,18 @@ def funda_url(d: dict) -> str:
 
 def _schoon_markt_cache(cache: dict) -> dict:
     """Alle buurtcijfers in de cache door de allowlist, ook die van buurten die deze run niet langskomen
-    (elementen van voor de allowlist hielden inwonertal en gezinnen met kinderen)."""
+    (elementen van voor de allowlist hielden inwonertal en gezinnen met kinderen). Uit de makelaars
+    gaat het aanbod eruit: dat werd vroeger opgehaald en hield adressen van andere woningen."""
     markt = cache.get("market_insights")
     if isinstance(markt, dict):
         for entry in markt.values():
             if isinstance(entry, dict) and isinstance(entry.get("data"), dict):
                 entry["data"] = _markt_allowlist(entry["data"])
+    makelaars = cache.get("broker")
+    if isinstance(makelaars, dict):
+        for entry in makelaars.values():
+            if isinstance(entry, dict) and isinstance(entry.get("data"), dict):
+                entry["data"].pop("listings", None)
     return cache
 
 
@@ -323,7 +329,7 @@ def analyse_market(d: dict, insights: dict | None) -> dict:
 
 
 # Van funda's buurtcijfers alleen de gemiddelde vraagprijs per m². Inwoners, gezinnen met
-# kinderen en andere bevolkingskenmerken worden niet bewaard of getoond (beoordeling.md 1.6).
+# kinderen en andere bevolkingskenmerken worden niet bewaard of getoond (CLAUDE.md, "Verrijking").
 MARKT_VELDEN = ("avg_asking_price_per_m2",)
 
 
@@ -335,9 +341,7 @@ def _markt_allowlist(insights) -> dict | None:
     return {k: insights[k] for k in MARKT_VELDEN if k in insights}
 
 
-def analyse_broker(info: dict | None, reviews: dict | None, listings: list[dict] | None) -> dict:
-    listings = listings or []
-    status_counts = Counter(str(item.get("status") or "unknown") for item in listings if isinstance(item, dict))
+def analyse_broker(info: dict | None, reviews: dict | None) -> dict:
     average = reviews.get("average") if isinstance(reviews, dict) else None
     review_count = reviews.get("number_of_reviews") if isinstance(reviews, dict) else None
     try:
@@ -356,12 +360,8 @@ def analyse_broker(info: dict | None, reviews: dict | None, listings: list[dict]
         "website": (info or {}).get("website"),
         "review_average": average,
         "review_count": review_count,
-        "sold_count": status_counts.get("sold", 0),
-        "for_sale_count": status_counts.get("for_sale", 0),
-        "purchased_count": status_counts.get("purchased", 0),
         "info": info or {},
         "reviews": reviews or {},
-        "listings": listings,
     }
 
 
@@ -424,16 +424,17 @@ def verrijk_woning(f, d: dict, listing_obj, cache: dict) -> dict:
         if isinstance(market_raw, dict) and market_raw.get("_error"):
             market_raw = None
 
-    broker_raw = {"info": None, "reviews": None, "listings": []}
+    # Alleen naam en reviews van de makelaar. Zijn aanbod (get_broker_listings) wordt niet
+    # opgehaald: een extra verzoek naar funda voor velden die niemand leest.
+    broker_raw = {"info": None, "reviews": None}
     if broker_id and hasattr(f, "get_broker_info"):
         bid = str(broker_id)
 
         def fetch_broker_bundle():
-            bundle = {"info": None, "reviews": None, "listings": []}
+            bundle = {"info": None, "reviews": None}
             for name, method in (
                 ("info", "get_broker_info"),
                 ("reviews", "get_broker_reviews"),
-                ("listings", "get_broker_listings"),
             ):
                 if not hasattr(f, method):
                     continue
@@ -446,7 +447,7 @@ def verrijk_woning(f, d: dict, listing_obj, cache: dict) -> dict:
 
         broker_raw = fetch_with_cache(cache, "broker", bid, 30, fetch_broker_bundle)
         if not isinstance(broker_raw, dict):
-            broker_raw = {"info": None, "reviews": None, "listings": []}
+            broker_raw = {"info": None, "reviews": None}
 
     return {
         "price_history": analyse_price_history(price_history_raw if isinstance(price_history_raw, list) else [], price),
@@ -454,14 +455,12 @@ def verrijk_woning(f, d: dict, listing_obj, cache: dict) -> dict:
         "broker": analyse_broker(
             broker_raw.get("info") if isinstance(broker_raw.get("info"), dict) and not broker_raw.get("info", {}).get("_error") else None,
             broker_raw.get("reviews") if isinstance(broker_raw.get("reviews"), dict) and not broker_raw.get("reviews", {}).get("_error") else None,
-            broker_raw.get("listings") if isinstance(broker_raw.get("listings"), list) else [],
         ),
     }
 
 
 # === Beoordeling: poort, score en uitleg uit funda_beoordeling ===
 
-PRIJS_ONBEKEND = "PRIJS ONBEKEND"
 # Pauze na elke detail-call van het rapport. In funda_zoek zit een cache voor (DetailCacheZoeker),
 # dus meestal geen echt verzoek; de pauze blijft als vangnet. Tests zetten hem op 0.
 DETAIL_PAUZE_S = 0.5
@@ -519,7 +518,7 @@ def beoordeel_rij(rij: dict, cfg: dict, *, rente: dict | None = None, vandaag=No
 
 def bouw_rij(d: dict, details: dict | None, routes: list[dict] | None = None, *, cfg: dict | None = None,
              rente: dict | None = None, vandaag=None, verrijking: dict | None = None) -> dict:
-    """Eén rapportrij met de beoordeling volgens het contract (beoordeling.md par. 9).
+    """Eén rapportrij met de beoordeling volgens het contract (docstring van funda_beoordeling.py).
 
     De routes moeten er al zijn: de reisafstand telt mee in de score. De beoordeling komt in
     rij["beoordeling"] en in d["_beoordeling"]."""

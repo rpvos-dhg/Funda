@@ -25,6 +25,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from funda_mail_bron import (  # noqa: E402
+    TRACKER_IMPERSONATE,
+    TRACKER_UA,
     vind_tracking_links,
     vind_woning_links,
 )
@@ -46,8 +48,9 @@ def probeer_trackerhost() -> None:
     try:
         from curl_cffi import requests as crequests
 
-        resp = crequests.get("https://links.funda.nl/", impersonate="chrome124",
-                             allow_redirects=False, timeout=20)
+        # Zelfde vaste client als los_tracking_link_op() (het profiel van www.funda.nl).
+        resp = crequests.get("https://links.funda.nl/", headers={"user-agent": TRACKER_UA},
+                             impersonate=TRACKER_IMPERSONATE, allow_redirects=False, timeout=20)
         print(f"  status {resp.status_code}")
         if resp.status_code == 403:
             print("  403: ook deze host is dicht voor de runner. Zit de woninglink"

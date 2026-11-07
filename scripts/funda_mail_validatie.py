@@ -24,13 +24,15 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, ".")
+# De projectmap, ook als je het script van buiten de repo-root start.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from funda_mail_bron import (  # noqa: E402
     MailBron,
     vind_tracking_links,
     woningen_uit_mail,
 )
+from funda_mail_ophalen import tekst_uit_mail  # noqa: E402
 
 VERPLICHT = ("global_id", "city", "neighbourhood", "price", "living_area")
 
@@ -48,13 +50,12 @@ def main(argv: list[str]) -> int:
         print(f"FOUT: {pad} bestaat niet.")
         return 1
 
-    # Een .eml is grotendeels platte tekst; losse quoted-printable regels
-    # verhinderen het vinden van URL's niet, maar meld het wel.
-    ruw = pad.read_bytes().decode("utf-8", errors="replace")
-    print(f"bestand: {pad} ({len(ruw)} bytes)")
-    if "quoted-printable" in ruw.lower():
-        print("let op: mail is quoted-printable; als er links gemist worden, "
-              "decodeer de mail eerst.")
+    # Een funda-mail is multipart met quoted-printable of base64 delen: in de
+    # ruwe bytes staan URL's met '=' en regelafbrekingen erdoorheen. Daarom
+    # dezelfde decodering als de mailroute zelf (plat en html achter elkaar).
+    data = pad.read_bytes()
+    ruw = tekst_uit_mail(data)
+    print(f"bestand: {pad} ({len(data)} bytes, {len(ruw)} tekens na decoderen)")
 
     woningen = woningen_uit_mail(ruw, volg_redirects=volg,
                                  log=lambda b: print(f"  [log] {b}"))

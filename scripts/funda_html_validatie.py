@@ -11,8 +11,10 @@ Gebruikt geen persoonlijke gegevens: vaste voorbeeldzoekopdracht in Den Haag.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
-sys.path.insert(0, ".")
+# De projectmap, ook als je het script van buiten de repo-root start.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # De gepatchte client van de dagelijkse run, niet pyfunda zelf: die doet zich
 # voor als funda's app en wisselt bij een weigering van vingerafdruk.
@@ -22,8 +24,10 @@ from funda_html_zoek import HtmlZoeker, bouw_zoek_url, parse_kaarten  # noqa: E4
 
 # Bewust de vórm van de echte config: zoeken vanaf een postcode met een straal
 # die funda niet rechtstreeks ondersteunt. Valideren met een plaatsnaam en een
-# ronde straal verborg eerder een bug die pas in productie opviel.
-GEBIED = "2563bk"
+# ronde straal verborg eerder een bug die pas in productie opviel. De postcode
+# zelf is neutraal (Den Haag centrum, zoals PROBE_POSTCODE in funda_api_debug.py),
+# want de zoek-URL komt in de publieke log van job funda-live.
+GEBIED = "2511cv"
 STRAAL = 6
 PRIJS_MIN = 230_000
 PRIJS_MAX = 310_000
@@ -35,7 +39,8 @@ M2_MIN = 52
 VERPLICHT = ("global_id", "city", "neighbourhood", "price", "living_area")
 
 # Mag ontbreken: niet elke funda-advertentie heeft een energielabel. De rest van
-# de code toont dan "?" en slaat de NHG-check over.
+# de code toont dan "?" of "onbekend"; de beoordeling zoekt het label nog in de
+# kenmerken en de advertentietekst en telt het anders als onbekend, niet als minpunt.
 OPTIONEEL = ("energy_label", "bedrooms", "rooms")
 
 
