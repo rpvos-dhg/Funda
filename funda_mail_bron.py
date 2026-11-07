@@ -7,34 +7,45 @@ Wat nog wél werkt is de aparte API-host `listing-detail-page.funda.io`.
 Daarom deze bron: een bewaarde zoekopdracht in je funda-account mailt nieuw
 aanbod naar je toe. Uit die mail halen we de woning-URL's, en het detail-endpoint
 vult alle velden aan die de filters en het rapport nodig hebben. Geen scrapen van
-de zoekpagina, en funda stuurt de data zelf.
+de zoekpagina, en funda stuurt de data zelf. Sinds 6 nov 2026 alleen nog met
+zoek_methode 'mail', niet in 'auto': op Actions is de sitemaproute de bron (zie
+"Mailroute (alleen lokaal)" in CLAUDE.md).
 
 `MailBron` is net als `HtmlZoeker` een drop-in voor het `Funda`-object, zodat
 `main()` en het rapport ongewijzigd blijven.
 
-LET OP - wat hier wél en niet op meting rust:
+Wat hier op meting rust:
 - Het URL-patroon van woningen (`/detail/koop/<stad>/<slug>/<tiny_id>/`) is
   honderden keren waargenomen en stabiel.
 - Dat `get_listing()` op zo'n URL alle benodigde velden teruggeeft, is gemeten.
-- Twee échte transactionele funda-mails zijn op 9 okt 2026 bekeken (één uit 2022,
-  één uit 2026). Daaruit blijkt:
-  * Inhoudelijke links staan er ONVERPAKT in: `https://www.funda.nl/makelaar/<id>`,
-    `.../account/email-instellingen`, `.../meer-weten/...`. Een woninglink in een
-    notificatiemail is dus naar alle waarschijnlijkheid ook direct, en die vindt
-    `vind_woning_links()`.
-  * Alleen de "online versie"-link is verpakt, en die redirect is ONDOORZICHTIG:
-    `links.funda.nl/s/vb/<token>/<token>/23` (2026) en
-    `links.funda.nl/e/evib?_t=..&_m=..&_e=..` (2022). Er zit dus GEEN `?url=`
-    met de echte URL in. De `?url=`-variant in `vind_woning_links()` blijft staan
-    voor andere mailers, maar op funda's eigen links werkt die niet.
-- Hoe de notificatiemail van een bewaarde zoekopdracht er precies uitziet is nog
-  NIET gemeten; er stond geen bewaarde zoekopdracht aan. Daarom:
+- Twee transactionele funda-mails, bekeken op 9 okt 2026 (één uit 2022, één uit
+  2026):
+  * In het text/plain-deel staan inhoudelijke links onverpakt:
+    `https://www.funda.nl/makelaar/<id>`, `.../account/email-instellingen`,
+    `.../meer-weten/...`. Die vindt `vind_woning_links()` direct.
+  * Het html-deel gebruikt funda's tracker ruim: één mail, plat en html volledig
+    uitgelezen, had 9 tracking-links. Een woninglink kan dus verpakt zijn.
+    Daarom plakt `tekst_uit_mail()` (funda_mail_ophalen.py) plat en html achter
+    elkaar: de parser krijgt beide kansen.
+  * De verpakte links zijn ONDOORZICHTIG: `links.funda.nl/s/vb/<token>/<token>/23`
+    (2026) en `links.funda.nl/e/evib?_t=..&_m=..&_e=..` (2022). Er zit GEEN
+    `?url=` met de echte URL in. De `?url=`-variant in `vind_woning_links()`
+    blijft staan voor andere mailers, maar op funda's eigen links werkt die niet.
+  * `links.funda.nl` geeft vanaf Actions een 403 (gemeten 9 okt 2026). Een
+    verpakte link volgen kan dus alleen lokaal of op een eigen netwerk.
+- De alert-mails van een bewaarde zoekopdracht werkten in de praktijk: van 17 okt
+  t/m 4 nov 2026 leverde de mailroute op Actions 35 woningen. Daar kan
+  `los_tracking_link_op()` niets volgen (403), dus de parser vond die
+  woninglinks direct in de mail. De opmaak zelf staat niet als fixture in de
+  repo: echte mailinhoud en tracking-tokens horen bij een persoonlijke mailbox.
+- Daarom:
   * `woningen_uit_mail()` is de hoofdingang. Vindt die geen directe woninglinks,
-    dan meldt hij hoeveel ondoorzichtige tracking-links er wél stonden, zodat de
-    eerste echte mail meteen laat zien welke van de twee gevallen het is.
-  * `los_tracking_link_op()` kan zo'n redirect volgen als funda de woninglink
-    tóch verpakt. Ongemeten pad, dus alleen gebruikt als er geen directe links
-    zijn - dan kost het in het normale geval niets.
+    dan meldt hij hoeveel ondoorzichtige tracking-links er wél stonden. Dat
+    scheidt "mail zonder nieuw aanbod" van "woninglink zit in een redirect".
+  * `los_tracking_link_op()` volgt zo'n redirect alleen bij nul directe links en
+    alleen met `volg_redirects=True`, want elke call is een echte klik in
+    funda's tracker. De mailroute in funda_zoek.py zet dat nooit aan; alleen
+    `scripts/funda_mail_validatie.py --volg-redirects` doet het, op verzoek.
   `scripts/funda_mail_validatie.py` valideert dit tegen een echte mail.
 """
 

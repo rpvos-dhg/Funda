@@ -1,8 +1,8 @@
 name: Funda dagelijks rapport
 
-# Draait elke ochtend op GitHub (niet meer afhankelijk van de laptop).
+# Draait twee keer per dag op GitHub (rooster hieronder; niet afhankelijk van de laptop).
 # Gevoelige gegevens komen uit GitHub Secrets en worden NOOIT gecommit.
-# State (seen-ids, prijs-tracking, werk-coordinaten) staat in de Actions-cache,
+# State (seen-ids, prijs-tracking, coordinaten, caches) staat in de Actions-cache,
 # dus blijft bewaard maar staat niet publiek in de repo.
 
 on:
