@@ -1,0 +1,27 @@
+/* Slotscherm: publiek leesbaar. Geen naam, geen merkvorm. */
+#content[hidden],.slot[hidden]{display:none}
+.slot{min-height:100vh;display:grid;place-items:center;background:var(--background-color-page);
+  padding:calc(var(--spacing-300) + env(safe-area-inset-top)) var(--spacing-200) calc(var(--spacing-300) + env(safe-area-inset-bottom))}
+.slot-tegel{width:min(22.5rem,100%);padding:var(--spacing-300);border-radius:var(--radius-200);background:var(--background-color-default);
+  border:1px solid var(--border-color-subtle);display:grid;gap:var(--spacing-200)}
+.slot-merk{width:3rem;height:3rem;border-radius:var(--radius-200);display:grid;place-items:center;
+  background:var(--background-color-strong);color:var(--foreground-color-on-strong)}
+.slot-merk .ic{width:1.75rem;height:1.75rem}
+.slot h1{font:var(--heading-medium);color:var(--foreground-color-strong)}
+.slot-intro,.slot-hint{font:var(--paragraph-body-small);color:var(--foreground-color-subtle);margin-top:var(--spacing-50)}
+.slot-hint{font:var(--paragraph-body-xsmall);margin:calc(var(--spacing-150) * -1) 0 0 calc(1.375rem + var(--spacing-150))}
+.slot-form{display:grid;gap:var(--spacing-150)}
+.pw-rij{position:relative}
+.pw-rij input{padding-right:calc(var(--tap) + var(--spacing-100))}
+.pw-rij .icoonknop{position:absolute;right:var(--spacing-25);top:var(--spacing-25);color:var(--foreground-color-interactive-strong)}
+.pw-rij .icoonknop[aria-pressed="false"] .streep{display:none}
+.slot .veld input[aria-invalid="true"]{border-bottom:2px solid var(--foreground-color-feedback-negative)}
+.slot-fout{font:var(--paragraph-body-small);color:var(--foreground-color-feedback-negative);min-height:1.25rem}
+.slot-fout:empty{display:none}
+.slot .knop{width:100%}
+.slot .linkknop{justify-self:center}
+.slot-melding{position:fixed;left:var(--spacing-200);right:var(--spacing-200);margin:0 auto;width:fit-content;max-width:30rem;z-index:300;
+  bottom:calc(var(--onder-h) + env(safe-area-inset-bottom) + var(--spacing-150));padding:var(--spacing-100) var(--spacing-200);
+  border-radius:var(--radius-200);font:var(--paragraph-body-small)}
+.draai{width:1rem;height:1rem;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:draai .8s linear infinite}
+@keyframes draai{to{transform:rotate(360deg)}}

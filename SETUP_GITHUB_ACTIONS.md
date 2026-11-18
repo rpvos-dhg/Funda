@@ -126,7 +126,7 @@ ook gebruikt, met een verzonnen woning (de bestanden hieronder staan in
 `.gitignore`):
 
 ```bash
-npm install --no-save --no-package-lock web-push@3
+npm ci --ignore-scripts
 echo '{"nieuw_count": 1, "nieuw": [{"title": "Teststraat 1", "city": "Teststad", "status_push": "Past", "score": 8.0}]}' > funda_run_summary.json
 read -rsp "Publieke sleutel: " WEB_PUSH_PUBLIC_KEY; echo
 read -rsp "Privésleutel: " WEB_PUSH_PRIVATE_KEY; echo

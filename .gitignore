@@ -18,7 +18,6 @@ funda_rapport.html
 __pycache__/
 *.pyc
 .venv/
-.env
 
 # OS
 .DS_Store
@@ -34,5 +33,13 @@ subscription.json
 # De migratiestappen zijn weer uit funda-daily.yml; het script en deze regel blijven.
 oude_state/
 
-# Lokale npm install (web-push voor scripts/send_web_push.cjs)
+# Lokale npm install (web-push voor scripts/send_web_push.cjs; package.json en
+# package-lock.json staan wel in de repo)
 node_modules/
+
+# Vangnet: mails (in een mailbox staan privédingen), logs en omgevingsbestanden
+# met sleutels horen nooit in de repo.
+*.eml
+*.log
+.env
+.env.*

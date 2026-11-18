@@ -49,7 +49,11 @@ Actions en publiceert het rapport op GitHub Pages.
   `funda_mail_validatie.py` (tegen de echte site of een echte mail),
   `funda_html_analyse.py`, `funda_sitemap_probe.py`, `funda_mail_imap_check.py`
   (alleen lokaal), `state_migratie.py` (cachemigratie) en `send_web_push.cjs`
-  (de push, ook in de workflow).
+  (de push, ook in de workflow; `web-push` komt uit `package.json` en
+  `package-lock.json` in de root).
+- `requirements.in` en `requirements.txt` - losse eisen en de daaruit
+  gegenereerde lijst met exacte versies en hashes (zie "Afhankelijkheden staan
+  vast").
 - `data/trhk_2026_tabel1.json` - tabel 1 van de leentoets en de labelbedragen
   (zie "Jaarwissel").
 - `testdata/` - fictieve fixtures: `woningen.json` (fixture-render),
@@ -695,9 +699,22 @@ zie ook "Encryptie verplicht in CI".
     Zelfde valkuil bij het gebied: een postcode moet lowercase en zonder spatie.
 - **pyfunda pin.** Het script gebruikt de v2.x API (`f.search_listing(...)` en
   `r.data` dicts). v3+ is een dataclass-rewrite zonder die methodes. Daarom is
-  pyfunda vastgepind op `v2.9.0` in `requirements.txt`; dat is de enige plek
-  (de workflows installeren `requirements.txt`). Niet zomaar upgraden zonder de
+  pyfunda vastgepind op `2.9.0`, sinds 18 nov 2026 van PyPI met hash en niet
+  meer van de git-tag (een tag kan verzet worden; de wheel is vergeleken met
+  commit `1bbe5d3` van tag v2.9.0: identiek). Niet zomaar upgraden zonder de
   code mee te porten.
+- **Afhankelijkheden staan vast (beveiligingsronde 18 nov 2026).**
+  `requirements.in` heeft de losse eisen, `requirements.txt` is daaruit
+  gegenereerd met exacte versies en hashes (het commando staat bovenin
+  `requirements.in`; `uv`, met `--universal` zodat het ook op Windows klopt).
+  Werk nooit met de hand in `requirements.txt`. De workflows doen
+  `pip install --require-hashes -r requirements.txt` en geen `pip install
+  --upgrade pip` meer. Voor de push staan `web-push` en wat eronder hangt in
+  `package.json` en `package-lock.json` (in de root, zodat
+  `scripts/send_web_push.cjs` het pakket vindt); de workflow doet
+  `npm ci --ignore-scripts`. De acties in de workflows staan op een commit-SHA
+  met de tag als commentaar. Bijwerken is steeds een bewuste stap: opnieuw
+  genereren of de SHA opzoeken, en de diff lezen.
 - **Niet in OneDrive zetten.** De repo stond eerst in een OneDrive-map. Dat gaf
   afgekapte bestanden bij opslaan en kapotte `.git`-locks. Daarom verplaatst naar
   `C:\dev\Funda`. Houd de repo buiten OneDrive.
@@ -721,7 +738,12 @@ zie ook "Encryptie verplicht in CI".
 - **Publiceren en pushen.** De workflow commit alleen `docs/` naar `main` en
   doet daarna `git pull --rebase origin main` vóór de push: main kan tijdens de
   run veranderd zijn (een gemergde PR), en dan werd de push geweigerd en ging het
-  rapport verloren. `docs/` wijzigt alleen de bot, dus dat rebasen is veilig. Een
+  rapport verloren. `docs/` wijzigt alleen de bot, dus dat rebasen is veilig. Het
+  schrijf-token zit alleen in die stap: checkout draait met
+  `persist-credentials: false`, en de pull en de push krijgen het token als
+  header mee (`met_token`), zodat pip, de run zelf en npm er niet bij kunnen.
+  `permissions` staat op niets voor de workflow en `contents: write` voor de
+  job; "Funda API debug" heeft alleen `contents: read`. Een
   lokale run (`auto_push()`, zonder `--no-push`) commit ook alleen `docs/` (de
   check en de commit krijgen allebei het pad mee; andere gestagede wijzigingen
   blijven gestaged), maar rebaset **niet**: doe lokaal altijd zelf
@@ -734,7 +756,7 @@ zie ook "Encryptie verplicht in CI".
 ## Lokaal draaien
 
 ```
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.txt
 python funda_zoek.py                 # volledige run + rapport, opent HTML, commit en pusht docs/
 python funda_zoek.py --no-push       # zonder commit en push van docs/
 python funda_zoek.py --no-open       # zonder browser
@@ -794,3 +816,12 @@ hoofdlijnen; de details staan bij de tests zelf.
   het elke maand betalen (netto woonlasten tegenover je grens)? Dat bepaalt de
   groep; pas daarbinnen telt de score. Onbekend is geen minpunt, twijfel zet een
   woning onderaan maar nooit weg.
+- **Geen energielabel = rekenen met het slechtste** (besluit eigenaar, 18 nov
+  2026). Zonder label rekent het model de energiekosten met label G, tenzij het
+  bouwjaar (BAG, anders funda) een ondergrens geeft: vanaf 1975 E, 1992 C, 2000
+  B, 2006 A (`funda_beoordeling.label_aanname`, een eigen voorzichtige indeling).
+  Alleen voor de energiekosten in de woonlasten: de leentoets krijgt geen label
+  en de score geen minpunt op het onderdeel energielabel. Hogere woonlasten
+  kunnen de poort en de score wel verschuiven. Het item blijft "onbekend,
+  gerekend als G" met de vraag om het label op te vragen. Vastgepind in
+  `test_funda_beoordeling.py::test_label_aanname`.
