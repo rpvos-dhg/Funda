@@ -1,6 +1,7 @@
 // Woningrapport: service worker (network-first, cache als terugval)
-const CACHE = 'funda-shortlist-v5';
-const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png'];
+const CACHE = 'funda-shortlist-v6';
+const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png',
+  'app.css', 'slot.css', 'app.js', 'slot.js', 'push.js', 'leaflet/leaflet.js', 'leaflet/leaflet.css'];
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
@@ -15,12 +16,13 @@ self.addEventListener('fetch', e => {
   if (url.origin !== location.origin) return;
   e.respondWith(
     fetch(e.request).then(resp => {
-      if (resp.ok) {
+      if (resp.ok && resp.type === 'basic') {
         const clone = resp.clone();
         caches.open(CACHE).then(c => c.put(e.request, clone)).catch(()=>{});
       }
       return resp;
-    }).catch(() => caches.match(e.request).then(r => r || caches.match('index.html')))
+    }).catch(() => caches.match(e.request).then(r =>
+      r || (e.request.mode === 'navigate' ? caches.match('index.html') : Response.error())))
   );
 });
 self.addEventListener('push', e => {

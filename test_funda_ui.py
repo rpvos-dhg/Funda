@@ -25,6 +25,10 @@ UI = HIER / "ui"
 CSS = (UI / "app.css").read_text(encoding="utf-8")
 JS = (UI / "app.js").read_text(encoding="utf-8")
 SLOT = (UI / "slot.html").read_text(encoding="utf-8")
+SLOT_JS = (UI / "slot.js").read_text(encoding="utf-8")
+SLOT_CSS = (UI / "slot.css").read_text(encoding="utf-8")
+PUSH_JS = (UI / "push.js").read_text(encoding="utf-8")
+SLOT_ALLES = SLOT + SLOT_CSS + SLOT_JS + PUSH_JS   # alles van het slotscherm, voor de teksten en verboden woorden
 
 # Contrastparen (WCAG 2.x): (omschrijving, voorgrond, achtergrond, minimum). Tekst 4,5; niet-tekst 3,0.
 # --border-color-default en --border-color-subtle zijn decoratief (kaartrand, scheidingslijn, rand om
@@ -432,7 +436,7 @@ def test_css_regels() -> bool:
         rest = rest.replace(_blok(rest, kop), "{}", 1)
     los = re.findall(r"(?<![\w-])#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3}(?:[0-9a-fA-F]{2})?)?(?![\w-])", rest)
     body = _body()
-    alles = {"app.css": CSS, "app.js": JS, "slot.html": SLOT, "body": body}
+    alles = {"app.css": CSS, "app.js": JS, "slot": SLOT_ALLES, "body": body}
     verboden = [(n, w) for n, t in alles.items() for w in VERBODEN_WOORDEN if w in t]
     licht, media, _ = tokenblokken()
     donker = {**licht, **media}
@@ -557,20 +561,16 @@ def test_app_js() -> bool:
 
 
 def test_slot() -> bool:
-    print("ui/slot.html")
+    print("ui/slot.html, ui/slot.js en ui/slot.css")
     gevonden = re.findall(r"__[A-Z_]+__", SLOT)
     nodig = list(funda_ui.SLOT_PLACEHOLDERS)
     waarden = {p: f"<!--{p.strip('_').lower()}-->" for p in nodig}
-    waarden.update({"__GZ__": "1", "__ITERS__": "100000", "__SALT__": "c2FsdA==", "__IV__": "aXY=", "__CT__": "Y3Q="})
     gevuld = funda_ui.vul_slot(waarden)
     try:
-        funda_ui.vul_slot({"__GZ__": "1"})
+        funda_ui.vul_slot({"__CSP__": "x"})
         fout_bij_missen = False
     except ValueError:
         fout_bij_missen = True
-    zonder = SLOT
-    for p in nodig:
-        zonder = zonder.replace(p, "")
     theme = re.search(r'<meta name="theme-color" content="(#[0-9a-fA-F]{6})">', SLOT)
     theme_donker = re.search(r'<meta name="theme-color" media="\(prefers-color-scheme: dark\)" content="(#[0-9a-fA-F]{6})">', SLOT)
     return all([
@@ -583,18 +583,57 @@ def test_slot() -> bool:
         check("theme-color donker = THEME_COLOR_DONKER, vóór de gewone (eerste match telt)", bool(theme_donker)
               and theme_donker.group(1) == funda_ui.THEME_COLOR_DONKER and theme_donker.start() < theme.start()),
         check("color-scheme light dark", '<meta name="color-scheme" content="light dark">' in SLOT),
-        check("gzip uitpakken", 'DecompressionStream("gzip")' in SLOT and "const GZ = __GZ__;" in SLOT),
-        check("melding te oude browser", "class TeOud" in SLOT and "Werk je iPhone bij naar iOS 16.4 of nieuwer." in SLOT),
-        check("niet-exporteerbare basissleutel", 'importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveKey"])' in SLOT),
-        check("sleutel in IndexedDB", "indexedDB.open(" in SLOT and "s.put({sleutel" in SLOT),
-        check("nooit het wachtwoord bewaren", "localStorage.setItem" not in SLOT and "sessionStorage.setItem" not in SLOT),
-        check("oud wachtwoord opgeruimd", 'OUD_PW = "funda_pw_persist_v1"' in SLOT and "localStorage.removeItem(OUD_PW)" in SLOT
-              and 'sessionStorage.removeItem("funda_pw")' in SLOT),
-        check("terugval met melding", "Onthouden lukt niet in deze browser." in SLOT),
-        check("knop Vergeet dit apparaat", ">Vergeet dit apparaat</button>" in SLOT and "window.fundaApparaat" in SLOT),
-        check("na ontsleutelen fundaAfterReportLoad", "window.fundaAfterReportLoad()" in SLOT),
+        check("geen inline script of style: alleen bestanden en het JSON-pakket", "<style" not in SLOT
+              and re.findall(r"<script\b[^>]*>", SLOT) == ['<script defer src="leaflet/leaflet.js">', '<script defer src="app.js">',
+                                                         '<script defer src="push.js">', '<script defer src="slot.js">',
+                                                         '<script type="application/json" id="slot-data">']),
+        check("CSP en no-referrer bovenaan de <head>", SLOT.index("Content-Security-Policy") < SLOT.index('name="referrer"')
+              < SLOT.index("<title>")),
+        check("slot.js leest het pakket uit #slot-data", 'JSON.parse(document.getElementById("slot-data").textContent)' in SLOT_JS),
+        check("slot.css: geen hex buiten de tokens van app.css", not re.search(r"#[0-9a-fA-F]{3,8}\b", SLOT_CSS.replace("#content", ""))),
+        check("knop Vergeet dit apparaat", ">Vergeet dit apparaat</button>" in SLOT and "window.fundaApparaat" in SLOT_JS),
+        check("terugval met melding", "Onthouden lukt niet in deze browser." in SLOT_JS),
         check("geen merknaam of voornaam", "Funda Shortlist" not in SLOT and "<title>Woningrapport</title>" in SLOT),
-        check("slotscherm zonder placeholders <= 12 kB", len(zonder.encode()) <= 12_000, f"{len(zonder.encode())} bytes"),
+        check("slotscherm (html, css en js) <= 14 kB", len((SLOT + SLOT_CSS + SLOT_JS).encode()) <= 14_000,
+              f"{len((SLOT + SLOT_CSS + SLOT_JS).encode())} bytes"),
+    ])
+
+
+def test_veilige_uitvoer() -> bool:
+    print("JSON in het script-blok, funda-links, externe links")
+    rijen, meta = testrijen()
+    rijen = copy.deepcopy(rijen)
+    naar = "Teststraat 1 <!--<script>alert(1)</script> & </script"
+    rijen[0]["d"]["title"] = naar
+    body = funda_ui.render_report_body(rijen, meta)
+    blok = re.search(r'<script type="application/json" id="woning-data">(.*?)</script>', body, re.S).group(1)
+    data = json.loads(blok)
+    url = funda_ui.funda_url
+    gevallen = {
+        "/detail/koop/den-haag/appartement-teststraat-1/43000001/": "https://www.funda.nl/detail/koop/den-haag/appartement-teststraat-1/43000001/",
+        "detail/koop/x/": "https://www.funda.nl/detail/koop/x/",
+        "https://www.funda.nl/detail/43000001/": "https://www.funda.nl/detail/43000001/",
+        "http://www.funda.nl/detail/43000001/": "https://www.funda.nl/detail/43000001/",
+        "https://www.funda.nl.example.invalid/x": "", "https://example.invalid/https://www.funda.nl/": "",
+        "https://www.funda.nl@example.invalid/": "", "https://www.funda.nl\\@example.invalid/": "",
+        "https://www.funda.nl:8443/x": "", "https://funda.nl/x": "", "//example.invalid/x": "",
+        "javascript:alert(1)": "", "JaVaScRiPt:alert(1)": "", "data:text/html,x": "", "/detail/a b": "", "": "",
+    }
+    fout = {k: url({"url": k}) for k, v in gevallen.items() if url({"url": k}) != v}
+    kwaad = funda_ui.render_report_body([{"d": {"global_id": 9, "title": "Woning", "price": 250000, "url": "javascript:alert(1)"}}], {})
+    links = re.findall(r'<a\b[^>]*target="_blank"[^>]*>', body)
+    return all([
+        check("woning-data: geen <, > of & letterlijk", not re.search(r"[<>&]", blok), blok[:80]),
+        check("woning-data: nog steeds dezelfde titel na JSON.parse", any(w["titel"] == naar for w in data["woningen"])),
+        check("de titel staat ge-escaped in de kaart", "&lt;!--&lt;script&gt;alert(1)" in body and "<!--<script>" not in body),
+        check("funda_url: alleen https://www.funda.nl/..., een pad krijgt de host, de rest valt weg", not fout, str(fout)),
+        check("funda_url: geen tekst = geen link", url({"url": 5}) == "" and url({}) == ""),
+        check("funda_url: detail_url gaat voor url", url({"detail_url": "/a/", "url": "/b/"}) == "https://www.funda.nl/a/"),
+        check("woning met een vreemde link: geen knop naar funda", "javascript:" not in kwaad and "Bekijk op funda" not in kwaad),
+        check("externe links: rel noopener noreferrer", len(links) >= 13 and all('rel="noopener noreferrer"' in a for a in links),
+              str(len(links))),
+        check("vergrendelknop in Dit apparaat", 'data-actie="vergrendel"' in body and "> Vergrendel</button>" in body
+              and '[data-actie="vergrendel"]' in JS and "a.vergrendel()" in JS),
     ])
 
 
@@ -612,7 +651,7 @@ def test_groottes() -> bool:
 def test_tekst() -> bool:
     print("tekst: geen em dash of gedachtestreepje, geen bevolkingskenmerken")
     body = _body()
-    bronnen = {"body": body, "app.css": CSS, "app.js": JS, "slot.html": SLOT,
+    bronnen = {"body": body, "app.css": CSS, "app.js": JS, "slot": SLOT_ALLES,
                "funda_ui.py": (HIER / "funda_ui.py").read_text(encoding="utf-8")}
     streep = [n for n, t in bronnen.items() if "—" in t or "–" in t]
     return all([
@@ -676,11 +715,11 @@ def test_fixronde_ui() -> bool:
               and "'Wanneer'" not in JS),
         check("popup: scenario met label Financiering", "'<br>Financiering: ' + esc(finTekst(w.scenario_tekst))" in JS),
         check("JS: euroteken met harde spatie", "'€\\u00a0'" in JS and "replace(/€ /g, '€\\u00a0')" in JS),
-        check("één woord: apparaat (geen toestel)", all("toestel" not in t for t in (body, JS, SLOT))),
+        check("één woord: apparaat (geen toestel)", all("toestel" not in t for t in (body, JS, SLOT_ALLES))),
         check("slot: fout direct onder het wachtwoordveld", SLOT.index('id="err"') < SLOT.index('id="remember"')
               and SLOT.index('id="err"') > SLOT.index('class="pw-rij"')),
-        check("slot: onthouden sleutel, geen onthouden wachtwoord", "Het onthouden wachtwoord" not in SLOT
-              and "De onthouden sleutel werkt niet meer. Vul je wachtwoord opnieuw in." in SLOT),
+        check("slot: onthouden sleutel, geen onthouden wachtwoord", "Het onthouden wachtwoord" not in SLOT_ALLES
+              and "De onthouden sleutel werkt niet meer. Vul je wachtwoord opnieuw in." in SLOT_JS),
         check("WOZ zonder datum: geen peildatum", "peildatum" not in funda_ui.kenmerken(
             dict(w, woz={"price": 200000, "date": "1 jan, 2026"}))),
     ]
@@ -772,7 +811,7 @@ def test_eindreview_js() -> bool:
 def main() -> int:
     resultaten = [test_contract_testdata(), test_ids_en_attributen(), test_statusregels(), test_status_en_scenario_in_kaart(),
                   test_prijs_onbekend(), test_volgorde(), test_woning_data(), test_css_regels(), test_contrast(),
-                  test_rente_en_budget(), test_meta_en_randgevallen(), test_app_js(), test_slot(), test_groottes(), test_tekst(),
+                  test_rente_en_budget(), test_meta_en_randgevallen(), test_app_js(), test_slot(), test_veilige_uitvoer(), test_groottes(), test_tekst(),
                   test_fixronde_ui(), test_eindreview_js()]
     print()
     if all(resultaten):

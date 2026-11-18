@@ -9,6 +9,7 @@ Publieke API
   THEME_COLOR, ACHTERGROND     kleur van de topbalk en van de pagina (licht), voor manifest en theme-color
   THEME_COLOR_DONKER           kleur van de topbalk in donker (theme-color met prefers-color-scheme)
   UI_CSS, UI_JS, SLOT_HTML     inhoud van ui/app.css, ui/app.js en ui/slot.html
+  SLOT_CSS, SLOT_JS, PUSH_JS   inhoud van ui/slot.css, ui/slot.js en ui/push.js (in docs/ als losse bestanden)
   SLOT_PLACEHOLDERS            de placeholders die ui/slot.html precies één keer bevat
   render_report_body(rijen, meta) -> str
                                de body: sprite, topbalk, lijst, voet, kaart, sheets en #woning-data
@@ -48,7 +49,10 @@ UI_DIR = Path(__file__).resolve().parent / "ui"
 UI_CSS = (UI_DIR / "app.css").read_text(encoding="utf-8")
 UI_JS = (UI_DIR / "app.js").read_text(encoding="utf-8")
 SLOT_HTML = (UI_DIR / "slot.html").read_text(encoding="utf-8")
-SLOT_PLACEHOLDERS = ("__APP_CSS__", "__MAP_HEAD__", "__APP_SCRIPTS__", "__GZ__", "__SALT__", "__IV__", "__CT__", "__ITERS__")
+SLOT_CSS = (UI_DIR / "slot.css").read_text(encoding="utf-8")
+SLOT_JS = (UI_DIR / "slot.js").read_text(encoding="utf-8")
+PUSH_JS = (UI_DIR / "push.js").read_text(encoding="utf-8")
+SLOT_PLACEHOLDERS = ("__CSP__", "__PUSH_META__", "__PAKKET__")
 
 # Palet "Inkt en blauw" (ui/app.css, .interface-design/system.md): topbalk en pagina in licht, voor het manifest en
 # <meta name="theme-color">; THEME_COLOR_DONKER is de topbalk in donker (theme-color met media query).
@@ -146,6 +150,7 @@ SPRITE = """<svg class="sprite" aria-hidden="true" focusable="false">
 <symbol id="i-vergelijk" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1"/><rect x="14" y="4" width="7" height="16" rx="1"/></symbol>
 <symbol id="i-sluit" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
 <symbol id="i-bel" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
+<symbol id="i-slot" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></symbol>
 <symbol id="i-oog" viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 6.1A10 10 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-2.6 3.2M6.4 7.6A16 16 0 0 0 3 12s4 6 9 6a9 9 0 0 0 3.5-.7"/></symbol>
 </svg>"""
 
@@ -162,11 +167,23 @@ def card_id(sleutel: str) -> str:
 
 
 def funda_url(d: dict) -> str:
-    """Volledige funda-link uit detail_url of url (een pad krijgt https://www.funda.nl ervoor)."""
+    """Volledige funda-link uit detail_url of url, of "" als het geen link naar www.funda.nl is.
+
+    Een pad krijgt https://www.funda.nl ervoor. Een volledige URL mag alleen https://www.funda.nl/... zijn
+    (http wordt https); elk ander schema of elke andere host valt weg, zodat de knop "Bekijk op funda" nooit
+    ergens anders heen wijst (javascript:, data:, een host die op funda lijkt)."""
     url = d.get("detail_url") or d.get("url") or ""
-    if url and not url.startswith("http"):
-        url = "https://www.funda.nl" + url
-    return url
+    if not isinstance(url, str):
+        return ""
+    url = url.strip()
+    if not url or re.search(r"[\x00-\x20\\]", url):
+        return ""
+    m = re.match(r"(?i)https?://www\.funda\.nl(/.*)?$", url)
+    if m:
+        return "https://www.funda.nl" + (m.group(1) or "/")
+    if re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", url) or url.startswith("//"):
+        return ""
+    return "https://www.funda.nl/" + url.lstrip("/")
 
 
 def _getal(x):
@@ -492,9 +509,9 @@ def kaart_html(w, meta: dict | None = None) -> str:
         blokken.append(f'<section class="blok breed"><h4>Foto\'s</h4><div class="fotostrip">{fotos}</div></section>')
     url = h(w["url"])
     if url:
-        blokken.append(f'<div class="acties breed"><a class="knop knop-sec knop-vol" href="{url}" target="_blank" rel="noopener" '
+        blokken.append(f'<div class="acties breed"><a class="knop knop-sec knop-vol" href="{url}" target="_blank" rel="noopener noreferrer" '
                        f'aria-label="Bekijk {t} op funda (opent nieuw venster)">Bekijk op funda {ic("extern", "ic ic-s")}</a></div>')
-        funda_knop = (f'<a class="icoonknop" href="{url}" target="_blank" rel="noopener" aria-label="Bekijk {t} op funda '
+        funda_knop = (f'<a class="icoonknop" href="{url}" target="_blank" rel="noopener noreferrer" aria-label="Bekijk {t} op funda '
                       f'(opent nieuw venster)" title="Bekijk op funda">{ic("extern")}</a>')
     else:
         funda_knop = ""
@@ -668,9 +685,12 @@ def _push_html(meta: dict) -> str:
 <p id="push-status" class="push-status" role="status"></p></div></details>"""
 
 
+# Alleen zichtbaar achter het slotscherm (ui/app.js, apparaat()): het blok, en "Vergeet" alleen met een bewaarde sleutel.
 APPARAAT_HTML = f"""<details class="opbouw" id="apparaat" hidden><summary>Dit apparaat{ic('chev', 'ic chev')}</summary><div class="tekst">
-<p>Dit apparaat onthoudt een sleutel voor het rapport, niet je wachtwoord. Vergeet hem als je dit apparaat deelt of wegdoet.</p>
-<div class="acties"><button type="button" class="knop knop-ter" data-actie="vergeet">Vergeet dit apparaat</button></div></div></details>"""
+<p>Vergrendel sluit het rapport en wist de sleutel die dit apparaat onthoudt. Daarna vraagt het weer om je wachtwoord.</p>
+<p id="apparaat-onthoudt" hidden>Dit apparaat onthoudt een sleutel voor het rapport, niet je wachtwoord. Vergeet hem als je dit apparaat deelt of wegdoet.</p>
+<div class="acties"><button type="button" class="knop knop-ter" data-actie="vergrendel">{ic('slot', 'ic ic-s')} Vergrendel</button>
+<button type="button" class="knop knop-ter" data-actie="vergeet" hidden>Vergeet dit apparaat</button></div></div></details>"""
 
 
 def render_report_body(rijen: list[dict], meta: dict | None = None) -> str:
@@ -727,10 +747,12 @@ def render_report_body(rijen: list[dict], meta: dict | None = None) -> str:
     stad_html = "".join(f'<label class="keuze" for="c-{i}"><input type="checkbox" name="stad" id="c-{i}" value="{h(s)}">'
                         f'<span>{stad_naam(s)} <small>({sum(1 for w in woningen if w["stad"] == s)})</small></span></label>'
                         for i, s in enumerate(steden))
-    data = json.dumps({"woningen": [js_data(w) for w in woningen]}, ensure_ascii=False).replace("</", "<\\/")
+    data = json.dumps({"woningen": [js_data(w) for w in woningen]}, ensure_ascii=False)
+    # In een <script>-blok: geen <, > of & letterlijk (ook niet "<!--" of "<script"), wel geldige JSON.
+    data = data.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     run_iso = nu.strftime("%Y-%m-%dT%H:%M")
     actions = meta.get("actions_url")
-    run_knop = (f'<a class="icoonknop" href="{h(actions)}" target="_blank" rel="noopener" '
+    run_knop = (f'<a class="icoonknop" href="{h(actions)}" target="_blank" rel="noopener noreferrer" '
                 f'aria-label="Nieuwe run starten op GitHub (opent nieuw venster)" title="Nieuwe run">{ic("vernieuw")}</a>'
                 if actions else "")
     volgende = volgende_run(nu, meta.get("run_cron_utc"))
@@ -799,12 +821,11 @@ Klimaateffectatlas, RIVM-geluidkaarten, Leefbaarometer 3.0, RIVM-gezondheidsmoni
 
 
 def vul_slot(waarden: dict) -> str:
-    """ui/slot.html met elke placeholder vervangen. waarden: {"__APP_CSS__": ..., "__GZ__": "1", ...}."""
+    """ui/slot.html met elke placeholder vervangen. waarden: {"__CSP__": ..., "__PUSH_META__": ..., "__PAKKET__": ...}."""
     ontbreekt = [p for p in SLOT_PLACEHOLDERS if p not in waarden]
     if ontbreekt:
         raise ValueError("placeholders zonder waarde: " + ", ".join(ontbreekt))
     uit = SLOT_HTML
-    # Eerst de korte waarden, dan pas CSS en scripts: zo kan een placeholdernaam in de CSS of JS niets kapotmaken.
-    for p in ("__GZ__", "__SALT__", "__IV__", "__CT__", "__ITERS__", "__MAP_HEAD__", "__APP_SCRIPTS__", "__APP_CSS__"):
+    for p in SLOT_PLACEHOLDERS:   # het pakket als laatste: alleen base64 en JSON, daar staat geen placeholder in
         uit = uit.replace(p, str(waarden[p]), 1)
     return uit

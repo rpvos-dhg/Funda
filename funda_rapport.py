@@ -15,7 +15,8 @@ rente uit de config, en laat de run nooit falen. De funda-checks die een run met
 zitten in funda_zoek.main() en veranderen hier niet.
 
 De UI (lijst, kaart, sheets) staat in funda_ui.py en ui/; het slotscherm is ui/slot.html. De body
-wordt eerst met gzip ingepakt en daarna versleuteld (AES-256-GCM, PBKDF2-SHA256 100.000x).
+wordt eerst met gzip ingepakt, opgevuld en daarna versleuteld (AES-256-GCM; sleutel via PBKDF2-SHA256
+600.000x en HKDF, zie beveilig_html).
 Met FUNDA_REQUIRE_ENCRYPTION=1 (CI) komt er nooit een onversleuteld rapport in docs/.
 """
 
@@ -740,13 +741,14 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
         for t in b.get("twijfel") or []:
             lines.append(f"- Twijfel: {_md(t)} Onderaan gezet.")
         m2 = d.get("living_area") or det.get("living_area")
+        m2_getal, vraagprijs = _getal(m2), _getal(d.get("price"))   # funda geeft soms tekst ("ca. 60 m²")
         prijs = _prijs_tekst(rij)
-        if not rij.get("prijs_onbekend") and m2:
-            prijs += f" ({funda_ui.eur_tekst(d['price'] / m2)} per m²)"
+        if not rij.get("prijs_onbekend") and m2_getal and m2_getal > 0 and vraagprijs:
+            prijs += f" ({funda_ui.eur_tekst(vraagprijs / m2_getal)} per m²)"
         netto = fin.get("netto")
         lasten = f"{funda_ui.eur_tekst(netto)} netto per maand" if netto is not None else "onbekend"
         lines.append(f"- Vraagprijs: {prijs} · Woonlasten: {lasten}")
-        feit = [f"{m2} m²" if m2 else None, f"{d.get('rooms')} kamers" if d.get("rooms") else None,
+        feit = [f"{_md(m2)} m²" if m2 else None, f"{d.get('rooms')} kamers" if d.get("rooms") else None,
                 f"label {d.get('energy_label') or det.get('energy_label') or 'onbekend'}",
                 _md(d.get("neighbourhood")) or None]
         lines.append("- Woning: " + ", ".join(x for x in feit if x))
@@ -870,9 +872,11 @@ PWA_MANIFEST = json.dumps({
 }, indent=2, ensure_ascii=False) + "\n"
 
 # Cache ophogen is verplicht bij een nieuwe wrapper: anders blijft een geïnstalleerde PWA de oude tonen.
+# Alleen same-origin GET's komen in de cache; foto's en kaarttegels van buiten gaan er ongemoeid langs.
 PWA_SERVICE_WORKER = """// Woningrapport: service worker (network-first, cache als terugval)
-const CACHE = 'funda-shortlist-v5';
-const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png'];
+const CACHE = 'funda-shortlist-v6';
+const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png',
+  'app.css', 'slot.css', 'app.js', 'slot.js', 'push.js', 'leaflet/leaflet.js', 'leaflet/leaflet.css'];
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
@@ -887,12 +891,13 @@ self.addEventListener('fetch', e => {
   if (url.origin !== location.origin) return;
   e.respondWith(
     fetch(e.request).then(resp => {
-      if (resp.ok) {
+      if (resp.ok && resp.type === 'basic') {
         const clone = resp.clone();
         caches.open(CACHE).then(c => c.put(e.request, clone)).catch(()=>{});
       }
       return resp;
-    }).catch(() => caches.match(e.request).then(r => r || caches.match('index.html')))
+    }).catch(() => caches.match(e.request).then(r =>
+      r || (e.request.mode === 'navigate' ? caches.match('index.html') : Response.error())))
   );
 });
 self.addEventListener('push', e => {
@@ -1051,47 +1056,101 @@ def _write_png_icon(path: Path, size: int) -> None:
     path.write_bytes(png)
 
 
-def beveilig_html(html: str, password: str, css: str | None = None, scripts: str | None = None,
-                  gz: bool = True) -> str:
-    """Versleutel de body en wikkel hem in het slotscherm (ui/slot.html).
+# === Versleuteling van de PWA ===
+# Alles hieronder is publiek (het staat ook in docs/index.html); geheim is alleen het wachtwoord.
+KDF_ITERS = 600_000   # OWASP-advies voor PBKDF2-SHA256
+# Vast zout van deze app, voor de hoofdsleutel. Publiek, willekeurig, en bewust niet per run: de
+# browser bewaart de hoofdsleutel en die moet de volgende run nog passen. Wijzigen = iedereen vult
+# één keer het wachtwoord opnieuw in.
+APP_ZOUT = bytes.fromhex("1f017e8c08649ec54f34bcfdcc10e776")
+KDF_INFO = "woningrapport/v2 hkdf-sha256 aes-256-gcm"   # versiestring; ophogen bij een andere opbouw
+PAKKET_VERSIE = 2
+BLOK = 8192           # de ciphertext (met de tag van 16 bytes) is altijd een veelvoud hiervan
+_TAG = 16
 
-    Eerst gzip (niveau 9, mtime 0, dus reproduceerbaar), dan AES-256-GCM met een sleutel uit
-    PBKDF2-SHA256 (100.000 iteraties, 16 byte zout, 12 byte IV). Comprimeren moet vóór het
-    versleutelen: ciphertext comprimeert niet, dus Pages kan hem over de lijn niet kleiner maken.
-    `gz=False` is de terugval (het slotscherm kent dan GZ 0 en pakt niets uit).
+# Content-Security-Policy van de wrapper (meta-tag). Geen inline script en geen inline style: alle
+# code staat als bestand in docs/. Afbeeldingen: eigen iconen, funda's foto's, OSM-tegels, en data:
+# omdat Leaflet een afgebroken tegel op een lege GIF als data-URI zet. frame-ancestors werkt niet in
+# een meta-tag; daarvoor weigert ui/slot.js te ontgrendelen in een frame.
+FOTO_HOST = "cloud.funda.nl"
+TEGEL_HOST = "tile.openstreetmap.org"   # dezelfde als in ui/app.js (test_funda_pwa)
+CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; "
+       f"img-src 'self' https://{FOTO_HOST} https://{TEGEL_HOST} data:; "
+       "connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'")
 
-    css: CSS in het slotscherm (standaard funda_ui.UI_CSS; het slotscherm gebruikt die klassen ook).
-    scripts: complete <script>-blokken buiten de versleuteling (standaard de UI-JS en pwa_push_js()),
-    want scripts in de via innerHTML gezette body draaien niet.
-    """
+
+def hoofdsleutel(password: str) -> bytes:
+    """PBKDF2-SHA256(wachtwoord, APP_ZOUT, KDF_ITERS): de trage stap, één keer per wachtwoord."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    return PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=APP_ZOUT,
+                      iterations=KDF_ITERS).derive(password.encode("utf-8"))
+
+
+def runsleutel(hoofd: bytes, zout: bytes, info: str = KDF_INFO) -> bytes:
+    """HKDF-SHA256(hoofdsleutel, salt = run-zout, info = versiestring): de AES-256-sleutel van één run."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    return HKDF(algorithm=hashes.SHA256(), length=32, salt=zout, info=info.encode("utf-8")).derive(hoofd)
+
+
+def vul_op(data: bytes) -> bytes:
+    """Lengte (4 bytes, big-endian) + data + nullen, zo lang dat de ciphertext met tag een veelvoud van BLOK is."""
+    kaal = 4 + len(data) + _TAG
+    return len(data).to_bytes(4, "big") + data + bytes(-kaal % BLOK)
+
+
+def versleutel(html: str, password: str, gz: bool = True) -> dict:
+    """Het pakket voor #slot-data: alles wat de browser nodig heeft behalve het wachtwoord.
+
+    ui/slot.js doet het omgekeerde; test_funda_pwa.py ook, in Python en met het echte slot.js in node."""
     import base64
     import gzip
-    from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-    css = funda_ui.UI_CSS if css is None else css
-    scripts = _scripts(True) if scripts is None else scripts
     data = html.encode("utf-8")
     if gz:
         data = gzip.compress(data, compresslevel=9, mtime=0)
-
-    salt = os.urandom(16)
+    zout = os.urandom(16)
     iv = os.urandom(12)
-    iters = 100_000  # snel genoeg op mobiel, sterk genoeg met goed wachtwoord
-    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=iters)
-    key = kdf.derive(password.encode("utf-8"))
-    ciphertext = AESGCM(key).encrypt(iv, data, None)
+    ciphertext = AESGCM(runsleutel(hoofdsleutel(password), zout)).encrypt(iv, vul_op(data), None)
 
+    def b64(b: bytes) -> str:
+        return base64.b64encode(b).decode()
+
+    return {"v": PAKKET_VERSIE, "gz": 1 if gz else 0, "iters": KDF_ITERS, "app_zout": b64(APP_ZOUT),
+            "info": KDF_INFO, "zout": b64(zout), "iv": b64(iv), "ct": b64(ciphertext)}
+
+
+def beveilig_html(html: str, password: str, gz: bool = True) -> str:
+    """Versleutel de body en wikkel hem in het slotscherm (ui/slot.html).
+
+    Opbouw:
+      hoofdsleutel = PBKDF2-SHA256(wachtwoord, APP_ZOUT, 600.000 iteraties)
+      runsleutel   = HKDF-SHA256(hoofdsleutel, salt = run-zout van 16 bytes, info = KDF_INFO)
+      ciphertext   = AES-256-GCM(runsleutel, IV van 12 bytes, lengte + gzip(body) + opvulling)
+    Zout en IV zijn elke run nieuw.
+
+    Waarom zo (dreigingsmodel): "Onthoud op dit apparaat" bewaart de hoofdsleutel, en wie de opslag
+    van het apparaat leest mag daarmee niet sneller naar het wachtwoord kunnen raden dan iemand met
+    alleen de publieke ciphertext. De oude opbouw bewaarde de PBKDF2-basissleutel; daaruit was een
+    afleiding met 1 iteratie te halen, dus raden zonder de trage stap. De HKDF-hoofdsleutel is niet
+    exporteerbaar en zit ná de 600.000 iteraties.
+
+    Eerst gzip (niveau 9, mtime 0, dus reproduceerbaar), dan opvullen, dan versleutelen. Comprimeren
+    moet vóór het versleutelen: ciphertext comprimeert niet, dus Pages kan hem over de lijn niet
+    kleiner maken. De opvulling (vul_op) maakt de ciphertext een veelvoud van 8 kB, zodat de
+    bestandsgrootte het aanbod niet meer per woning volgt. `gz=False` is de terugval (het slotscherm
+    pakt dan niets uit).
+
+    De wrapper bevat geen CSS of JavaScript meer: die staan als bestanden in docs/ (schrijf_statisch),
+    en de CSP in de wrapper staat alleen die toe. Het pakket staat als JSON in #slot-data.
+    """
+    pakket = json.dumps(versleutel(html, password, gz), separators=(",", ":"))
     return funda_ui.vul_slot({
-        "__APP_CSS__": css,
-        "__MAP_HEAD__": MAP_HEAD,
-        "__APP_SCRIPTS__": scripts,
-        "__GZ__": "1" if gz else "0",
-        "__SALT__": base64.b64encode(salt).decode(),
-        "__IV__": base64.b64encode(iv).decode(),
-        "__CT__": base64.b64encode(ciphertext).decode(),
-        "__ITERS__": str(iters),
+        "__CSP__": funda_ui.h(CSP),
+        "__PUSH_META__": push_head(),
+        "__PAKKET__": pakket,
     })
 
 
@@ -1102,8 +1161,34 @@ def _pwa_wachtwoord() -> str:
     return ""
 
 
+# Statische bestanden van de PWA: pad in docs/ -> bron in ui/. De service worker bewaart ze ook.
+STATISCH = {
+    "app.css": "app.css", "slot.css": "slot.css", "app.js": "app.js", "slot.js": "slot.js", "push.js": "push.js",
+    "leaflet/leaflet.js": "leaflet/leaflet.js", "leaflet/leaflet.css": "leaflet/leaflet.css",
+    "leaflet/LICENSE": "leaflet/LICENSE",
+}
+
+
+def schrijf_statisch(pwa_dir: Path) -> None:
+    """Alles in docs/ behalve index.html: manifest, service worker, iconen, CSS, JavaScript en Leaflet.
+
+    Hangt niet van de woningen of het wachtwoord af. Een oude index.html (alles inline) blijft naast
+    deze bestanden gewoon werken."""
+    pwa_dir.mkdir(parents=True, exist_ok=True)
+    (pwa_dir / "manifest.json").write_text(PWA_MANIFEST, encoding="utf-8")
+    (pwa_dir / "service-worker.js").write_text(PWA_SERVICE_WORKER, encoding="utf-8")
+    (pwa_dir / "icon.svg").write_text(PWA_ICON_SVG, encoding="utf-8")
+    (pwa_dir / "favicon.svg").write_text(PWA_FAVICON_SVG, encoding="utf-8")
+    _write_png_icon(pwa_dir / "apple-touch-icon.png", 180)
+    _write_png_icon(pwa_dir / "icon-512.png", 512)
+    for doel, bron in STATISCH.items():
+        pad = pwa_dir / doel
+        pad.parent.mkdir(parents=True, exist_ok=True)
+        pad.write_bytes((funda_ui.UI_DIR / bron).read_bytes())
+
+
 def schrijf_pwa_assets(rijen: list[dict], meta: dict | None = None) -> Path:
-    """Manifest, service worker, iconen en index.html in docs/ (onder UITVOER_DIR)."""
+    """Manifest, service worker, iconen, CSS, JavaScript en index.html in docs/ (onder UITVOER_DIR)."""
     password = _pwa_wachtwoord()
     # Vangrail: in CI (publieke repo) NOOIT onversleuteld publiceren. Vóór het schrijven, zodat
     # er dan ook niets anders in docs/ verandert.
@@ -1114,13 +1199,7 @@ def schrijf_pwa_assets(rijen: list[dict], meta: dict | None = None) -> Path:
         )
 
     pwa_dir = UITVOER_DIR / PWA_DIR_NAAM
-    pwa_dir.mkdir(parents=True, exist_ok=True)
-    (pwa_dir / "manifest.json").write_text(PWA_MANIFEST, encoding="utf-8")
-    (pwa_dir / "service-worker.js").write_text(PWA_SERVICE_WORKER, encoding="utf-8")
-    (pwa_dir / "icon.svg").write_text(PWA_ICON_SVG, encoding="utf-8")
-    (pwa_dir / "favicon.svg").write_text(PWA_FAVICON_SVG, encoding="utf-8")
-    _write_png_icon(pwa_dir / "apple-touch-icon.png", 180)
-    _write_png_icon(pwa_dir / "icon-512.png", 512)
+    schrijf_statisch(pwa_dir)
 
     if password:
         beveiligd = beveilig_html(_body(rijen, meta, True), password)

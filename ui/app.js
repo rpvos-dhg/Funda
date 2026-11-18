@@ -271,6 +271,7 @@ function koppel(){
     else if(el.matches('#toon-verborgen')){ stand.toonVerborgen = !stand.toonVerborgen; zetFormulier(); toepassen(); }
     else if(el.matches('[data-naar]')){ naarKaart(el.dataset.naar); }
     else if(el.matches('[data-actie="vergeet"]')){ vergeetApparaat(el); }
+    else if(el.matches('[data-actie="vergrendel"]')){ vergrendel(el); }
     else if(el.matches('[data-actie="budget"]')){ e.preventDefault(); var b = $('#budget'); b.open = true;
       b.scrollIntoView({block:'center'}); $('summary', b).focus({preventScroll:true}); }
   });
@@ -285,10 +286,15 @@ function koppel(){
   });
 }
 
-/* "Onthoud op dit apparaat": het slotscherm zet window.fundaApparaat; hier tonen en vergeten. */
+/* Het slotscherm zet window.fundaApparaat: vergrendelen, en met een bewaarde sleutel vergeten. */
 function apparaat(){
-  var blok = $('#apparaat'), a = window.fundaApparaat;
-  if(blok) blok.hidden = !(a && a.onthouden);
+  var a = window.fundaApparaat, aan = !!(a && a.vergrendel), onthoudt = !!(a && a.onthouden);
+  [['#apparaat', aan], ['#apparaat-onthoudt', onthoudt], ['[data-actie="vergeet"]', onthoudt]]
+    .forEach(function(p){ var el = $(p[0]); if(el) el.hidden = !p[1]; });
+}
+function vergrendel(knop){
+  var a = window.fundaApparaat; if(!a || !a.vergrendel) return;
+  knop.disabled = true; a.vergrendel();
 }
 function vergeetApparaat(knop){
   var a = window.fundaApparaat; if(!a || !a.vergeet) return;
@@ -363,7 +369,9 @@ function startKaart(){
   }
   kaart = L.map(doos, {zoomControl:true, attributionControl:true, tap:false});
   kaart.zoomControl.setPosition('topright');
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(kaart);
+  // Eén tegelhost (CSP). Alleen hier gaat de kale herkomst mee: OpenStreetMap weigert tegels zonder referrer.
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap',
+    referrerPolicy:'origin'}).addTo(kaart);
   kaart._pins = L.layerGroup().addTo(kaart);
   tekenPins(data.woningen.filter(past), true);
 }

@@ -232,6 +232,27 @@ def test_prijs_onbekend() -> bool:
 RENTE_TEST = {"pct": 4.11, "bron": "standaard", "datum": "2026-07-06", "oud": True, "melding": None}
 
 
+def test_markdown_living_area() -> bool:
+    """render_markdown met een living_area die geen getal is (funda gaf tekst): geen crash, geen prijs per m²."""
+    print("test: markdown met een niet-numerieke living_area")
+    import funda_rapport as fr
+    b = {"status_kort": "Past", "score": 6.0}
+    rijen = [{"d": {"global_id": 1, "title": "Teststraat 1", "city": "Den Haag", "price": 250000, "living_area": lv},
+              "beoordeling": b} for lv in ("ca. 60 m²", "60", 62, 0, None, [60], float("nan"))]
+    try:
+        md = fr.render_markdown(rijen, {})
+    except Exception as exc:  # noqa: BLE001
+        return check("render_markdown gooit niet", False, f"{type(exc).__name__}: {exc}")
+    blokken = md.split("### ")[1:]
+    ok = check("zeven woningen in de markdown", len(blokken) == 7, str(len(blokken)))
+    ok &= check("tekst zonder getal: geen prijs per m², de tekst blijft staan",
+                "per m²" not in blokken[0] and "ca. 60 m² m²" in blokken[0])
+    ok &= check("een getal als tekst of als getal: wel een prijs per m²",
+                "€ 4.167 per m²" in blokken[1] and "€ 4.032 per m²" in blokken[2])
+    ok &= check("0, leeg, een lijst en NaN: geen prijs per m²", all("per m²" not in x for x in blokken[3:]))
+    return ok
+
+
 def test_prijs_onbekend_rapport() -> bool:
     """Geen vraagprijs: niet als € 0 bovenaan met budget PAST.
 
@@ -2281,7 +2302,7 @@ def test_pool_in_run() -> bool:
 
 def main() -> int:
     resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(), test_prijs_onbekend(),
-                  test_prijs_onbekend_rapport(), test_rapport_testdata(), test_rapport_rente_cache_ua(), test_geocoding(), test_verrijking_ruwe_velden(), test_twijfel_naar_rapport(), test_vul_summary_aan(),
+                  test_prijs_onbekend_rapport(), test_markdown_living_area(), test_rapport_testdata(), test_rapport_rente_cache_ua(), test_geocoding(), test_verrijking_ruwe_velden(), test_twijfel_naar_rapport(), test_vul_summary_aan(),
                   test_push_volgorde(), test_pushtekst(), test_auto_keten(), test_buurtfilter(), test_stadfilter(),
                   test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),
