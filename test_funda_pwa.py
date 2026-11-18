@@ -364,7 +364,7 @@ def test_pwa_uiterlijk() -> bool:
                 and "<title>Woningrapport, " in html)
     for naam, tekst in (("icon.svg", fr.PWA_ICON_SVG), ("favicon.svg", fr.PWA_FAVICON_SVG), ("wrapper", uit),
                         ("manifest", fr.PWA_MANIFEST), ("lokale HTML", html)):
-        ok &= check(f"{naam}: geen oude kleuren, geen geel of ANWB-blauw",
+        ok &= check(f"{naam}: geen oude kleuren, geen geel of merkblauw",
                     not any(k in tekst.lower() for k in OUDE_KLEUREN), naam)
     ok &= check("iconen in het inktblauw van de topbalk", funda_ui.THEME_COLOR in fr.PWA_ICON_SVG
                 and funda_ui.THEME_COLOR in fr.PWA_FAVICON_SVG)

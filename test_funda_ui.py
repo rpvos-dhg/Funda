@@ -90,7 +90,10 @@ CONTRASTPAREN = [
     ("balk plus", "foreground-color-feedback-positive", "background-color-inset", NIET_TEKST),
     ("balk min", "foreground-color-feedback-negative", "background-color-inset", NIET_TEKST),
 ]
-VERBODEN_WOORDEN = ["ANWB", "Nomad", "nomad", "Clan Pro", "Bernina", "#ffcd00", "#003d86"]
+# Merk- en fontnamen van derden, uit losse delen opgebouwd: de namen zelf horen niet in de repo te staan
+# (besluit eigenaar), ook niet in deze test. Zie test_geen_merknaam.
+MERKNAMEN = ["AN" + "WB", "No" + "mad", "Clan" + " Pro", "Ber" + "nina"]
+VERBODEN_WOORDEN = MERKNAMEN + [MERKNAMEN[1].lower(), "#ffcd00", "#003d86"]
 BEVOLKING = ["herkomst", "nationaliteit", "migratie", "etniciteit", "allochto", "bevolkingssamenstelling"]
 
 
@@ -808,8 +811,26 @@ def test_eindreview_js() -> bool:
     return ok
 
 
+def test_geen_merknaam() -> bool:
+    print("test: geen merk- of fontnaam van derden in een bijgehouden bestand")
+    import subprocess
+    try:
+        namen = subprocess.run(["git", "ls-files"], cwd=HIER, capture_output=True, text=True, check=True).stdout.split("\n")
+    except Exception:
+        print("  (overgeslagen: geen git)")
+        return True
+    fout = []
+    for naam in filter(None, namen):
+        pad = HIER / naam
+        if not pad.is_file():
+            continue
+        tekst = pad.read_bytes().decode("utf-8", "ignore").lower()
+        fout += [naam for m in MERKNAMEN if re.search(r"(?<![a-z])" + re.escape(m.lower()) + r"(?![a-z])", tekst)]
+    return check("geen enkel bestand noemt een van de namen", not fout, str(sorted(set(fout))[:8]))
+
+
 def main() -> int:
-    resultaten = [test_contract_testdata(), test_ids_en_attributen(), test_statusregels(), test_status_en_scenario_in_kaart(),
+    resultaten = [test_geen_merknaam(), test_contract_testdata(), test_ids_en_attributen(), test_statusregels(), test_status_en_scenario_in_kaart(),
                   test_prijs_onbekend(), test_volgorde(), test_woning_data(), test_css_regels(), test_contrast(),
                   test_rente_en_budget(), test_meta_en_randgevallen(), test_app_js(), test_slot(), test_veilige_uitvoer(), test_groottes(), test_tekst(),
                   test_fixronde_ui(), test_eindreview_js()]

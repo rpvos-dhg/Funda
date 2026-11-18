@@ -29,7 +29,7 @@ Regels:
 - Kleur is nooit de enige drager: de poort is woord plus icoon (vinkje, driehoek, kruis, i), ook op
   de kaartpins en in de legenda; plus en min hebben een teken; "nieuw" op de kaart is een ring;
   "beste" in de vergelijking staat er als tekst.
-- Geen ANWB-blauw (`#003d86` of verwant), geen geel (`#ffcd00`), geen merkfont of merknaam. Waarom:
+- Geen merkblauw (`#003d86` of verwant), geen geel (`#ffcd00`), geen merkfont of merknaam van derden. Waarom:
   zie CLAUDE.md, "Huisstijl".
 
 | Token | Licht | Donker | Gebruik |

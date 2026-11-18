@@ -265,13 +265,17 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   `funda_ui.ACHTERGROND`, iconen in hetzelfde palet. "Nieuw" geldt per apparaat en
   telt pas als gezien als de kaart minstens half een seconde in beeld was, tussen
   de vaste top- en onderbalk.
-- **Huisstijl: eigen palet "Inkt en blauw", bewust geen ANWB-huisstijl.** Kleuren,
-  stylesheet, iconen en fonts van het ANWB-designsysteem zijn merkeigendom van de
-  ANWB (merkrecht), en de CSS van het slotscherm staat buiten de versleuteling
-  publiek op GitHub Pages. Daarom een eigen palet met dezelfde opbouw (tokens
-  licht en donker, feedbackkleuren alleen voor feedback, WCAG AA gemeten).
-  Tokens en regels: `.interface-design/system.md`. `test_funda_ui.py` weigert
-  ANWB-blauw `#003d86`, geel `#ffcd00` en de merk- en fontnamen. Het eerdere
+- **Huisstijl: eigen palet "Inkt en blauw", bewust geen huisstijl van een merk.**
+  Kleuren, stylesheet, iconen en fonts van het designsysteem van een bestaand
+  merk zijn eigendom van dat merk (merkrecht), en de CSS van het slotscherm
+  staat buiten de versleuteling publiek op GitHub Pages. Daarom een eigen palet
+  (tokens licht en donker, feedbackkleuren alleen voor feedback, WCAG AA
+  gemeten). Tokens en regels: `.interface-design/system.md`. `test_funda_ui.py`
+  weigert het merkblauw `#003d86`, geel `#ffcd00` en de merk- en fontnamen. **Geen
+  merknaam van derden in de repo of in commitberichten** (besluit eigenaar, 18
+  nov 2026): de test bouwt de verboden namen daarom uit losse delen op
+  (`VERBODEN_WOORDEN`) en `test_geen_merknaam` weigert ze in elk bijgehouden
+  bestand. Het eerdere
   paarse palet "Lavendel" is op 7 nov 2026 door de eigenaar afgewezen; de test
   weigert ook paarse tokens en pint topbalk `#0f172a`, knop `#2563eb`, link
   `#1d4ed8` en pagina `#f4f6f9` vast.

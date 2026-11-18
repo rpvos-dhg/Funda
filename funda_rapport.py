@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import time
 import urllib.request
 from collections import Counter
@@ -529,6 +530,14 @@ def log_aantallen(rijen: list[dict]) -> None:
     print("[rapport] Per poort: " + ", ".join(f"{naam} {tel.get(p, 0)}"
                                              for p, naam in funda_beoordeling.POORT_NAAM.items())
           + f"; met twijfel {twijfel}.")
+    # De CSP van de PWA laat alleen foto's van FOTO_HOST door. Die host is niet gemeten; komt funda
+    # met een andere, dan blijven de foto's leeg en zegt deze regel waarom (alleen een aantal).
+    fotos = [u for r in rijen for u in ((r.get("details") or {}).get("photo_urls") or [])
+             if isinstance(u, str) and re.match(r"(?i)[a-z][a-z0-9+.-]*:|//", u)]
+    buiten = sum(1 for u in fotos if not u.startswith(f"https://{FOTO_HOST}/"))
+    if buiten:
+        print(f"::warning::{buiten} van {len(fotos)} foto's komen niet van {FOTO_HOST}: de CSP van de PWA "
+              "houdt ze tegen (funda_rapport.FOTO_HOST en CSP bijwerken).")
 
 
 def rapport_meta(cfg: dict, rente: dict, nu: datetime, rijen: list[dict] | None = None,
