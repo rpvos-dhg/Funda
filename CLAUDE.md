@@ -37,8 +37,10 @@ Actions en publiceert het rapport op GitHub Pages.
 - `funda_verrijking.py` (open bronnen per woning, en de geocoding van postcodes
   via PDOK) en `funda_rente.py` (actuele hypotheekrente). Fail-soft, met budget,
   robots.txt en eerlijke user-agent.
-- `funda_ui.py` met `ui/app.css`, `ui/app.js` en `ui/slot.html` - de UI (lijst,
-  kaart, sheets) en het slotscherm. Geen import van `funda_rapport`. Tokens en
+- `funda_ui.py` met `ui/app.css`, `ui/app.js`, `ui/push.js` en het slotscherm
+  (`ui/slot.html`, `ui/slot.css`, `ui/slot.js`) - de UI (lijst, kaart, sheets).
+  `ui/leaflet/` is Leaflet 1.9.4 met licentie. `funda_rapport` zet ze als losse
+  bestanden in `docs/`. Geen import van `funda_rapport`. Tokens en
   regels van het palet: `.interface-design/system.md`.
 - `.github/workflows/funda-daily.yml` - de dagelijkse run (rooster hierboven):
   genereert het rapport, publiceert `docs/` en stuurt de push.
@@ -250,21 +252,59 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   100%). Nooit rekenen met prijs 0: dat gaf budget "PAST", de laagste maandlast
   en de hoogste score. Vastgepind in `test_prijs_onbekend` (`main()`) en
   `test_prijs_onbekend_rapport` (het echte `bouw_rij` en `funda_ui`).
-- **PWA.** De body wordt eerst met gzip ingepakt (niveau 9, mtime 0) en daarna
-  versleuteld met AES-256-GCM (PBKDF2-SHA256, 100.000 iteraties, 16 byte zout,
-  12 byte IV, ongewijzigd). Ciphertext comprimeert niet, dus zonder gzip vooraf
-  kan Pages hem niet kleiner maken (fixture: 98 kB op schijf, 38 kB gzip). Het
-  slotscherm is `ui/slot.html` (`funda_ui.vul_slot`); zonder
-  `DecompressionStream` (iOS ouder dan 16.4) zegt het dat, in plaats van "fout
-  wachtwoord". "Onthoud op dit apparaat" bewaart een niet-exporteerbare
-  PBKDF2-sleutel in IndexedDB (30 dagen), nooit het wachtwoord; een oud bewaard
-  wachtwoord wordt bij openen omgezet en gewist. Service worker cache
-  `funda-shortlist-v5` (ophogen bij elke nieuwe wrapper, anders blijft een
-  geïnstalleerde PWA de oude tonen). Manifest "Woningrapport" / "Woningen"
-  (geen voornaam: het staat publiek), kleuren `funda_ui.THEME_COLOR` en
-  `funda_ui.ACHTERGROND`, iconen in hetzelfde palet. "Nieuw" geldt per apparaat en
-  telt pas als gezien als de kaart minstens half een seconde in beeld was, tussen
-  de vaste top- en onderbalk.
+- **PWA (aangescherpt 18 nov 2026, `funda_rapport.beveilig_html`).**
+  - **Sleutelopbouw.** Hoofdsleutel = PBKDF2-SHA256(wachtwoord, vast app-zout
+    `APP_ZOUT`, 600.000 iteraties). Runsleutel = HKDF-SHA256(hoofdsleutel, salt =
+    run-zout van 16 bytes, info = `KDF_INFO`) voor AES-256-GCM met een IV van 12
+    bytes; zout en IV elke run nieuw. Waarom: "Onthoud op dit apparaat" bewaart
+    de hoofdsleutel, en wie de opslag leest mag daarmee niet sneller naar het
+    wachtwoord raden dan met de publieke ciphertext. De oude opbouw bewaarde de
+    PBKDF2-basissleutel; daaruit was een afleiding met 1 iteratie te halen.
+    `APP_ZOUT` wijzigen = iedereen vult één keer het wachtwoord in.
+  - **Klare tekst.** gzip (niveau 9, mtime 0), dan opvulling (`vul_op`: lengte
+    van 4 bytes, data, nullen), dan AES. De ciphertext is zo altijd een veelvoud
+    van 8 kB (`BLOK`): de bestandsgrootte volgt het aanbod niet meer per woning.
+    Ciphertext comprimeert niet, dus gzip moet vooraf.
+  - **Wrapper zonder code.** `ui/slot.html` (`funda_ui.vul_slot`) bevat alleen
+    markup, de CSP en het pakket als JSON in `#slot-data`. CSS en JavaScript
+    staan als bestanden in `docs/` (`schrijf_statisch`, lijst `STATISCH`):
+    `app.css`, `slot.css`, `app.js`, `push.js`, `slot.js` en Leaflet 1.9.4 zelf
+    gehost in `leaflet/` (bron `ui/leaflet/`, ongewijzigd uit het npm-pakket,
+    sha256 vastgepind in `test_funda_pwa.py`; geen unpkg meer). De publieke
+    Web Push-sleutel staat in `<meta name="funda-push-key">`. Het lokale
+    `funda_rapport.html` houdt CSS en JS inline en laadt Leaflet uit
+    `docs/leaflet/`.
+  - **CSP** (meta-tag, `funda_rapport.CSP`): `default-src 'none'`, `script-src
+    'self'`, `style-src 'self'` (geen `unsafe-inline`: geen `style=` in de
+    markup), `img-src 'self' https://cloud.funda.nl
+    https://tile.openstreetmap.org data:`, `connect-src`, `manifest-src` en
+    `worker-src 'self'`, `base-uri` en `form-action 'none'`. `data:` is nodig:
+    Leaflet zet een afgebroken tegel op een lege GIF. De fotohost is niet
+    gemeten (dat kan alleen met een funda-verzoek); wijkt hij af, dan staat er
+    een `::warning::` met een aantal in de log. `<meta name="referrer"
+    content="no-referrer">` en `rel="noopener noreferrer"` op externe links;
+    alleen de kaarttegels sturen de kale herkomst mee (`referrerPolicy:
+    'origin'`), omdat OpenStreetMap tegels zonder referrer weigert.
+  - **Slotscherm (`ui/slot.js`).** Zonder `DecompressionStream` (iOS ouder dan
+    16.4) zegt het dat, in plaats van "fout wachtwoord". "Onthoud op dit
+    apparaat" bewaart de hoofdsleutel als niet-exporteerbare HKDF-sleutel
+    (alleen `deriveKey`) in IndexedDB (30 dagen), nooit het wachtwoord. Een
+    bewaarde sleutel van het oude soort en een oud bewaard wachtwoord worden
+    gewist, niet omgezet: één keer het wachtwoord invullen. In een frame
+    ontgrendelt het niet (`frame-ancestors` werkt niet in een meta-tag).
+    "Vergrendel" (blok "Dit apparaat" in de voet) wist de sleutel en herlaadt.
+  - **Service worker** cache `funda-shortlist-v6` (ophogen bij elke nieuwe
+    wrapper, anders blijft een geïnstalleerde PWA de oude tonen), met de
+    statische bestanden in `ASSETS`; alleen same-origin GET's komen in de cache.
+  - **Verder.** `#woning-data` escapet `<`, `>` en `&` als `\u003c` enzovoort;
+    `funda_ui.funda_url` laat alleen `https://www.funda.nl/...` door. Manifest
+    "Woningrapport" / "Woningen" (geen voornaam: het staat publiek), kleuren
+    `funda_ui.THEME_COLOR` en `funda_ui.ACHTERGROND`, iconen in hetzelfde palet.
+    "Nieuw" geldt per apparaat en telt pas als gezien als de kaart minstens half
+    een seconde in beeld was, tussen de vaste top- en onderbalk.
+  - **Bewust niet gebouwd (open):** localStorage versleutelen (bewaard,
+    verborgen en gezien staan leesbaar op het apparaat), de kaart pas na een tik
+    laden, en `docs/` publiceren zonder git-geschiedenis.
 - **Huisstijl: eigen palet "Inkt en blauw", bewust geen huisstijl van een merk.**
   Kleuren, stylesheet, iconen en fonts van het designsysteem van een bestaand
   merk zijn eigendom van dat merk (merkrecht), en de CSS van het slotscherm
@@ -726,8 +766,7 @@ zie ook "Encryptie verplicht in CI".
   rapport te schrijven als `FUNDA_REQUIRE_ENCRYPTION=1` (gezet in de workflow),
   zodat er nooit per ongeluk leesbare data publiek komt. Die check staat vóór het
   schrijven: dan verandert er ook verder niets in `docs/`. De workflow stopt al
-  eerder als het secret `FUNDA_PWA_PASSWORD` ontbreekt. Gzip vóór AES verandert
-  hier niets aan (`test_funda_pwa.py`).
+  eerder als het secret `FUNDA_PWA_PASSWORD` ontbreekt (`test_funda_pwa.py`).
 - **Verander de padenlijst van de Actions-cache nooit zonder migratie.** De
   versie van een cache hangt af van de exacte lijst `path`-regels in
   `funda-daily.yml` (restore en save). Na een wijziging vindt
@@ -800,8 +839,9 @@ hoofdlijnen; de details staan bij de tests zelf.
 - `test_funda_verrijking.py` en `test_funda_rente.py` - de open bronnen, de rente
   en de geocoding met een nep-HTTP-functie en ingekorte echte antwoorden
   (`testdata/verrijking/`, `testdata/rente/`).
-- `test_funda_pwa.py` - gzip vóór AES en terug, geen onversleuteld rapport in CI,
-  service worker, manifest, slotscherm en iconen.
+- `test_funda_pwa.py` - sleutelopbouw, gzip en opvulling vóór AES en terug (in
+  Python, en met node het echte `ui/slot.js`), de CSP en geen inline script, geen
+  onversleuteld rapport in CI, service worker, manifest, slotscherm en iconen.
 
 ## Kernfeatures (waarom de code is zoals hij is)
 

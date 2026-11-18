@@ -2,7 +2,7 @@
 
 Vastgelegde keuzes voor het woningrapport en de PWA (bouwronde november 2026). Gebruik deze
 waarden; verzin ze niet opnieuw. De bron van waarheid is `ui/app.css` (tokens) met
-`funda_ui.py` (markup) en `ui/slot.html` (slotscherm). `test_funda_ui.py` controleert de regels
+`funda_ui.py` (markup) en `ui/slot.html` met `ui/slot.css` en `ui/slot.js` (slotscherm). `test_funda_ui.py` controleert de regels
 hieronder (contrast, hex alleen in de tokenblokken, lettergrootte, verboden woorden).
 
 ## Bedoeling
