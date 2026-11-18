@@ -1137,6 +1137,43 @@ def test_kansen_en_info() -> bool:
     return ok
 
 
+def test_label_aanname() -> bool:
+    print("test: zonder energielabel rekent het model met het slechtste, tenzij het bouwjaar beter aannemelijk maakt")
+    ok = True
+    ok &= check("bekend label blijft", fb.label_aanname("C", 1930) == ("C", None))
+    ok &= check("onbekend zonder bouwjaar = G", fb.label_aanname("?") == ("G", None))
+    ok &= check("onbekend, oud = G", fb.label_aanname("?", 1935) == ("G", None))
+    ok &= check("bouwjaar als ondergrens", [fb.label_aanname("?", j)[0] for j in (1974, 1975, 1991, 1992, 2000, 2006, 2020)]
+                == ["G", "E", "E", "C", "B", "A", "A"])
+    ok &= check("onzinnig bouwjaar telt niet", fb.label_aanname("?", 20250)[0] == "G" and fb.label_aanname("?", True)[0] == "G")
+    profiel = {"bruto_jaar": 62000, "eigen_inleg": 10000, "leeftijd": 30}
+    cfg = fb.laad_config(profiel)
+
+    def energie(**kw):
+        b = fb.beoordeel(_minimaal(price=240000, living_area=75, **kw), None, [], [], profiel, cfg, vandaag=VANDAAG)
+        def zoek(x):
+            if isinstance(x, dict):
+                if isinstance(x.get("opbouw"), dict) and "energie" in x["opbouw"]:
+                    return x["opbouw"]["energie"]
+                for v in x.values():
+                    r = zoek(v)
+                    if r is not None:
+                        return r
+            return None
+        return zoek(b["financiering"]), [i for i in b["onbekend"] if i["onderdeel"] == "energielabel"]
+
+    e_g, _ = energie(energy_label="G", construction_year=1930)
+    e_onb, items = energie(energy_label=None, construction_year=1930)
+    e_nieuw, items_nieuw = energie(energy_label=None, construction_year=2010)
+    e_a, _ = energie(energy_label="A", construction_year=2010)
+    ok &= check("onbekend + oud kost evenveel als G", e_onb == e_g, f"{e_onb} {e_g}")
+    ok &= check("onbekend + nieuw kost evenveel als A", e_nieuw == e_a, f"{e_nieuw} {e_a}")
+    ok &= check("blijft 'onbekend', zonder minpunt, met de aanname erbij",
+                len(items) == 1 and items[0]["punten"] == 0 and items[0]["waarde"] == "onbekend, gerekend als G"
+                and "bouwjaar 2010" in (items_nieuw[0]["uitleg"] or ""))
+    return ok
+
+
 def test_import_zonder_personal() -> bool:
     print("test: importeert zonder funda_personal.json en zonder andere projectmodules")
     ok = True
@@ -1179,7 +1216,7 @@ def main() -> int:
                   test_geen_scenarionamen(), test_rente(), test_poort(),
                   test_harde_eisen(), test_score(), test_parsers(), test_erfpacht_fixronde(), test_erfpacht_ontkenning(), test_sortering(), test_contract(),
                   test_geen_bevolkingskenmerken(), test_verrijking_vormen(), test_rommelige_invoer(), test_fixture_verwachting(),
-                  test_log_kenmerk_labels(), test_kansen_en_info(), test_import_zonder_personal()]
+                  test_log_kenmerk_labels(), test_kansen_en_info(), test_label_aanname(), test_import_zonder_personal()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

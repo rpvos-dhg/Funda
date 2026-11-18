@@ -204,7 +204,12 @@ OVERIG_MAAND = 160              # gemeente, water, inboedel; opstal zit bij een 
 STOOK_IN_VVE_FACTOR = 0.4       # stookkosten in de VvE-bijdrage: alleen elektra over
 ENERGIE_PER_LABEL = {"A++++": 60, "A+++": 70, "A++": 80, "A+": 90, "A": 100, "B": 130, "C": 170,
                      "D": 220, "E": 280, "F": 340, "G": 400}   # per maand per 75 m² (CBS-gemiddelde, secundair)
-ENERGIE_ONBEKEND = 280
+# Geen energielabel bekend: reken de energiekosten met een aangenomen label. Standaard het
+# slechtste (G), tenzij het bouwjaar een ondergrens geeft: de isolatie-eisen uit de bouwregels
+# van dat jaar. Eigen, voorzichtige indeling (geen officiele tabel); alleen voor de energiekosten,
+# niet voor de leentoets en niet voor de score. (vanaf bouwjaar, label), nieuwste eerst.
+LABEL_AANNAME_ZONDER = "G"
+LABEL_AANNAME_BOUWJAAR = ((2006, "A"), (2000, "B"), (1992, "C"), (1975, "E"))
 WOZ_TERUGVAL = 0.9              # geen WOZ bekend: 90% van de koopsom voor het eigenwoningforfait
 NORM_BRUTO_PCT = 0.33           # terugval zonder eigen netto grens (oude norm uit funda_rapport)
 # Standaardrente als er geen rente-parameter en geen rente in de config is:
@@ -1169,6 +1174,21 @@ def energielabel(d: dict, ch: dict, tekst: str) -> tuple[str, str]:
     return "?", "niet vermeld"
 
 
+def label_aanname(label: str, bouwjaar=None) -> tuple[str, str | None]:
+    """(label om de energiekosten mee te rekenen, toelichting of None).
+
+    Een bekend label blijft wat het is. Zonder label: het slechtste (G), tenzij het bouwjaar
+    een beter label aannemelijk maakt (LABEL_AANNAME_BOUWJAAR). Niet zeker, wel voorzichtig:
+    liever te hoge stookkosten dan een woning die op papier past en in de winter niet."""
+    if label in ENERGIE_PER_LABEL:
+        return label, None
+    bj = bouwjaar if isinstance(bouwjaar, (int, float)) and not isinstance(bouwjaar, bool) else None
+    for vanaf, aanname in LABEL_AANNAME_BOUWJAAR:
+        if bj and vanaf <= bj <= 2100:
+            return aanname, f"bouwjaar {int(bj)}"
+    return LABEL_AANNAME_ZONDER, None
+
+
 _RANGTELWOORD = {"eerste": 1, "tweede": 2, "derde": 3, "vierde": 4, "vijfde": 5, "zesde": 6, "zevende": 7,
                  "achtste": 8, "negende": 9, "tiende": 10}
 
@@ -1422,7 +1442,13 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
     erf = erfpacht(ch, tekst)
     vve, vve_bron = vve_maand(ch, tekst)
     stook = stookkosten_in_vve(ch, tekst)
-    energie = ENERGIE_PER_LABEL.get(label, ENERGIE_ONBEKEND) * max(m2, 40) / 75 * (STOOK_IN_VVE_FACTOR if stook else 1)
+    # Bouwjaar: BAG gaat voor, anders funda. Zonder label bepaalt het ook het rekenlabel van de energiekosten.
+    bag_st, bag, bag_reden = _bron(verrijking, "bag")
+    bj_funda = _getal(w.get("construction_year")) or _getal(ch.get("Bouwjaar"))
+    bj_bag = _getal((bag or {}).get("bouwjaar")) if bag_st == "ok" else None
+    bj = bj_bag or bj_funda
+    reken_label, label_grond = label_aanname(label, bj)
+    energie = ENERGIE_PER_LABEL[reken_label] * max(m2, 40) / 75 * (STOOK_IN_VVE_FACTOR if stook else 1)
     hist = prijshistorie(prijswijzigingen(d))
     prijs = w.get("price") if isinstance(w.get("price"), (int, float)) and w.get("price") > 0 else None
     fin = financiering({"prijs": prijs, "label": None if label == "?" else label, "canon_jaar": erf["canon_jaar"],
@@ -1532,8 +1558,11 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
                   vraag="Vraag naar verduurzamingsplannen van de VvE.",
                   uitleg=(f"Voor energiebesparende maatregelen mag je tot {eur(extra)} extra lenen." if extra else None)))
     elif label == "?":
-        add(_item("energielabel", "onbekend", "Energielabel", "onbekend", label_bron, kort="label onbekend",
-                  vraag="Vraag het energielabel op."))
+        add(_item("energielabel", "onbekend", "Energielabel", f"onbekend, gerekend als {reken_label}", label_bron,
+                  kort="label onbekend", vraag="Vraag het energielabel op.",
+                  uitleg=(f"Energiekosten gerekend met label {reken_label}"
+                          + (f", op grond van {label_grond}." if label_grond else ": zonder label gaan we uit van het slechtste.")
+                          + " Een aanname, geen gegeven.")))
     elif label in dr["energielabel_goed"]:
         add(_item("energielabel", "goed", "Energielabel", label, label_bron, kort=f"label {label}",
                   uitleg="Lagere stookkosten en meer leenruimte; dat zit al in woonlasten en leentoets."))
@@ -1594,7 +1623,6 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
         add(_item("vve", "let_op", "Onderhoudsplan", "nee", "kenmerk 'Onderhoudsplan'", -0.5, kort="geen MJOP"))
     if all(ja.values()) and vs != "slapend":
         add(_item("vve", "goed", "VvE op orde", "KvK, ALV, reservefonds, MJOP", "kenmerken", 0.5, kort="VvE op orde"))
-    bag_st, bag, bag_reden = _bron(verrijking, "bag")
     n_vbo = _getal((bag or {}).get("aantal_vbo_pand")) if bag_st == "ok" else None
     klein = n_vbo is not None and n_vbo <= dr["vve_klein_max_woningen"]
     if n_vbo is not None:
@@ -1609,9 +1637,6 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
                   uitleg=bag_reden or ("budget van deze run op, volgende run verder" if bag_st == "budget" else None)))
 
     # --- fundering (alleen bij een bouwjaar voor 1970)
-    bj_funda = _getal(w.get("construction_year")) or _getal(ch.get("Bouwjaar"))
-    bj_bag = _getal((bag or {}).get("bouwjaar")) if bag_st == "ok" else None
-    bj = bj_bag or bj_funda
     fu_st, fu, fu_reden = _bron(verrijking, "fundering")
     herstel = "funderingsherstel" in sig_ids
     if bj and bj >= dr["fundering_bouwjaar_voor"] and fu_st in ("ok", "niet_nodig", "onbekend", "budget"):

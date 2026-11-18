@@ -1039,15 +1039,15 @@
    "beoordeling": {
     "poort": "KRAP",
     "poort_redenen": [
-     "Woonlasten € 24 boven je grens."
+     "Woonlasten € 126 boven je grens."
     ],
-    "status_kort": "Krap · € 24 boven je grens",
+    "status_kort": "Krap · € 126 boven je grens",
     "twijfel": [],
-    "score": 6.5,
+    "score": 5.4,
     "onderdelen": {
      "woonlasten": {
-      "punten": -0.24,
-      "kort": "woonlasten € 1.474"
+      "punten": -1.26,
+      "kort": "woonlasten € 1.576"
      },
      "buitenruimte": {
       "punten": 1.0,
@@ -1066,8 +1066,20 @@
       "kort": "buurt goed"
      }
     },
-    "uitleg_regel": "6,5 · balkon 5 m² zuid +1,0 · VvE op orde +0,5 · buurt goed +0,5 · overig −0,5 · 1 onbekend",
+    "uitleg_regel": "5,4 · woonlasten € 1.576 −1,3 · balkon 5 m² zuid +1,0 · overig +0,7 · 1 onbekend",
     "let_op": [
+     {
+      "onderdeel": "woonlasten",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Woonlasten",
+      "waarde": "€ 1.576 netto per maand",
+      "bron": "berekening",
+      "punten": -1.26,
+      "kort": "woonlasten € 1.576",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     },
      {
       "onderdeel": "reisafstand",
       "groep": "let_op",
@@ -1079,18 +1091,6 @@
       "kort": "werk 10,7 km",
       "vraag": null,
       "uitleg": null
-     },
-     {
-      "onderdeel": "woonlasten",
-      "groep": "let_op",
-      "oordeel": "let_op",
-      "label": "Woonlasten",
-      "waarde": "€ 1.474 netto per maand",
-      "bron": "berekening",
-      "punten": -0.24,
-      "kort": "woonlasten € 1.474",
-      "vraag": null,
-      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
      }
     ],
     "pluspunten": [
@@ -1197,12 +1197,12 @@
       "groep": "onbekend",
       "oordeel": "onbekend",
       "label": "Energielabel",
-      "waarde": "onbekend",
+      "waarde": "onbekend, gerekend als G",
       "bron": "niet vermeld",
       "punten": 0.0,
       "kort": "label onbekend",
       "vraag": "Vraag het energielabel op.",
-      "uitleg": null
+      "uitleg": "Energiekosten gerekend met label G: zonder label gaan we uit van het slechtste. Een aanname, geen gegeven."
      }
     ],
     "info": [
@@ -1317,8 +1317,8 @@
      "kosten_koper": 7008,
      "kk_soort": "startersvrijstelling",
      "tekort": 8,
-     "netto": 1474,
-     "bruto": 1773,
+     "netto": 1576,
+     "bruto": 1875,
      "grens": 1450,
      "grens_soort": "netto",
      "opbouw": {
@@ -1327,7 +1327,7 @@
       "vve": 155,
       "vve_bron": "advertentietekst",
       "vve_geschat": false,
-      "energie": 239,
+      "energie": 341,
       "stook_in_vve": false,
       "overig": 160,
       "canon_maand": 0,
@@ -1336,7 +1336,7 @@
      },
      "koopsom": 252000,
      "hypotheek": 252000,
-     "over": 24,
+     "over": 126,
      "rente": 0.0411,
      "rente_datum": "2026-07-06",
      "rente_bron": "standaard",
