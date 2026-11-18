@@ -769,115 +769,28 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
 
 # === HTML (lokaal) en PWA ===
 
-# Leaflet (kaart) via CDN, in de <head>: scripts in de via innerHTML gezette body draaien niet.
-MAP_HEAD = """
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-<script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-"""
+# Leaflet 1.9.4 (kaart), zelf gehost: ui/leaflet/ gaat mee naar docs/leaflet/ (schrijf_statisch). In de
+# <head>: scripts in de via innerHTML gezette body draaien niet.
+LEAFLET_VERSIE = "1.9.4"
 
 
-def pwa_push_js() -> str:
-    """Web Push in de PWA: abonnement maken en tonen voor de secret WEB_PUSH_SUBSCRIPTION.
+def map_head(prefix: str = "") -> str:
+    return (f'<link rel="stylesheet" href="{prefix}leaflet/leaflet.css">\n'
+            f'<script defer src="{prefix}leaflet/leaflet.js"></script>')
 
-    Hoort bij het blok "Meldingen op deze iPhone" (funda_ui, ids push-*). Heeft dit toestel al een
-    abonnement, dan verbergt de JS dat blok. Leeg zonder WEB_PUSH_PUBLIC_KEY."""
+
+def push_head() -> str:
+    """De publieke Web Push-sleutel als meta-tag; ui/push.js leest hem. Leeg zonder WEB_PUSH_PUBLIC_KEY."""
     if not WEB_PUSH_PUBLIC_KEY:
         return ""
-    key = json.dumps(WEB_PUSH_PUBLIC_KEY)
-    return f"""
-<script>
-(function(){{
-  var WEB_PUSH_PUBLIC_KEY = {key};
-  function pushStatus(msg, isError){{
-    var el = document.getElementById('push-status');
-    if(!el) return;
-    el.textContent = msg || '';
-    el.classList.toggle('is-fout', !!isError);
-  }}
-  function verbergAlsIngesteld(){{
-    var blok = document.getElementById('meldingen');
-    if(!blok || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
-    navigator.serviceWorker.ready.then(function(reg){{ return reg.pushManager.getSubscription(); }})
-      .then(function(sub){{ if(sub && blok.dataset.net !== '1') blok.hidden = true; }})
-      .catch(function(){{}});
-  }}
-  function b64ToUint8Array(base64){{
-    var padding = '='.repeat((4 - base64.length % 4) % 4);
-    var b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
-    var raw = atob(b64);
-    var out = new Uint8Array(raw.length);
-    for(var i=0;i<raw.length;i++) out[i] = raw.charCodeAt(i);
-    return out;
-  }}
-  async function ensurePushSubscription(){{
-    if(!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)){{
-      throw new Error('Web Push wordt niet ondersteund in deze browser.');
-    }}
-    var permission = await Notification.requestPermission();
-    if(permission !== 'granted') throw new Error('Notificaties zijn niet toegestaan.');
-    var reg = await navigator.serviceWorker.ready;
-    var sub = await reg.pushManager.getSubscription();
-    if(!sub){{
-      sub = await reg.pushManager.subscribe({{
-        userVisibleOnly: true,
-        applicationServerKey: b64ToUint8Array(WEB_PUSH_PUBLIC_KEY)
-      }});
-    }}
-    return sub;
-  }}
-  function wirePushSetup(){{
-    var btn = document.getElementById('push-subscribe-btn');
-    var copy = document.getElementById('push-copy-btn');
-    var output = document.getElementById('push-subscription-output');
-    if(!btn || !output || btn.dataset.bound === '1') return;
-    btn.dataset.bound = '1';
-    verbergAlsIngesteld();
-    btn.addEventListener('click', async function(){{
-      btn.disabled = true;
-      var blok = document.getElementById('meldingen');
-      if(blok) blok.dataset.net = '1';
-      pushStatus('Abonnement maken...');
-      try {{
-        var sub = await ensurePushSubscription();
-        output.value = JSON.stringify(sub.toJSON(), null, 2);
-        output.hidden = false;
-        if(copy) copy.hidden = false;
-        pushStatus('Kopieer dit abonnement naar de GitHub-secret WEB_PUSH_SUBSCRIPTION.');
-      }} catch(err) {{
-        pushStatus(err && err.message ? err.message : String(err), true);
-      }} finally {{
-        btn.disabled = false;
-      }}
-    }});
-    if(copy){{
-      copy.addEventListener('click', async function(){{
-        try {{
-          await navigator.clipboard.writeText(output.value || '');
-          pushStatus('Abonnement gekopieerd.');
-        }} catch(err) {{
-          output.focus();
-          output.select();
-          pushStatus('Kopieer de geselecteerde tekst zelf.', true);
-        }}
-      }});
-    }}
-  }}
-  var previous = window.fundaAfterReportLoad;
-  window.fundaAfterReportLoad = function(){{
-    if(previous) previous();
-    wirePushSetup();
-  }};
-  document.addEventListener('DOMContentLoaded', wirePushSetup);
-}})();
-</script>
-"""
+    return f'<meta name="funda-push-key" content="{funda_ui.h(WEB_PUSH_PUBLIC_KEY)}">'
 
 
 def _scripts(is_pwa: bool) -> str:
-    """Complete <script>-blokken: eerst de UI (zet fundaAfterReportLoad), dan de push-JS die erop aanhaakt."""
-    return f"<script>{funda_ui.UI_JS}</script>" + (pwa_push_js() if is_pwa else "")
+    """Inline <script>-blokken voor het onversleutelde rapport (lokaal): eerst de UI (zet
+    fundaAfterReportLoad), dan de push-JS die erop aanhaakt. De versleutelde PWA laadt dezelfde
+    bestanden uit docs/ (geen inline script, zie CSP)."""
+    return f"<script>{funda_ui.UI_JS}</script>" + (f"<script>{funda_ui.PUSH_JS}</script>" if is_pwa else "")
 
 
 def _body(rijen: list[dict], meta: dict | None, is_pwa: bool) -> str:
@@ -900,6 +813,7 @@ def render_html(rijen: list[dict], meta: dict | None = None, is_pwa: bool = Fals
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Woningen">
+""" + push_head() + """
 """
         pwa_script = """
 <script>
@@ -919,8 +833,9 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 <title>Woningrapport, {nu.day} {_NL_MAANDEN[nu.month - 1]} {nu.year}</title>
 <link rel="icon" href="{asset_prefix}favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" sizes="180x180" href="{asset_prefix}apple-touch-icon.png">
+<meta name="referrer" content="no-referrer">
 {pwa_head}
-{MAP_HEAD}
+{map_head(asset_prefix)}
 <style>{funda_ui.UI_CSS}</style>
 </head>
 <body>
