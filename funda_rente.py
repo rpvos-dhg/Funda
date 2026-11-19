@@ -36,7 +36,7 @@ import time
 from datetime import date
 
 from funda_beoordeling import STANDAARD_RENTE
-from funda_verrijking import BronFout, GeenBudget, Sessie, _datum
+from funda_verrijking import BronFout, GeenBudget, Sessie, _datum, _nl
 
 ASN_ARCHIEF = "https://www.asnbank.nl/hypotheek/hypotheekrentes/hypotheekrente-archief.html"
 ASN_BASIS = "https://www.asnbank.nl"
@@ -65,10 +65,6 @@ def instellingen(cfg: dict | None) -> dict:
     if isinstance(r, dict):
         uit.update({k: r[k] for k in STANDAARD if k in r})
     return uit
-
-
-def _nl(x: float, d: int = 2) -> str:
-    return f"{x:.{d}f}".replace(".", ",")
 
 
 def datum_nl(d) -> str:
@@ -133,17 +129,11 @@ def asn_kies(tabel: dict[str, list[float]], jaren: int, nhg: bool, ltv: float) -
     rijen = sorted(int(k) for k in tabel)
     if not rijen:
         raise BronFout("lege tabel")
-    melding = None
-    if jaren in rijen:
-        j = jaren
-    else:
-        lager = [r for r in rijen if r <= jaren]
-        j = max(lager) if lager else min(rijen)
+    j, melding = jaren, None
+    if jaren not in rijen:
+        j = max((r for r in rijen if r <= jaren), default=min(rijen))
         melding = f"ASN kent geen rentevast {jaren} jaar; {j} jaar gebruikt."
-    if nhg:
-        kolom = 0
-    else:
-        kolom = next(k for grens, k in ASN_TARIEFGROEPEN if float(ltv) <= grens)
+    kolom = 0 if nhg else next(k for grens, k in ASN_TARIEFGROEPEN if float(ltv) <= grens)
     return tabel[str(j)][kolom], j, melding
 
 
@@ -161,8 +151,9 @@ def pdf_tekst_pypdf(body: bytes) -> list[str]:
 
 
 def asn_ophalen(sessie: Sessie, vandaag, pdf_tekst=None) -> dict:
+    vandaag = _datum(vandaag)
     html = sessie.haal(ASN_ARCHIEF, "text/html").decode("utf-8", "replace")
-    links = [(d, u) for d, u in asn_links(html) if d <= _datum(vandaag)]
+    links = [(d, u) for d, u in asn_links(html) if d <= vandaag]
     if not links:
         raise BronFout("geen tariefblad in het archief")
     link_datum, url = links[0]
@@ -172,14 +163,14 @@ def asn_ophalen(sessie: Sessie, vandaag, pdf_tekst=None) -> dict:
     pdf_datum, tabel = asn_tabel((pdf_tekst or pdf_tekst_pypdf)(body))
     if not tabel:
         raise BronFout("tabel annuïteiten en lineair niet gevonden")
-    return {"datum": (pdf_datum or link_datum).isoformat(), "opgehaald": _datum(vandaag).isoformat(),
-            "tabel": tabel}
+    return {"datum": (pdf_datum or link_datum).isoformat(), "opgehaald": vandaag.isoformat(), "tabel": tabel}
 
 
 # ---------------------------------------------------------------- DNB (via ECB Data Portal)
 
 def dnb_parse(tekst: str) -> dict:
     reeks, periodes = {}, set()
+    codes = {c for c, _, _ in DNB_KLASSEN}
     for r in csv.DictReader(io.StringIO(tekst or "")):
         if r.get("REF_AREA") != "NL" or r.get("BS_ITEM") != "A2C":
             continue
@@ -188,7 +179,7 @@ def dnb_parse(tekst: str) -> dict:
             waarde = float(r.get("OBS_VALUE") or "")
         except ValueError:
             continue
-        if code in {c for c, _, _ in DNB_KLASSEN} and 0.1 <= waarde <= 20:
+        if code in codes and 0.1 <= waarde <= 20:
             reeks[code] = waarde
             periodes.add(r.get("TIME_PERIOD") or "")
     if not reeks:
@@ -238,52 +229,49 @@ def huidige_rente(cfg: dict | None, cache: dict, vandaag, http=None, ua: str | N
     """
     r = instellingen(cfg)
     dag = _datum(vandaag).isoformat()
-    max_dagen = int(r.get("max_dagen") or OUD_NA_DAGEN)
+    max_dagen = int(r["max_dagen"] or OUD_NA_DAGEN)
     try:
-        jaren = int(r.get("rentevast_jaren") or 10)
+        jaren = int(r["rentevast_jaren"] or 10)
     except (TypeError, ValueError):
         jaren = 10
 
     # 1. Handmatig gaat altijd voor.
-    if r.get("pct") is not None:
+    try:
+        pct = None if r["pct"] is None else float(r["pct"])
+    except (TypeError, ValueError):
+        pct = None
+    if pct is not None:
+        pct = pct * 100 if pct < 1 else pct            # 0.0429 en 4.29 betekenen allebei 4,29%
         try:
-            pct = float(r["pct"])
-        except (TypeError, ValueError):
-            pct = None
-        if pct is not None:
-            pct = pct * 100 if pct < 1 else pct            # 0.0429 en 4.29 betekenen allebei 4,29%
+            datum = _datum(r["datum"]).isoformat() if r["datum"] else None
+        except ValueError:
             datum = None
-            try:
-                datum = _datum(r["datum"]).isoformat() if r.get("datum") else None
-            except ValueError:
-                datum = None
-            meldingen = [] if datum else ["Zet financien.rente.datum bij je handmatige rente."]
-            log(f"[rente] handmatige waarde uit de config ({_nl(pct)}%)")
-            return _uitkomst(pct, "handmatig", datum, dag, max_dagen, meldingen)
+        log(f"[rente] handmatige waarde uit de config ({_nl(pct, 2)}%)")
+        return _uitkomst(pct, "handmatig", datum, dag, max_dagen,
+                         [] if datum else ["Zet financien.rente.datum bij je handmatige rente."])
 
     sectie = cache.get("rente")
     if not isinstance(sectie, dict):
         sectie = cache["rente"] = {}
-    bron = str(r.get("bron") or "auto").lower()
+    bron = str(r["bron"] or "auto").lower()
 
     # 2. Hooguit één poging per dag.
     if bron != "uit" and sectie.get("laatste_poging") != dag:
         sessie = Sessie(cache, dag, http=http, ua=ua, max_verzoeken=8, timeout_s=15, pauze_s=0.5, slaap=slaap)
         fouten: dict[str, str] = {}
+
+        def probeer(naam: str, ophalen) -> None:
+            try:
+                sectie[naam] = ophalen()
+            except (BronFout, GeenBudget) as exc:
+                fouten[naam] = str(exc) or type(exc).__name__
+            except Exception as exc:  # noqa: BLE001
+                fouten[naam] = f"onverwacht antwoord ({type(exc).__name__})"
+
         if bron in ("auto", "asn"):
-            try:
-                sectie["asn"] = asn_ophalen(sessie, dag, pdf_tekst)
-            except (BronFout, GeenBudget) as exc:
-                fouten["asn"] = str(exc) or type(exc).__name__
-            except Exception as exc:  # noqa: BLE001
-                fouten["asn"] = f"onverwacht antwoord ({type(exc).__name__})"
+            probeer("asn", lambda: asn_ophalen(sessie, dag, pdf_tekst))
         if bron == "dnb" or (bron == "auto" and "asn" in fouten):
-            try:
-                sectie["dnb"] = dnb_ophalen(sessie, dag)
-            except (BronFout, GeenBudget) as exc:
-                fouten["dnb"] = str(exc) or type(exc).__name__
-            except Exception as exc:  # noqa: BLE001
-                fouten["dnb"] = f"onverwacht antwoord ({type(exc).__name__})"
+            probeer("dnb", lambda: dnb_ophalen(sessie, dag))
         sectie["laatste_poging"] = dag
         sectie["fouten"] = fouten
         status = ", ".join(f"{h} {s}x{n}" for (h, s), n in sorted(sessie.per_host.items(), key=str))
@@ -295,7 +283,7 @@ def huidige_rente(cfg: dict | None, cache: dict, vandaag, http=None, ua: str | N
     asn = sectie.get("asn")
     if bron in ("auto", "asn") and isinstance(asn, dict) and asn.get("tabel"):
         try:
-            pct, j, mel = asn_kies(asn["tabel"], jaren, bool(r.get("nhg", True)), r.get("ltv") or 100)
+            pct, _, mel = asn_kies(asn["tabel"], jaren, bool(r["nhg"]), r["ltv"] or 100)
             meldingen = [mel]
             if asn.get("opgehaald") != dag and "asn" in fouten:
                 meldingen.insert(0, f"ASN-tarieven vandaag niet opgehaald ({fouten['asn']}); "
@@ -310,21 +298,21 @@ def huidige_rente(cfg: dict | None, cache: dict, vandaag, http=None, ua: str | N
             meldingen = []
             if "asn" in fouten and bron == "auto":
                 meldingen.append(f"ASN niet bereikbaar ({fouten['asn']}).")
+            maand = _datum(dnb["datum"])
             meldingen.append(f"Gemiddelde rente op nieuwe hypotheken, rentevast {klasse}, "
-                             f"{MAAND_NAAM[_datum(dnb['datum']).month]} {_datum(dnb['datum']).year} (DNB), "
-                             "geen aanbod van een bank.")
+                             f"{MAAND_NAAM[maand.month]} {maand.year} (DNB), geen aanbod van een bank.")
             kandidaten.append((dnb["datum"], 0, pct, "DNB", meldingen))
         except (BronFout, KeyError, ValueError):
             pass
     if kandidaten:
         datum, _, pct, naam, meldingen = max(kandidaten, key=lambda k: (k[0], k[1]))
-        uit = _uitkomst(pct, naam, datum, dag, max_dagen, list(meldingen))
+        uit = _uitkomst(pct, naam, datum, dag, max_dagen, meldingen)
     else:
         redenen = "; ".join(f"{k.upper()}: {v}" for k, v in sorted(fouten.items()))
         pct, datum = STANDAARD_RENTE["pct"], STANDAARD_RENTE["datum"]
         uit = _uitkomst(pct, "standaard", datum, dag, max_dagen,
                         [f"Geen actuele rente gevonden{' (' + redenen + ')' if redenen else ''}. "
-                         f"Gerekend met {_nl(pct)}% van {datum_nl(datum)}; "
+                         f"Gerekend met {_nl(pct, 2)}% van {datum_nl(datum)}; "
                          "zet financien.rente.pct in je config."])
-    log(f"[rente] bron {uit['bron']}, {_nl(uit['pct'])}%, peildatum {uit['datum']}" + (", oud" if uit["oud"] else ""))
+    log(f"[rente] bron {uit['bron']}, {_nl(uit['pct'], 2)}%, peildatum {uit['datum']}" + (", oud" if uit["oud"] else ""))
     return uit
