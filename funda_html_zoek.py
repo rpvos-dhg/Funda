@@ -143,34 +143,19 @@ def parse_kaarten(html: str) -> list[dict[str, Any]]:
         # /detail/koop/<stad>/<type>-<straat>-<nr>/<tiny_id>/
         delen = [p for p in pad.split("/") if p]
         stad_slug = delen[2] if len(delen) > 2 else ""
-        tiny_id = None
-        for stuk in reversed(delen):
-            if stuk.isdigit():
-                tiny_id = stuk
-                break
+        tiny_id = next((stuk for stuk in reversed(delen) if stuk.isdigit()), None)
 
         tekst = _plat(deel)
 
-        postcode = None
-        stad = None
         pc_m = re.search(r"\b(\d{4}\s?[A-Z]{2})\b\s*\|?\s*([A-Za-zÀ-ÿ' \-]+?)\s*\|", tekst)
-        if pc_m:
-            postcode = pc_m.group(1).strip()
-            stad = pc_m.group(2).strip()
-        if not stad:
-            stad = stad_slug.replace("-", " ").title()
+        postcode = pc_m.group(1).strip() if pc_m else None
+        stad = (pc_m.group(2).strip() if pc_m else None) or stad_slug.replace("-", " ").title()
 
         # Adres staat als los tekstblok vlak voor de postcode.
-        titel = None
         adres_m = re.search(r"\|\s*([A-ZÀ-Ý][^|]{2,60}?\s+\d+[a-zA-Z\-]*)\s*\|\s*\d{4}\s?[A-Z]{2}", tekst)
-        if adres_m:
-            titel = adres_m.group(1).strip()
-
-        huisnummer = None
-        if titel:
-            nr_m = re.search(r"(\d+)\s*[a-zA-Z\-]*$", titel)
-            if nr_m:
-                huisnummer = nr_m.group(1)
+        titel = adres_m.group(1).strip() if adres_m else None
+        nr_m = re.search(r"(\d+)\s*[a-zA-Z\-]*$", titel) if titel else None
+        huisnummer = nr_m.group(1) if nr_m else None
 
         kaarten.append(
             {

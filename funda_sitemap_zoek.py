@@ -781,6 +781,10 @@ class SitemapZoeker(DropIn):
         self._vuil = True
         return True
 
+    def _bewaar(self, woningen: dict[str, dict[str, Any]]) -> None:
+        self._woningen, self._vuil = woningen, True
+        self.bewaar_cache()
+
     def bewaar_cache(self) -> None:
         if not self._vuil or not self._cache_pad or self._woningen is None:
             return
@@ -857,9 +861,22 @@ class SitemapZoeker(DropIn):
         start = time.monotonic()
         nu = self._nu()
         koop, last_modified = self._koop_sitemaps()
-        index_lastmod = max((lm for _u, lm in koop if lm), default=None) or last_modified
-
         cache, vorige_index = self._laad_cache()
+        kandidaten, lijst, types = self._kandidatenlijst(koop, last_modified, vorige_index, nu)
+        return self._verrijk(kandidaten, cache, lijst, types, start)
+
+    def _kandidatenlijst(
+        self, koop: list[tuple[str, str | None]], last_modified: str | None,
+        vorige_index: dict[str, Any], nu: datetime,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], Counter[str]]:
+        """De kandidaten van deze run: uit de cache als de index ongewijzigd is, anders uit de koop-sitemaps.
+
+        Geeft (kandidaten, het eerste deel van de statistiek, types in de steden)
+        en zet `kandidaten`, `_kandidaat_per_id` en `_index_info`. Gooit een fout
+        (exit 2 in main()) bij een stad zonder URL's, nul kandidaten of een
+        bevroren sitemap.
+        """
+        index_lastmod = max((lm for _u, lm in koop if lm), default=None) or last_modified
         kenmerk = index_kenmerk(koop, last_modified, self._steden)
         ongewijzigd = bool(index_ongewijzigd(vorige_index.get("kenmerk"), kenmerk)
                            and vorige_index.get("kandidaten"))
@@ -943,14 +960,28 @@ class SitemapZoeker(DropIn):
             "opgehaald_op": opgehaald_op.isoformat() if opgehaald_op else None,
             "kandidaten": [[k["pad"], k["lastmod"]] for k in kandidaten],
         }
+        return kandidaten, {
+            "koop_sitemaps": len(koop), "urls": n_urls, "kandidaten": len(kandidaten),
+            "index_ongewijzigd": hergebruikt, "index_lastmod": index_lastmod,
+            "koop_sitemaps_opgehaald": 0 if hergebruikt else len(koop),
+            "nieuwste_lastmod": nieuwste.isoformat(),
+        }, types
 
+    def _verrijk(self, kandidaten: list[dict[str, Any]], cache: dict[str, dict[str, Any]],
+                 lijst: dict[str, Any], types: Counter[str], start: float) -> list[dict[str, Any]]:
+        """Detail-calls voor wat vers moet of nieuw is; geeft de woningen in de doelmarkt.
+
+        Bekend en in de doelmarkt: altijd vers. Nieuw of met een andere lastmod:
+        verkennen, nieuwste eerst, tot het maximum en het tijdsbudget. De rest
+        komt uit de cache (geen call) of blijft achterstand voor de volgende run.
+        """
         # Weg uit de sitemap = weg van funda. Snoeien houdt de cache klein.
         voor_snoeien = len(cache)
         cache = {k: v for k, v in cache.items() if k in self._kandidaat_per_id}
         gesnoeid = voor_snoeien - len(cache)
 
-        verversen: list[dict[str, Any]] = []   # bekend en in doelmarkt: altijd vers
-        verkennen: list[dict[str, Any]] = []   # nieuw of gewijzigd: nieuwste eerst
+        verversen: list[dict[str, Any]] = []
+        verkennen: list[dict[str, Any]] = []
         buiten = gewijzigd = 0
         for k in kandidaten:
             c = cache.get(k["url_id"])
@@ -964,17 +995,14 @@ class SitemapZoeker(DropIn):
                 verkennen.append(k)
                 gewijzigd += 1 if c else 0
 
-        te_doen = verversen + verkennen[: self._max_verkennen]
-        ververs_ids = {k["url_id"] for k in verversen}
         meting = self.meting
         meting["lastmod_gewijzigd"] = gewijzigd
         resultaten: list[dict[str, Any]] = []
         calls = fouten = geslaagd = op_rij = n_verkend = 0
         budget_op = False
         t0 = time.monotonic()
-        for k in te_doen:
-            verkennend = k["url_id"] not in ververs_ids
-            if verkennend:
+        for i, k in enumerate(verversen + verkennen[: self._max_verkennen]):
+            if i >= len(verversen):
                 # Tijdsbudget alleen voor het verkennen: de rest is achterstand.
                 if time.monotonic() - t0 > self._max_seconden:
                     budget_op = True
@@ -996,17 +1024,15 @@ class SitemapZoeker(DropIn):
                     op_rij = 0
                     continue
                 op_rij += 1
-                fout = f"{type(exc).__name__}: {exc}" if exc else "leeg antwoord"
                 if isinstance(exc, DetailEndpointDicht) or op_rij >= DICHT_NA:
                     # Eerst bewaren wat wél lukte, zodat de verkenning van deze
                     # run niet verloren gaat. Daarna stoppen: verder ophalen geeft
                     # een half rapport (verversen-woningen weg) dat de volgende
                     # run, die al bij het opzetten faalt, laat staan.
-                    self._woningen = cache
-                    self._vuil = True
-                    self.bewaar_cache()
+                    self._bewaar(cache)
                     if isinstance(exc, DetailEndpointDicht):
                         raise DetailEndpointDicht(f"Detail-endpoint werkt niet: {exc}") from exc
+                    fout = f"{type(exc).__name__}: {exc}" if exc else "leeg antwoord"
                     raise DetailEndpointDicht(
                         f"Detail-endpoint werkt niet: {op_rij} detail-calls op rij mislukt, "
                         f"na {geslaagd} geslaagde deze run (laatste: {fout}).")
@@ -1017,20 +1043,15 @@ class SitemapZoeker(DropIn):
             velden = velden_uit(data)
             if oud:
                 self._meet(oud.get("velden") or {}, velden,
-                           "lastmod_gelijk" if k["url_id"] in ververs_ids else "lastmod_gewijzigd")
+                           "lastmod_gelijk" if i < len(verversen) else "lastmod_gewijzigd")
             cache[k["url_id"]] = self._element(k["lastmod"], velden, data, oud)
             if self._is_doel(velden):
                 resultaten.append(data)
 
         achterstand = len(verkennen) - n_verkend
-        self._woningen = cache
-        self._vuil = True
-        self.bewaar_cache()
+        self._bewaar(cache)
         self.statistiek = {
-            "koop_sitemaps": len(koop), "urls": n_urls, "kandidaten": len(kandidaten),
-            "index_ongewijzigd": hergebruikt, "index_lastmod": index_lastmod,
-            "koop_sitemaps_opgehaald": 0 if hergebruikt else len(koop),
-            "nieuwste_lastmod": nieuwste.isoformat() if nieuwste else None,
+            **lijst,
             "uit_cache_buiten_doel": buiten, "ververst": len(verversen),
             "verkend": n_verkend, "achterstand": achterstand,
             "detail_calls": calls, "detail_fouten": fouten, "in_doelmarkt": len(resultaten),

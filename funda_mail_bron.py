@@ -77,6 +77,14 @@ TRACKER_UA = UA
 TRACKER_IMPERSONATE = IMPERSONATE
 
 
+def _zonder_dubbelen(items: Iterable[Any], sleutel: Callable[[Any], Any] = lambda item: item) -> list[Any]:
+    """De items in volgorde, per sleutel alleen het eerste."""
+    uit: dict[Any, Any] = {}
+    for item in items:
+        uit.setdefault(sleutel(item), item)
+    return list(uit.values())
+
+
 def _varianten(tekst: str) -> list[str]:
     """Ruwe tekst, html-unescaped en url-gedecodeerd. &amp; en %2F komen beide voor."""
     varianten = [tekst]
@@ -99,22 +107,9 @@ def vind_woning_links(tekst: str) -> list[tuple[str, str]]:
     """
     if not tekst:
         return []
-
-    varianten = _varianten(tekst)
-
-    gevonden: list[tuple[str, str]] = []
-    gezien: set[str] = set()
-    for variant in varianten:
-        for m in WONING_PAD.finditer(variant):
-            tiny_id = m.group(1)
-            if tiny_id in gezien:
-                continue
-            gezien.add(tiny_id)
-            pad = m.group(0)
-            if not pad.endswith("/"):
-                pad += "/"
-            gevonden.append((pad, tiny_id))
-    return gevonden
+    treffers = ((m.group(0) if m.group(0).endswith("/") else m.group(0) + "/", m.group(1))
+                for variant in _varianten(tekst) for m in WONING_PAD.finditer(variant))
+    return _zonder_dubbelen(treffers, lambda treffer: treffer[1])
 
 
 def vind_tracking_links(tekst: str) -> list[str]:
@@ -131,14 +126,7 @@ def vind_tracking_links(tekst: str) -> list[str]:
     # is de link onbruikbaar), maar %-escapes in het token horen te blijven staan,
     # want met die URL moet straks echt een call gedaan worden. Eén variant houdt
     # bovendien de dedup kloppend; op twee varianten telt dezelfde link dubbel.
-    gevonden: list[str] = []
-    gezien: set[str] = set()
-    for m in TRACKING_LINK.finditer(html_mod.unescape(tekst)):
-        url = m.group(0).rstrip(".,;")
-        if url not in gezien:
-            gezien.add(url)
-            gevonden.append(url)
-    return gevonden
+    return _zonder_dubbelen(m.group(0).rstrip(".,;") for m in TRACKING_LINK.finditer(html_mod.unescape(tekst)))
 
 
 def _haal_locatie(url: str) -> str | None:
@@ -250,13 +238,8 @@ def woningen_uit_mail(
         return []
 
     zeg(f"Geen directe woninglinks; {len(tracking)} tracking-link(s) volgen.")
-    gevonden: list[tuple[str, str]] = []
-    gezien: set[str] = set()
-    for link in tracking:
-        treffer = los_tracking_link_op(link, haal=haal, log=zeg)
-        if treffer and treffer[1] not in gezien:
-            gezien.add(treffer[1])
-            gevonden.append(treffer)
+    treffers = [los_tracking_link_op(link, haal=haal, log=zeg) for link in tracking]
+    gevonden = _zonder_dubbelen((treffer for treffer in treffers if treffer), lambda treffer: treffer[1])
     zeg(f"{len(gevonden)} woning(en) uit redirects gehaald.")
     return gevonden
 
