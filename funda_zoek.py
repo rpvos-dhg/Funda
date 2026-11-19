@@ -40,6 +40,8 @@ from funda_sitemap_zoek import (
     OPGEHAALD as SITEMAP_OPGEHAALD,
     OVERGESLAGEN as SITEMAP_OVERGESLAGEN,
     DetailEndpointDicht,
+    DropIn,
+    Resultaat,
     WoningNietGevonden,
     log_tekst,
     publieke_log,
@@ -145,13 +147,13 @@ class Funda(_Funda):
 
     def _vertaal_fout(self, exc: LookupError, listing_id) -> Exception:
         """pyfunda's LookupError, maar dan naar de status die het endpoint gaf."""
-        statussen = list(self._statussen)
+        statussen = self._statussen
         geweigerd = [s for s in statussen if s in GEWEIGERD]
         if geweigerd:
             return DetailEndpointDicht(
                 f"status {geweigerd[-1]} voor {listing_id}: het endpoint weigert deze client. "
                 "Bewust geen andere client of vingerafdruk geprobeerd (zie CLAUDE.md).")
-        storing = [s for s in statussen if s >= 500 or s == 0]
+        storing = any(s >= 500 or s == 0 for s in statussen)
         if any(s in NIET_GEVONDEN for s in statussen) and not storing:
             return WoningNietGevonden(f"Listing {listing_id} niet gevonden (status {statussen})")
         return exc
@@ -413,13 +415,16 @@ SITEMAP_CACHE_FILE = Path(__file__).parent / "funda_sitemap_cache.json"
 
 # === Helpers ===
 
+def _lees_state(pad: Path, soort: type):
+    """Een statebestand als set of dict; ontbreekt het of is het onleesbaar, dan leeg."""
+    try:
+        return soort(json.loads(pad.read_text(encoding="utf-8"))) if pad.exists() else soort()
+    except Exception:
+        return soort()
+
+
 def laad_state() -> set[str]:
-    if STATE_FILE.exists():
-        try:
-            return set(json.loads(STATE_FILE.read_text()))
-        except Exception:
-            return set()
-    return set()
+    return _lees_state(STATE_FILE, set)
 
 
 def bewaar_state(ids: set[str]) -> None:
@@ -435,11 +440,17 @@ def log(msg: str) -> None:
         fp.write(line + "\n")
 
 
+def _woning_id(d: dict):
+    """Waaronder een woning in seen-ids, tracking en blacklist staat (als str)."""
+    return d.get("global_id") or d.get("listing_id") or d.get("detail_url")
+
+
+def _volledige_url(url: str) -> str:
+    return f"https://www.funda.nl{url}" if url and not url.startswith("http") else url
+
+
 def _detail_url(d: dict) -> str:
-    url = d.get("detail_url") or ""
-    if url and not url.startswith("http"):
-        url = f"https://www.funda.nl{url}"
-    return url
+    return _volledige_url(d.get("detail_url") or "")
 
 
 def schrijf_run_summary(nieuw: list[dict], bekend: list[dict], afgewezen: list[tuple[dict, list[str]]]) -> None:
@@ -449,7 +460,7 @@ def schrijf_run_summary(nieuw: list[dict], bekend: list[dict], afgewezen: list[t
         prijs = None if prijs_onbekend(d) else int(d["price"])
         m2 = int(d.get("living_area") or 0)
         return {
-            "id": str(d.get("global_id") or d.get("listing_id") or d.get("detail_url") or ""),
+            "id": str(_woning_id(d) or ""),
             "title": d.get("title") or "Woning",
             "city": d.get("city") or "",
             "neighbourhood": d.get("neighbourhood") or "",
@@ -501,7 +512,7 @@ def vul_summary_aan(woningen: list[dict]) -> int:
     for d in woningen:
         b = d.get("_beoordeling")
         if isinstance(b, dict) and _poortwoord(b):
-            lid = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url") or "")
+            lid = str(_woning_id(d) or "")
             beoordeling[lid] = b
             # Zelfde rij-vorm als funda_rapport.bouw_rij, zodat de sleutel gelijk is aan die van het rapport.
             volgorde[lid] = sorteer_sleutel({"beoordeling": b, "prijs_onbekend": prijs_onbekend(d)})
@@ -547,12 +558,14 @@ def twijfel_redenen(d: dict) -> list[str]:
     return uit
 
 
+def _eerste_in(woorden: list[str], tekst: str) -> str | None:
+    """Het eerste woord uit de lijst dat in de tekst voorkomt (substring, hoofdletterongevoelig)."""
+    s = tekst.lower()
+    return next((w for w in woorden if w.lower() in s), None)
+
+
 def is_uitgesloten_buurt(buurt: str) -> str | None:
-    s = buurt.lower()
-    for u in UITSLUIT_BUURTEN:
-        if u.lower() in s:
-            return u
-    return None
+    return _eerste_in(UITSLUIT_BUURTEN, buurt)
 
 
 def is_uitgesloten_stad(stad: str) -> str | None:
@@ -561,22 +574,13 @@ def is_uitgesloten_stad(stad: str) -> str | None:
     Die voorrang is er voor gemeentenamen die een gewenste plaats bevatten,
     zoals Leidschendam-Voorburg; zie de toelichting bij WENS_STEDEN.
     """
-    s = stad.lower()
-    if any(w.lower() in s for w in WENS_STEDEN):
-        return None
-    for u in UITSLUIT_STEDEN:
-        if u.lower() in s:
-            return u
-    return None
+    return None if _eerste_in(WENS_STEDEN, stad) else _eerste_in(UITSLUIT_STEDEN, stad)
 
 
 def is_twijfelstad(stad: str) -> str | None:
     """Dubbelzinnige gemeentenaam: tonen, maar met een waarschuwing erbij."""
     s = stad.lower()
-    for patroon, reden in TWIJFEL_STEDEN_PATROON:
-        if patroon in s:
-            return reden
-    return None
+    return next((reden for patroon, reden in TWIJFEL_STEDEN_PATROON if patroon in s), None)
 
 
 def is_geen_appartement(d: dict) -> str | None:
@@ -587,13 +591,11 @@ def is_geen_appartement(d: dict) -> str | None:
     iets op, dan laten we de woning door: onbekend is geen reden om weg te
     gooien.
     """
-    soort = str(d.get("house_type") or "").lower()
-    for woord in GEEN_APPARTEMENT:
-        if woord in soort:
-            return d.get("house_type") or woord
+    woord = _eerste_in(GEEN_APPARTEMENT, str(d.get("house_type") or ""))
+    if woord:
+        return d.get("house_type") or woord
 
-    url = str(d.get("detail_url") or "")
-    delen = [deel for deel in url.split("/") if deel]
+    delen = [deel for deel in str(d.get("detail_url") or "").split("/") if deel]
     if len(delen) >= 2:
         slug_type = delen[-2].split("-")[0].lower()
         if slug_type in HUIS_SLUGS:
@@ -602,11 +604,7 @@ def is_geen_appartement(d: dict) -> str | None:
 
 
 def is_twijfelbuurt(buurt: str) -> str | None:
-    s = buurt.lower()
-    for t in TWIJFEL_BUURTEN:
-        if t.lower() in s:
-            return t
-    return None
+    return _eerste_in(TWIJFEL_BUURTEN, buurt)
 
 
 def is_belegging(tekst: str) -> list[str]:
@@ -640,10 +638,7 @@ def is_uitgesloten_straat_nr(d: dict) -> str | None:
     huisnr = d.get("house_number")
     for straat, (min_nr, max_nr, regel_stad) in STRAAT_SEGMENTEN.items():
         if straat in titel and (not regel_stad or stad == regel_stad):
-            try:
-                nr = int(huisnr) if huisnr is not None else None
-            except (TypeError, ValueError):
-                nr = None
+            nr = _als_int(huisnr)
             if nr is None:
                 return None  # geen nummer = niet kunnen beoordelen
             if min_nr is not None and nr < min_nr:
@@ -665,6 +660,13 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 _THUIS: dict[str, tuple[float, float] | None] = {}
 
 
+def _bewaar_thuis(cache: dict) -> None:
+    try:
+        coords_cache_schrijf(THUIS_CACHE, cache)
+    except Exception as exc:
+        print(f"Thuiscoördinaten niet bewaard ({type(exc).__name__}).")
+
+
 def thuis_coords() -> tuple[float, float] | None:
     """Coördinaten van de zoekpostcode, voor het afstandsfilter.
 
@@ -683,10 +685,7 @@ def thuis_coords() -> tuple[float, float] | None:
     # config komt: anders bleef de leesbare postcode in het bestand (en in de Actions-cache) staan.
     cache, omgezet = coords_cache_lees(THUIS_CACHE)
     if omgezet:
-        try:
-            coords_cache_schrijf(THUIS_CACHE, cache)
-        except Exception as exc:
-            print(f"Thuiscoördinaten niet bewaard ({type(exc).__name__}).")
+        _bewaar_thuis(cache)
     if resultaat is None:
         sleutel = postcode_sleutel(POSTCODE)
         resultaat = coord_paar(cache.get(sleutel)) if sleutel else None
@@ -697,10 +696,7 @@ def thuis_coords() -> tuple[float, float] | None:
             except Exception as exc:
                 resultaat, reden = None, f"interne fout ({type(exc).__name__})"
             if resultaat and sleutel:
-                try:
-                    coords_cache_schrijf(THUIS_CACHE, {sleutel: list(resultaat)})
-                except Exception as exc:
-                    print(f"Thuiscoördinaten niet bewaard ({type(exc).__name__}).")
+                _bewaar_thuis({sleutel: list(resultaat)})
             else:
                 # Zonder postcode in de melding: de Actions-log is publiek.
                 print(log_tekst(f"::warning::Afstandsfilter: zoekpostcode niet te geocoderen via PDOK ({reden}); "
@@ -795,8 +791,8 @@ def beschikbaarheid(d: dict) -> tuple[str, str | None]:
     return "ja", status_tekst or None
 
 
-class DetailCacheZoeker:
-    """Onthoudt detail-calls binnen één run.
+class DetailCacheZoeker(DropIn):
+    """Onthoudt detail-calls binnen één run, rond de zoeker van die run.
 
     Dezelfde woning wordt anders tot drie keer opgehaald: in de pool-controle, in
     de detail-check en in het rapport. Alles behalve get_listing gaat ongewijzigd
@@ -804,50 +800,25 @@ class DetailCacheZoeker:
     """
 
     def __init__(self, zoeker: object) -> None:
-        self._zoeker = zoeker
-        self._cache: dict[str, object] = {}
+        super().__init__(zoeker)
 
     def get_listing(self, listing_id):
         sleutel = str(listing_id)
         if sleutel in self._cache:
             return self._cache[sleutel]
-        listing = self._zoeker.get_listing(listing_id)
+        listing = self._client.get_listing(listing_id)
         self.onthoud(listing, sleutel)
         return listing
-
-    def onthoud(self, listing: object, *extra_sleutels: str) -> None:
-        data = getattr(listing, "data", None) or {}
-        for veld in ("global_id", "listing_id", "tiny_id"):
-            if data.get(veld):
-                self._cache[str(data[veld])] = listing
-        for sleutel in extra_sleutels:
-            if sleutel:
-                self._cache[sleutel] = listing
-
-    def __getattr__(self, naam: str):
-        if naam.startswith("_"):
-            raise AttributeError(naam)
-        return getattr(self._zoeker, naam)
-
-
-class PoolResultaat:
-    """Zelfde vorm als pyfunda's Listing: een `.data`-dict."""
-
-    __slots__ = ("data",)
-
-    def __init__(self, data: dict) -> None:
-        self.data = data
 
 
 def _pool_ident(sleutel: str, rec: dict):
     """Waarmee get_listing deze woning kan ophalen, of None."""
-    url = rec.get("url") or ""
-    if url:
-        return url if url.startswith("http") else f"https://www.funda.nl{url}"
+    if rec.get("url"):
+        return _volledige_url(rec["url"])
     if sleutel.isdigit():
         return int(sleutel)
     if sleutel.startswith("/detail/"):
-        return f"https://www.funda.nl{sleutel}"
+        return _volledige_url(sleutel)
     return None
 
 
@@ -867,7 +838,7 @@ def _pool_eindcheck(op_rij: int) -> None:
 
 def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[str],
                     *, dagen: int, maximum: int, pauze: float = 0.4,
-                    sitemap: object | None = None) -> list[PoolResultaat]:
+                    sitemap: object | None = None) -> list[Resultaat]:
     """Eerder getoonde woningen opnieuw ophalen en teruggeven als ze nog te koop staan.
 
     Waarom: de mailroute ziet alleen wat funda de laatste dagen mailde. Zonder dit
@@ -944,7 +915,7 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
         log(f"Pool: {len(kandidaten)} kandidaten, alleen de {maximum} recentste gecontroleerd.")
         kandidaten = kandidaten[:maximum]
 
-    resultaten: list[PoolResultaat] = []
+    resultaten: list[Resultaat] = []
     teller: Counter[str] = Counter()
     statussen: Counter[str] = Counter()
     controle: Counter[str] = Counter()   # uitkomst voor woningen die niet meer in de sitemap staan
@@ -1005,7 +976,7 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
             continue
         data.setdefault("detail_url", data.get("url") or rec.get("url") or "")
         data["_bron"] = "pool"
-        resultaten.append(PoolResultaat(data))
+        resultaten.append(Resultaat(data))
         teller["beschikbaar"] += 1
 
     _pool_eindcheck(op_rij)
@@ -1067,37 +1038,28 @@ def auto_push(folder: Path | None = None) -> None:
         log("Auto-push overgeslagen (--no-push).")
         return
     folder = folder or Path(__file__).parent
-    docs_dir = folder / "docs"
-    if not docs_dir.exists():
+    if not (folder / "docs").exists():
         log("Geen docs/ folder, push overgeslagen.")
         return
+
+    def git(*args: str, timeout: int = 10):
+        return subprocess.run(["git", "-C", str(folder), *args], capture_output=True, timeout=timeout)
+
     try:
-        subprocess.run(["git", "-C", str(folder), "add", "docs/"], capture_output=True, timeout=10)
-        diff = subprocess.run(
-            ["git", "-C", str(folder), "diff", "--cached", "--quiet", "--", "docs/"],
-            capture_output=True, timeout=10,
-        )
-        if diff.returncode == 0:
+        git("add", "docs/")
+        if git("diff", "--cached", "--quiet", "--", "docs/").returncode == 0:
             log("Geen docs-wijzigingen, push overgeslagen.")
             return
-        msg = f"auto: rapport {datetime.now():%Y-%m-%d %H:%M}"
-        commit = subprocess.run(
-            ["git", "-C", str(folder), "commit", "-m", msg, "--", "docs/"],
-            capture_output=True, timeout=10,
-        )
+        commit = git("commit", "-m", f"auto: rapport {datetime.now():%Y-%m-%d %H:%M}", "--", "docs/")
         if commit.returncode != 0:
             err = (commit.stderr or commit.stdout).decode("utf-8", errors="ignore")[:300]
             log(f"Commit fout, push overgeslagen: {err}")
             return
-        push = subprocess.run(
-            ["git", "-C", str(folder), "push"],
-            capture_output=True, timeout=60,
-        )
+        push = git("push", timeout=60)
         if push.returncode == 0:
             log("Gepusht naar GitHub.")
         else:
-            err = push.stderr.decode("utf-8", errors="ignore")[:300]
-            log(f"Push fout: {err}")
+            log(f"Push fout: {push.stderr.decode('utf-8', errors='ignore')[:300]}")
     except subprocess.TimeoutExpired:
         log("Git push timeout (>60s).")
     except FileNotFoundError:
@@ -1107,23 +1069,13 @@ def auto_push(folder: Path | None = None) -> None:
 
 
 def laad_blacklist() -> set[str]:
-    if BLACKLIST_FILE.exists():
-        try:
-            return set(json.loads(BLACKLIST_FILE.read_text()))
-        except Exception:
-            return set()
-    return set()
+    return _lees_state(BLACKLIST_FILE, set)
 
 
 # === Prijs- en looptijd-tracking ===
 
 def laad_tracking() -> dict:
-    if TRACKING_FILE.exists():
-        try:
-            return json.loads(TRACKING_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-    return {}
+    return _lees_state(TRACKING_FILE, dict)
 
 
 def bewaar_tracking(tracking: dict) -> None:
@@ -1293,7 +1245,7 @@ def _woningen_uit_mailbox() -> list[tuple[str, str]]:
     return woningen
 
 
-class GeenBron:
+class GeenBron(DropIn):
     """Zoeker voor als geen enkele bron werkt.
 
     Elke zoekaanroep faalt, zonder netwerk. main() stopt dan op de
@@ -1302,19 +1254,11 @@ class GeenBron:
     """
 
     def __init__(self, client: object, boodschap: str) -> None:
-        self._client = client
+        super().__init__(client)
         self.boodschap = boodschap
 
     def search_listing(self, *_args, **_kwargs):
         raise RuntimeError("geen enkele zoekbron werkt (oorzaken in de ::error hierboven)")
-
-    def get_listing(self, listing_id):
-        return self._client.get_listing(listing_id)
-
-    def __getattr__(self, naam: str):
-        if naam.startswith("_"):
-            raise AttributeError(naam)
-        return getattr(self._client, naam)
 
 
 def _kort(tekst: object, n: int = 160) -> str:

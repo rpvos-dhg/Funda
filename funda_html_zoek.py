@@ -23,13 +23,12 @@ from __future__ import annotations
 
 import html as html_mod
 import re
-import time
 from typing import Any, Callable, Iterable
 from urllib.parse import quote
 
 # Eén vast profiel en één user-agent voor www.funda.nl, uit één bron: dezelfde als de sitemapzoeker.
 # Geeft funda een 403 of een bot-controle, dan faalt de run luid; er wordt nooit een ander profiel geprobeerd.
-from funda_sitemap_zoek import IMPERSONATE, UA, log_tekst, publieke_log
+from funda_sitemap_zoek import IMPERSONATE, UA, DropIn, Resultaat, publieke_log
 
 ZOEK_URL = "https://www.funda.nl/zoeken/koop"
 
@@ -57,15 +56,6 @@ SORT_VERTALING = {
     "price_asc": "price_up",
     "price_desc": "price_down",
 }
-
-
-class HtmlResultaat:
-    """Zelfde vorm als pyfunda's Listing: een `.data`-dict."""
-
-    __slots__ = ("data",)
-
-    def __init__(self, data: dict[str, Any]) -> None:
-        self.data = data
 
 
 def _plat(fragment: str) -> str:
@@ -200,12 +190,15 @@ def parse_kaarten(html: str) -> list[dict[str, Any]]:
     return kaarten
 
 
-class HtmlZoeker:
+class HtmlZoeker(DropIn):
     """Drop-in vervanger voor het Funda-object zolang de zoek-API dicht zit.
 
     Gebruikt de meegegeven pyfunda-client alleen voor detail-calls; het zoeken
     zelf gaat via de publieke zoekpagina.
     """
+
+    # Wat de kaart al weet en de detaildata mag aanvullen (detaildata wint).
+    KAARTVELDEN = ("title", "city", "postcode", "house_number", "price", "living_area")
 
     def __init__(
         self,
@@ -215,11 +208,8 @@ class HtmlZoeker:
         pauze: float = 0.4,
         log: Callable[[str], None] | None = None,
     ) -> None:
-        self._client = detail_client
+        super().__init__(detail_client, pauze=pauze, log=log)
         self._overslaan = overslaan
-        self._pauze = pauze
-        self._log = log or (lambda _bericht: None)
-        self._cache: dict[str, Any] = {}
         self._sessie = None
         self._url_gelogd = False
         # Waarom bereikbaar() nee zei; kies_zoeker() zet het in de ::error als
@@ -275,7 +265,7 @@ class HtmlZoeker:
         sort: str | None = None,
         page: int = 0,
         **_genegeerd: Any,
-    ) -> list[HtmlResultaat]:
+    ) -> list[Resultaat]:
         """Zelfde aanroep als pyfunda's search_listing; `page` telt vanaf 0."""
         if offering_type != "buy":
             raise ValueError("HtmlZoeker ondersteunt alleen offering_type='buy'")
@@ -305,80 +295,23 @@ class HtmlZoeker:
         if not kaarten:
             return []
 
-        resultaten: list[HtmlResultaat] = []
+        resultaten: list[Resultaat] = []
         for kaart in kaarten:
             if self._overslaan and self._overslaan(kaart):
                 # Bewust géén detail-call, maar wél teruggeven: de aanroeper stopt
                 # met pagineren zodra een pagina niets oplevert, en een pagina vol
                 # overgeslagen woningen zou de rest van de resultaten afkappen.
                 # De gewone filters in funda_zoek.py wijzen deze alsnog af.
-                resultaten.append(HtmlResultaat({**kaart, "_bron": "html-kaart"}))
+                resultaten.append(Resultaat({**kaart, "_bron": "html-kaart"}))
                 continue
-            data = self._detail_data(kaart)
+            # Dezelfde woning komt terug in meerdere prijsbanden en sorteringen. De
+            # aanroeper dedupliceert pas ná deze call; uit het geheugen kost een
+            # duplicaat geen tweede detail-call. Mislukt de call, dan overslaan:
+            # zonder detail missen buurt en label, en de kaartgegevens alleen
+            # zijn te mager om betrouwbaar op te filteren.
+            data, _fout = self._haal_detail(
+                kaart["detail_url"], "html", str(kaart.get("tiny_id") or kaart["detail_url"]),
+                aanvullen={v: kaart[v] for v in self.KAARTVELDEN if kaart.get(v)})
             if data:
-                resultaten.append(HtmlResultaat(data))
+                resultaten.append(Resultaat(data))
         return resultaten
-
-    def get_listing(self, listing_id: Any) -> Any:
-        """Detail-call, maar bij voorkeur uit de cache van het zoeken."""
-        sleutel = str(listing_id)
-        if sleutel in self._cache:
-            return self._cache[sleutel]
-        return self._client.get_listing(listing_id)
-
-    def __getattr__(self, naam: str) -> Any:
-        """Alles wat deze klasse niet zelf doet, gaat naar de pyfunda-client.
-
-        Het rapport gebruikt bijvoorbeeld get_price_history en
-        get_market_insights; die endpoints werken nog gewoon. Zo blijft de
-        zoeker een volwaardige vervanger van het Funda-object.
-        """
-        if naam.startswith("_"):
-            raise AttributeError(naam)
-        return getattr(self._client, naam)
-
-    # -- Intern -------------------------------------------------------------
-
-    def _detail_data(self, kaart: dict[str, Any]) -> dict[str, Any] | None:
-        """Haal detaildata op en vul aan met wat de kaart al wist."""
-        sleutel = kaart.get("tiny_id") or kaart.get("detail_url")
-
-        # Dezelfde woning komt terug in meerdere prijsbanden en sorteringen. De
-        # aanroeper dedupliceert pas ná deze call, dus zonder deze check betalen
-        # we voor elk duplicaat opnieuw een detail-call.
-        gecacht = self._cache.get(str(sleutel)) if sleutel else None
-        if gecacht is not None:
-            listing = gecacht
-        else:
-            try:
-                listing = self._client.get_listing(
-                    f"https://www.funda.nl{kaart['detail_url']}"
-                )
-            except Exception as exc:
-                waar = "een woning" if publieke_log() else kaart.get("detail_url")
-                self._log(log_tekst(f"Detail mislukt voor {waar}: {exc}"))
-                # Zonder detail missen we buurt/label; de kaartgegevens alleen zijn
-                # te mager om betrouwbaar op te filteren, dus overslaan.
-                return None
-            finally:
-                time.sleep(self._pauze)
-
-        data = dict(getattr(listing, "data", None) or {})
-        if not data:
-            return None
-
-        # Detaildata wint; kaartvelden vullen alleen gaten.
-        for veld in ("title", "city", "postcode", "house_number", "price", "living_area"):
-            if not data.get(veld) and kaart.get(veld):
-                data[veld] = kaart[veld]
-        data.setdefault("detail_url", kaart["detail_url"])
-        data["_bron"] = "html"
-
-        for id_veld in ("global_id", "listing_id", "tiny_id"):
-            waarde = data.get(id_veld)
-            if waarde:
-                self._cache[str(waarde)] = listing
-        if sleutel:
-            self._cache[str(sleutel)] = listing
-
-        return data

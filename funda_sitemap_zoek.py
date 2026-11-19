@@ -211,13 +211,83 @@ NIET_IN_SITEMAP = "niet_in_sitemap"
 ONBEKEND = "onbekend"
 
 
-class SitemapResultaat:
+class Resultaat:
     """Zelfde vorm als pyfunda's Listing: een `.data`-dict."""
 
     __slots__ = ("data",)
 
     def __init__(self, data: dict[str, Any]) -> None:
         self.data = data
+
+
+class DropIn:
+    """Wat de zoekers delen: een drop-in voor het `Funda`-object rond een detail-client.
+
+    Een detail-call komt bij voorkeur uit wat deze run al is opgehaald; de rest gaat
+    naar de client. Alles wat de zoeker niet zelf kent (prijshistorie, marktdata,
+    makelaar) gaat ook door naar de client: die endpoints werken nog gewoon, en zo
+    blijft elke zoeker een volwaardige vervanger van het Funda-object.
+    """
+
+    def __init__(self, client: Any, *, pauze: float = 0.4,
+                 log: Callable[[str], None] | None = None) -> None:
+        self._client = client
+        self._pauze = pauze
+        self._log = log or (lambda _bericht: None)
+        self._cache: dict[str, Any] = {}
+
+    def get_listing(self, listing_id: Any) -> Any:
+        sleutel = str(listing_id)
+        if sleutel in self._cache:
+            return self._cache[sleutel]
+        return self._client.get_listing(listing_id)
+
+    def onthoud(self, listing: Any, *extra_sleutels: str | None) -> None:
+        data = getattr(listing, "data", None) or {}
+        for veld in ("global_id", "listing_id", "tiny_id"):
+            if data.get(veld):
+                self._cache[str(data[veld])] = listing
+        for sleutel in extra_sleutels:
+            if sleutel:
+                self._cache[sleutel] = listing
+
+    def __getattr__(self, naam: str) -> Any:
+        if naam.startswith("_"):
+            raise AttributeError(naam)
+        return getattr(self._client, naam)
+
+    def _fout_regel(self, pad: str, exc: Exception) -> str:
+        waar = "een woning" if publieke_log() else pad
+        return log_tekst(f"Detail mislukt voor {waar}: {exc}")
+
+    def _haal_detail(self, pad: str, bron: str, sleutel: str | None, *, vers: bool = False,
+                     aanvullen: dict[str, Any] | None = None,
+                     ) -> tuple[dict[str, Any] | None, Exception | None]:
+        """Detaildata van één woning: (data, None), (None, fout) of (None, None) bij een leeg antwoord.
+
+        Uit het geheugen als de woning deze run al is opgehaald (tenzij `vers`),
+        anders één detail-call met pauze. `aanvullen` vult alleen gaten: detaildata
+        wint. De listing wordt onthouden onder zijn id's en onder `sleutel`.
+        """
+        listing = None if vers or not sleutel else self._cache.get(sleutel)
+        if listing is None:
+            try:
+                listing = self._client.get_listing(f"https://www.funda.nl{pad}")
+            except Exception as exc:  # noqa: BLE001
+                self._log(self._fout_regel(pad, exc))
+                return None, exc
+            finally:
+                time.sleep(self._pauze)
+        data = dict(getattr(listing, "data", None) or {})
+        if not data:
+            return None, None
+        for veld, waarde in (aanvullen or {}).items():
+            if not data.get(veld):
+                data[veld] = waarde
+        data.setdefault("detail_url", pad)
+        data["_bron"] = bron
+        self.onthoud(listing, sleutel)
+        return data, None
 
 
 # -- Ontleden (puur, zonder netwerk) ------------------------------------------
@@ -445,13 +515,8 @@ def index_ongewijzigd(oud: dict[str, Any] | None, nieuw: dict[str, Any] | None) 
 
 # -- Drop-in --------------------------------------------------------------------
 
-class SitemapZoeker:
-    """Drop-in vervanger voor het Funda-object, met funda's sitemaps als bron.
-
-    Gebruikt de meegegeven pyfunda-client alleen voor detail-calls (en stuurt
-    alles wat hij zelf niet kent naar die client door, zoals de prijshistorie
-    die het rapport opvraagt).
-    """
+class SitemapZoeker(DropIn):
+    """Drop-in vervanger voor het Funda-object, met funda's sitemaps als bron."""
 
     def __init__(
         self,
@@ -470,7 +535,7 @@ class SitemapZoeker:
         log: Callable[[str], None] | None = None,
         nu: Callable[[], datetime] | None = None,
     ) -> None:
-        self._client = detail_client
+        super().__init__(detail_client, pauze=pauze, log=log)
         self._steden = tuple(dict.fromkeys(stad_slug(s) for s in steden if stad_slug(s)))
         self._max_seconden = float(max_seconden)
         # Klok, te vervangen in tests: de leeftijdscheck vergelijkt met nu.
@@ -482,13 +547,10 @@ class SitemapZoeker:
         self._overslaan = overslaan
         self._cache_pad = Path(cache_pad) if cache_pad else None
         self._haal_extern = haal
-        self._pauze = pauze
-        self._log = log or (lambda _b: None)
         self._sessie = None
         self._laatste_verzoek = 0.0
         self._laatste_headers: dict[str, str] = {}
         self._index: tuple[str, str, list[tuple[str, str | None]], str | None] | None = None
-        self._listings: dict[str, Any] = {}
         self._resultaten: list[dict[str, Any]] | None = None
         self._fout: Exception | None = None
         self._woningen: dict[str, dict[str, Any]] | None = None
@@ -560,15 +622,22 @@ class SitemapZoeker:
                                "sitemaproute staat uit.")
         return sitemap_uit_robots(robots) or SITEMAP_INDEX_URL
 
-    def _lees_index(self) -> tuple[str, str, list[tuple[str, str | None]], str | None]:
-        """robots.txt en de index: één keer per run, ook als bereikbaar() al keek."""
+    def _koop_sitemaps(self) -> tuple[list[tuple[str, str | None]], str | None]:
+        """([(koop-sitemap, lastmod)], Last-Modified van de index), uit robots.txt en de index.
+
+        Die twee verzoeken gaan één keer per run, ook als bereikbaar() al keek.
+        """
         if self._index is None:
             index_url = self._index_url()
             tekst = self._haal_xml(index_url)
             last_modified = self._laatste_headers.get("last-modified")
-            soort, kinderen = ontleed_sitemap(tekst)
-            self._index = (index_url, soort, kinderen, last_modified)
-        return self._index
+            self._index = (index_url, *ontleed_sitemap(tekst), last_modified)
+        index_url, soort, kinderen, last_modified = self._index
+        koop = [(u, lm) for u, lm in kinderen if KOOP_KIND.search(u)]
+        if soort != "index" or not koop:
+            raise RuntimeError(f"Sitemap-index {index_url} noemt geen koop-sitemaps "
+                               f"(soort {soort}, {len(kinderen)} items).")
+        return koop, last_modified
 
     def bereikbaar(self) -> bool:
         """Is de sitemap-index te lezen en noemt hij koop-sitemaps? Twee verzoeken.
@@ -578,10 +647,7 @@ class SitemapZoeker:
         en geeft elke zoekaanroep daarna dezelfde fout, zonder nieuw verzoek.
         """
         try:
-            index_url, soort, kinderen, _lm = self._lees_index()
-            if soort != "index" or not any(KOOP_KIND.search(u) for u, _ in kinderen):
-                raise RuntimeError(f"Sitemap-index {index_url} noemt geen koop-sitemaps "
-                                   f"(soort {soort}, {len(kinderen)} items).")
+            self._koop_sitemaps()
         except Exception as exc:  # noqa: BLE001
             self.reden = str(exc)
             self._fout = exc
@@ -614,7 +680,7 @@ class SitemapZoeker:
         sort: str | None = None,
         page: int = 0,
         **_genegeerd: Any,
-    ) -> list[SitemapResultaat]:
+    ) -> list[Resultaat]:
         """Zelfde aanroep als pyfunda's search_listing.
 
         De sitemaps zijn één vaste lijst, dus alles staat op pagina 0; elke
@@ -629,7 +695,7 @@ class SitemapZoeker:
             return []
         resultaten = self._bouw()
         alleen_beschikbaar = availability is None or "available" in list(availability)
-        uit: list[SitemapResultaat] = []
+        uit: list[Resultaat] = []
         for data in resultaten:
             prijs = data.get("price") or 0
             if price_min is not None and prijs and prijs < price_min:
@@ -641,7 +707,7 @@ class SitemapZoeker:
                 continue
             if alleen_beschikbaar and (data.get("status") or "available") != "available":
                 continue
-            uit.append(SitemapResultaat(dict(data)))
+            uit.append(Resultaat(dict(data)))
         return uit
 
     def get_listing(self, listing_id: Any) -> Any:
@@ -651,18 +717,11 @@ class SitemapZoeker:
         eind is het tiny_id waaronder de woning hier is onthouden.
         """
         sleutel = str(listing_id)
-        if sleutel in self._listings:
-            return self._listings[sleutel]
-        if "/detail/" in sleutel:
+        if sleutel not in self._cache and "/detail/" in sleutel:
             m = TINY_IN_URL.search(sleutel)
-            if m and m.group(1) in self._listings:
-                return self._listings[m.group(1)]
-        return self._client.get_listing(listing_id)
-
-    def __getattr__(self, naam: str) -> Any:
-        if naam.startswith("_"):
-            raise AttributeError(naam)
-        return getattr(self._client, naam)
+            if m and m.group(1) in self._cache:
+                return self._cache[m.group(1)]
+        return super().get_listing(listing_id)
 
     # -- Samenwerking met de pool ------------------------------------------
 
@@ -683,7 +742,7 @@ class SitemapZoeker:
         if self._resultaten is None:
             return ONBEKEND
         tekst = str(ident or "").strip()
-        if tekst in self._listings:
+        if tekst in self._cache:
             return OPGEHAALD
         w = woning_uit_url(tekst) if "/detail/" in tekst else None
         url_id = w["url_id"] if w else (tekst if re.fullmatch(r"\d{8,9}", tekst) else None)
@@ -718,7 +777,7 @@ class SitemapZoeker:
         if data.get(ZONDER_PRIJS_SLEUTEL) and isinstance(getattr(listing, "data", None), dict):
             listing.data[ZONDER_PRIJS_SLEUTEL] = data[ZONDER_PRIJS_SLEUTEL]
         self._afgehandeld[url_id] = OPGEHAALD
-        self._onthoud(listing, data, url_id)
+        self.onthoud(listing, url_id)
         self._vuil = True
         return True
 
@@ -797,11 +856,7 @@ class SitemapZoeker:
     def _ontdek_en_verrijk(self) -> list[dict[str, Any]]:
         start = time.monotonic()
         nu = self._nu()
-        index_url, soort, kinderen, last_modified = self._lees_index()
-        koop = [(u, lm) for u, lm in kinderen if KOOP_KIND.search(u)]
-        if soort != "index" or not koop:
-            raise RuntimeError(f"Sitemap-index {index_url} noemt geen koop-sitemaps "
-                               f"(soort {soort}, {len(kinderen)} items).")
+        koop, last_modified = self._koop_sitemaps()
         index_lastmod = max((lm for _u, lm in koop if lm), default=None) or last_modified
 
         cache, vorige_index = self._laad_cache()
@@ -1054,28 +1109,13 @@ class SitemapZoeker:
             e["zonder_prijs"] = eerder
         return e
 
-    def _onthoud(self, listing: Any, data: dict[str, Any], url_id: str) -> None:
-        for id_veld in ("global_id", "listing_id", "tiny_id"):
-            waarde = data.get(id_veld)
-            if waarde:
-                self._listings[str(waarde)] = listing
-        self._listings[url_id] = listing
+    def _fout_regel(self, pad: str, exc: Exception) -> str:
+        waar = "een woning" if publieke_log() else pad
+        return log_tekst(f"Detail mislukt voor {waar}: {type(exc).__name__}: {exc}")
 
     def _detail(self, k: dict[str, Any]) -> tuple[dict[str, Any] | None, Exception | None]:
-        """(data, None) bij succes; (None, fout) of (None, None) bij een leeg antwoord."""
-        try:
-            listing = self._client.get_listing(f"https://www.funda.nl{k['pad']}")
-        except Exception as exc:  # noqa: BLE001
-            waar = "een woning" if publieke_log() else k["pad"]
-            self._log(log_tekst(f"Detail mislukt voor {waar}: {type(exc).__name__}: {exc}"))
-            return None, exc
-        finally:
-            time.sleep(self._pauze)
-        data = dict(getattr(listing, "data", None) or {})
-        if not data:
-            return None, None
-        data.setdefault("detail_url", k["pad"])
-        data["_bron"] = "sitemap"
-        data["_sitemap_lastmod"] = k["lastmod"]
-        self._onthoud(listing, data, k["url_id"])
-        return data, None
+        """Altijd een verse detail-call; zie DropIn._haal_detail voor de vorm van het antwoord."""
+        data, exc = self._haal_detail(k["pad"], "sitemap", k["url_id"], vers=True)
+        if data is not None:
+            data["_sitemap_lastmod"] = k["lastmod"]
+        return data, exc
