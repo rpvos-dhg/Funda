@@ -1,0 +1,128 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": "risicoverschilzetting_2050hoog.1039",
+   "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+     [
+      [
+       [
+        4.3155703,
+        52.0855846
+       ],
+       [
+        4.3162961,
+        52.0848254
+       ],
+       [
+        4.3165018,
+        52.0845837
+       ],
+       [
+        4.317064,
+        52.0840144
+       ]
+      ]
+     ]
+    ]
+   },
+   "geometry_name": "geom",
+   "properties": {
+    "buurtcode": "BU05182812",
+    "buurtnaam": "Voorhout",
+    "gemeenteco": "GM0518",
+    "gemeentena": "'s-Gravenhage",
+    "sterke_c_1": 1.17771023303,
+    "geom_lengt": 3426.2586338,
+    "geom_area": 621219.171339
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "risicopaalrot_2050hoog.1039",
+   "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+     [
+      [
+       [
+        4.3155703,
+        52.0855846
+       ],
+       [
+        4.3162961,
+        52.0848254
+       ],
+       [
+        4.3165018,
+        52.0845837
+       ],
+       [
+        4.317064,
+        52.0840144
+       ]
+      ]
+     ]
+    ]
+   },
+   "geometry_name": "geom",
+   "properties": {
+    "buurtcode": "BU05182812",
+    "buurtnaam": "Voorhout",
+    "gemeenteco": "GM0518",
+    "gemeentena": "'s-Gravenhage",
+    "sterke_c_2": 0.0871327254306,
+    "geom_lengt": 3426.2586338,
+    "geom_area": 621219.171339
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "nl_fcab_omgevingsscore_wateroverlast_v20260806.3276164",
+   "geometry": null,
+   "geometry_name": "geom",
+   "properties": {
+    "identificatie_bag": "0518100000211472",
+    "bouwjaar": 1290,
+    "ahn_invliegjaar": 2023,
+    "waterdiepte_p99": 0.949999988079071,
+    "waterdiepte_klasse": "meer dan 30 cm"
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "",
+   "geometry": null,
+   "properties": {
+    "GRAY_INDEX": 0
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "kans_grondwateroverlast_2050hoog.fid--36496a2_1a1f17a3dba_-3501",
+   "geometry": null,
+   "geometry_name": "geom",
+   "properties": {
+    "gid": 30440,
+    "objectid": 30440,
+    "id": 30440,
+    "gridcode": 5,
+    "shape_leng": 325500,
+    "shape_area": 199750000
+   }
+  }
+ ],
+ "totalFeatures": "unknown",
+ "numberReturned": 5,
+ "timeStamp": "2026-11-19T02:19:31.770Z",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "urn:ogc:def:crs:CRS::84"
+  }
+ },
+ "_ingekort": "Gemeten op 19 nov 2026 op het Plein in Den Haag (52.07945, 4.31330), een openbare plek: één GetFeatureInfo met de vijf lagen van fundering en klimaat (feature_count 50). De features staan achter elkaar in de volgorde van de lagen in het verzoek, gelijk aan de twee losse antwoorden. Ingekort: de geometrie van de buurtvlakken tot vier punten, die van de andere lagen weggelaten."
+}

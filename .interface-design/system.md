@@ -137,6 +137,12 @@ sprite zit in de versleutelde body).
   per scenario, nooit inkomen), Meldingen op deze iPhone (alleen zonder abonnement), Dit apparaat,
   Bronnen.
 - Desktop vanaf 64rem: lijst links, plakkende zijkolom (filter, vergelijk, kaart) rechts.
+- De kaart laadt pas na een tik. Tot dan staat op de plek van de kaart een rustig vlak
+  (`.kaart-vraag`, achtergrond `--background-color-inset`, gecentreerd): één zin in
+  `--paragraph-body-small` en de secundaire knop "Toon kaart" (`knop knop-sec`,
+  `data-actie="toon-kaart"`). Geen tegels en geen legenda (`.kaart-paneel.is-wacht`). Op smal
+  kiest de knop "Kaart" in de onderbalk de kaart meteen. De keuze geldt voor de sessie en vervalt
+  bij vergrendelen; `ui/app.js` maakt het vlak (`kaartVraag`, `kiesKaart`).
 - Sheets: kop en voet staan vast, alleen de body scrollt (`.sheet>form` is een flex-kolom).
 - Sorteren: een woning zonder vraagprijs staat bij elke sortering achteraan (`onbekendAchter` in
   `ui/app.js`). Op de kaart ligt de beste woning bovenop (`zIndexOffset` op poort en score); de legenda

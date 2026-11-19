@@ -7,6 +7,7 @@ Draaien: python test_funda_ui.py
 """
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import math
@@ -286,7 +287,7 @@ def test_ids_en_attributen() -> bool:
              "nieuw-titel", "nieuw-leeg", "eerder", "leeg-kop", "leeg-tekst", "bewaard-tekst", "verborgen-tekst",
              "toast-tekst", "lijst"]
     uit_js = set(re.findall(r"\$\('#([\w-]+)", JS)) | set(re.findall(r"getElementById\('([\w-]+)'\)", JS))
-    uit_js -= {"card-"}
+    uit_js -= {"card-", "kaart-vraag"}   # het vlak "Toon kaart" maakt app.js zelf (ook bij een oudere index.html)
     acties_js = set(re.findall(r'data-actie="(\w+)"', JS))
     acties_body = {a.get("data-actie") for _, a in p.attrs if a.get("data-actie")}
     snel = {a.get("data-snel") for _, a in p.attrs if a.get("data-snel")}
@@ -558,10 +559,186 @@ def test_app_js() -> bool:
         check("minstens de helft zichtbaar", "GEZIEN_DEEL = 0.5" in JS and "intersectionRatio >= GEZIEN_DEEL" in JS),
         check("een seconde", "GEZIEN_MS = 1000" in JS and "}, GEZIEN_MS);" in JS),
         check("niet meer alles gezien bij pagehide", "opslag.gezien = ids" not in JS),
-        check("opslag in try/catch", "try { return JSON.parse(localStorage.getItem(OPSLAG)) || {}; } catch(e)" in JS
-              and "try { localStorage.setItem(OPSLAG" in JS),
+        # Was: synchroon en leesbaar in localStorage. Nu elke toegang via ruw(), wisRuw() of schrijf(), in try/catch;
+        # achter het slotscherm versleuteld (test_opslag_js draait het in node).
+        check("opslag: elke toegang tot localStorage in try/catch, en alleen onder de leesbare sleutel en de twee vakken",
+              JS.count("localStorage.") == 5 and "function ruw(naam){ try { return localStorage.getItem(naam); } catch(e)" in JS
+              and "function wisRuw(naam){ try { localStorage.removeItem(naam); } catch(e)" in JS
+              and "try { localStorage.setItem(OPSLAG, JSON.stringify(opslag)); } catch(e){}" in JS
+              and "try { localStorage.setItem(vak, pak); localStorage.removeItem(OPSLAG); } catch(e){}" in JS
+              and "var OPSLAG_VAKKEN = ['funda_rapport_v2', 'funda_rapport_v2_reserve']" in JS),
+        check("opslag: leesbaar schrijven alleen zonder slotscherm", "if(!veilig){ try { localStorage.setItem(OPSLAG," in JS
+              and "veilig = !!a;" in JS and JS.count("localStorage.setItem(OPSLAG,") == 1),
+        check("opslag: AES-GCM met een verse IV per schrijfactie, opgevuld",
+              "crypto.getRandomValues(new Uint8Array(12))" in JS and "{name:'AES-GCM', iv:iv}, sleutel" in JS
+              and "while(tekst.length % OPSLAG_BLOK) tekst += ' ';" in JS),
+        check("opslag: de app krijgt alleen de afgeleide sleutel van het slotscherm", "a.opslagSleutel" in JS
+              and "importKey" not in JS and "deriveKey" not in JS and "pw" not in re.findall(r"\bpw\b", JS)),
+        check("opslag: de staat komt vóór de app start, de app blijft zolang uit beeld",
+              "leesOpslag().then(function(r){" in JS and "try { start(r.staat); } finally { app.hidden = false; }" in JS
+              and "if(r.melding) toast(r.melding);" in JS),
+        check("kaart: laadt niet vanzelf, ook niet op een breed scherm",
+              "if(window.matchMedia('(min-width:64rem)').matches) startKaart();" not in JS
+              and JS.count("startKaart();") == 3   # na de keuze, bij een keuze eerder in de sessie, en als Leaflet nog laadt
+              and "if(v === 'kaart'){ kiesKaart();" in JS and "else if(el.matches('[data-actie=\"toon-kaart\"]')){ kiesKaart(); }" in JS),
+        check("kaart: vlak met één zin en de knop Toon kaart, zonder style-attribuut",
+              "'<p>De kaart haalt tegels op bij OpenStreetMap.</p>'" in JS
+              and '<button type="button" class="knop knop-sec" data-actie="toon-kaart">Toon kaart</button>' in JS
+              and "style=" not in JS and ".style." not in JS and ".kaart-vraag{" in CSS and ".kaart-paneel.is-wacht .kaart-legenda{display:none}" in CSS),
+        check("kaart: de keuze geldt voor de sessie en vervalt bij vergrendelen, niets in localStorage",
+              "sessionStorage.setItem(KAART_GEKOZEN, '1')" in JS and "sessionStorage.removeItem(KAART_GEKOZEN)" in JS
+              and "localStorage.setItem(KAART" not in JS),
         check("pins met poorticoon", "POORT_IC[w.poort]" in JS),
         check("vergeet via het slotscherm", "window.fundaApparaat" in JS and '[data-actie="vergeet"]' in JS),
+    ])
+
+
+# Het echte ui/app.js in node zonder DOM: de opslag met een namaak-localStorage en de Web Crypto van node.
+NODE_OPSLAG = r"""
+const ls = new Map(); let gezet = [];
+Object.defineProperty(globalThis, 'localStorage', {configurable: true, value: {
+  getItem: k => ls.has(k) ? ls.get(k) : null, removeItem: k => { ls.delete(k); },
+  setItem: (k, v) => { ls.set(k, String(v)); gezet.push(k); }}});
+global.window = {}; global.document = {readyState: 'loading', addEventListener(){}};
+require(process.argv[1]);
+const o = window.fundaRapportOpslag, V1 = 'funda_rapport_v1', V2 = 'funda_rapport_v2';
+const rust = async () => { do { await new Promise(r => setTimeout(r, 2)); } while (o.bezig()); };
+const maak = () => crypto.subtle.generateKey({name: 'AES-GCM', length: 256}, false, ['encrypt', 'decrypt']);
+(async () => {
+  const uit = {};
+  // 1. zonder slotscherm: leesbaar, zoals het was
+  ls.set(V1, JSON.stringify({bewaard: ['1']}));
+  let r = await o.lees();
+  o.schrijf({bewaard: ['1', '2']});
+  uit.lokaal = {staat: r.staat, melding: r.melding || '', v1: ls.get(V1), v2: ls.has(V2)};
+  // 2. met slotscherm en sleutel: migratie
+  const sleutel = await maak();
+  window.fundaApparaat = {opslagSleutel: sleutel};
+  r = await o.lees();
+  uit.migratie = {staat: r.staat, melding: r.melding || '', v1_voor: ls.has(V1)};
+  o.schrijf(r.staat); await rust();
+  uit.migratie.v1_na = ls.has(V1); uit.migratie.v2 = ls.get(V2);
+  // 3. terug uit de versleutelde opslag
+  r = await o.lees();
+  uit.terug = {staat: r.staat, melding: r.melding || ''};
+  // 4. snel na elkaar: de laatste stand wint, schrijfacties na elkaar
+  gezet = [];
+  for (let i = 0; i < 20; i++) o.schrijf({bewaard: ['1', '2'], n: i});
+  await rust();
+  const pak = ls.get(V2);
+  r = await o.lees();
+  uit.snel = {n: r.staat.n, schrijfacties: gezet.filter(k => k === V2).length, iv_nieuw: JSON.parse(pak).iv !== JSON.parse(uit.migratie.v2).iv,
+              even_lang: pak.length === uit.migratie.v2.length};
+  // 5. een leesbare staat naast een versleutelde: de versleutelde telt, de leesbare gaat weg
+  ls.set(V1, JSON.stringify({bewaard: ['oud']}));
+  r = await o.lees();
+  uit.beide = {n: r.staat.n, v1: ls.has(V1)};
+  // 6. andere sleutel (nieuw wachtwoord) en kapotte inhoud: leeg beginnen, met een melding
+  window.fundaApparaat = {opslagSleutel: await maak()};
+  r = await o.lees();
+  uit.andere_sleutel = {staat: r.staat, melding: r.melding || ''};
+  window.fundaApparaat = {opslagSleutel: sleutel};
+  uit.kapot = [];
+  for (const w of ['kapot', '{}', '[]', 'null', JSON.stringify({v: 1, iv: 'AAAAAAAAAAAAAAAA', ct: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'})]) {
+    ls.set(V2, w);
+    r = await o.lees();
+    uit.kapot.push({staat: r.staat, melding: r.melding || ''});
+  }
+  o.schrijf({bewaard: ['3']}); await rust();
+  r = await o.lees();
+  uit.na_kapot = {staat: r.staat, melding: r.melding || ''};
+  // 7. slotscherm zonder sleutel: niets schrijven, wel zeggen
+  window.fundaApparaat = {};
+  const voor = ls.get(V2); gezet = [];
+  r = await o.lees();
+  o.schrijf({bewaard: ['4']}); await rust();
+  uit.zonder_sleutel = {staat: r.staat, melding: r.melding || '', geschreven: gezet.length, ongewijzigd: ls.get(V2) === voor};
+  // 8. een sleutel die niet past overschrijft niets: het onleesbare pakket blijft als reserve staan
+  const R = 'funda_rapport_v2_reserve', A = await maak(), B = await maak(), C = await maak();
+  const als = async (k, staat) => { window.fundaApparaat = {opslagSleutel: k}; const x = await o.lees();
+    if (staat) { o.schrijf(staat); await rust(); } return {staat: x.staat, melding: x.melding || ''}; };
+  ls.clear();
+  await als(A, {bewaard: ['a1', 'a2'], verborgen: ['a3']});
+  const pakA = ls.get(V2);
+  const w = {};
+  w.eerste_in_v2 = !!pakA && !ls.has(R);
+  w.b_opent = await als(B);                                   // nieuw wachtwoord, nog niets opgeslagen
+  w.niets_overschreven = ls.get(V2) === pakA && !ls.has(R);
+  w.a_terug_zonder_nieuw = await als(A);                      // terug naar het oude: de lijsten zijn er
+  w.b_schrijft = await als(B, {bewaard: ['b1']});             // nu wel nieuwe staat onder de nieuwe sleutel
+  w.reserve_blijft = ls.get(V2) === pakA && ls.has(R);
+  w.b_leest = await als(B);
+  w.a_terug_na_nieuw = await als(A);                          // de oude sleutel leest zijn eigen vak, niets samengevoegd
+  w.b_weer = await als(B);
+  await als(A, {bewaard: ['a1', 'a2', 'a4'], verborgen: ['a3']});   // A is nu het nieuwste
+  w.c_opent = await als(C, {bewaard: ['c1']});                // derde sleutel: het oudste vak (B) wordt vervangen
+  w.c_leest = await als(C);
+  w.a_na_c = await als(A);
+  w.b_na_c = await als(B);
+  w.vakken = [ls.has(V2), ls.has(R), ls.size];
+  // een vol of geblokkeerd localStorage tijdens een sleutel die niet past: niets kwijt
+  ls.clear(); await als(A, {bewaard: ['a1']});
+  const echt = localStorage.setItem; const pakA2 = ls.get(V2);
+  localStorage.setItem = () => { throw new Error('vol'); };
+  w.vol = await als(B, {bewaard: ['b9']});
+  localStorage.setItem = echt;
+  w.vol_niets_kwijt = ls.get(V2) === pakA2 && (await als(A)).staat.bewaard[0] === 'a1';
+  uit.wissel = w;
+  console.log(JSON.stringify(uit));
+})().catch(e => { console.error(e); process.exit(1); });
+"""
+
+
+def test_opslag_js() -> bool:
+    """De opslag op het apparaat in het echte ui/app.js: leesbaar zonder slotscherm, versleuteld erachter."""
+    print("opslag op het apparaat: versleuteld achter het slotscherm, migratie, kapotte inhoud (node)")
+    if not shutil.which("node"):
+        print("  (node niet gevonden; overgeslagen)")
+        return True
+    r = subprocess.run(["node", "-e", NODE_OPSLAG, str(HIER / "ui" / "app.js")], capture_output=True, text=True, timeout=60)
+    try:
+        u = json.loads(r.stdout)
+    except ValueError:
+        return check("node draait de opslag van app.js", False, r.stderr[-400:])
+    v2 = u["migratie"]["v2"] or ""
+    pak = json.loads(v2) if v2.startswith("{") else {}
+    w, staat_a = u["wissel"], {"bewaard": ["a1", "a2"], "verborgen": ["a3"]}
+    leeg_met_melding = [k for k in u["kapot"] + [u["andere_sleutel"]] if k["staat"] == {} and "niet meer te lezen" in k["melding"]]
+    return all([
+        check("zonder slotscherm: leesbare opslag zoals het was (lokaal rapport)", u["lokaal"]["staat"] == {"bewaard": ["1"]}
+              and not u["lokaal"]["melding"] and json.loads(u["lokaal"]["v1"]) == {"bewaard": ["1", "2"]} and not u["lokaal"]["v2"]),
+        check("migratie: de leesbare staat ingelezen, zonder melding", u["migratie"]["staat"] == {"bewaard": ["1", "2"]}
+              and not u["migratie"]["melding"] and u["migratie"]["v1_voor"]),
+        check("migratie: versleuteld opgeslagen en de leesbare versie gewist", not u["migratie"]["v1_na"]
+              and set(pak) == {"v", "n", "iv", "ct"} and "bewaard" not in v2, v2[:60]),
+        check("IV van 12 bytes; de inhoud opgevuld tot een veelvoud van 512 tekens (plus de tag van 16 bytes)",
+              len(base64.b64decode(pak.get("iv", ""))) == 12 and len(base64.b64decode(pak.get("ct", ""))) == 512 + 16
+              and isinstance(pak.get("n"), int)),
+        check("terug uit de versleutelde opslag", u["terug"] == {"staat": {"bewaard": ["1", "2"]}, "melding": ""}, str(u["terug"])),
+        check("20 schrijfacties snel na elkaar: de laatste stand wint, in 2 schrijfacties na elkaar",
+              u["snel"]["n"] == 19 and u["snel"]["schrijfacties"] == 2, str(u["snel"])),
+        check("elke schrijfactie een verse IV, de lengte blijft gelijk", u["snel"]["iv_nieuw"] and u["snel"]["even_lang"]),
+        check("leesbaar naast versleuteld: de versleutelde telt, de leesbare gaat weg", u["beide"] == {"n": 19, "v1": False}, str(u["beide"])),
+        check("andere sleutel of kapotte inhoud (5 vormen): lege staat en één korte melding, geen fout",
+              len(leeg_met_melding) == 6, str(u["kapot"])[:200]),
+        check("daarna schrijft de app gewoon weer, zonder melding", u["na_kapot"] == {"staat": {"bewaard": ["3"]}, "melding": ""}),
+        check("slotscherm zonder sleutel: niets geschreven, wel een melding",
+              u["zonder_sleutel"]["geschreven"] == 0 and u["zonder_sleutel"]["ongewijzigd"] and "lukt nu niet" in u["zonder_sleutel"]["melding"]),
+        check("sleutel die niet past: lege staat met melding, het oude pakket onaangeroerd",
+              w["eerste_in_v2"] and w["b_opent"]["staat"] == {} and "niet meer te lezen" in w["b_opent"]["melding"]
+              and w["niets_overschreven"], str(w["b_opent"])),
+        check("terug naar de oude sleutel zonder nieuwe staat: de lijsten zijn terug, zonder melding",
+              w["a_terug_zonder_nieuw"] == {"staat": staat_a, "melding": ""}, str(w["a_terug_zonder_nieuw"])),
+        check("nieuwe staat onder de nieuwe sleutel gaat in het andere vak; de reserve blijft staan",
+              w["reserve_blijft"] and w["b_leest"] == {"staat": {"bewaard": ["b1"]}, "melding": ""}, str(w["b_leest"])),
+        check("daarna terug naar de oude sleutel: zijn eigen staat, niets samengevoegd; de nieuwe blijft ook",
+              w["a_terug_na_nieuw"] == {"staat": staat_a, "melding": ""} and w["b_weer"]["staat"] == {"bewaard": ["b1"]},
+              str(w["a_terug_na_nieuw"])),
+        check("derde sleutel: één reserve, de nieuwste blijft (A), de oudste (B) wordt vervangen",
+              w["c_opent"]["staat"] == {} and w["c_leest"]["staat"] == {"bewaard": ["c1"]}
+              and w["a_na_c"]["staat"]["bewaard"] == ["a1", "a2", "a4"] and w["b_na_c"]["staat"] == {}
+              and "niet meer te lezen" in w["b_na_c"]["melding"] and w["vakken"] == [True, True, 2], str(w["vakken"])),
+        check("vol of geblokkeerd localStorage bij een sleutel die niet past: niets kwijt", w["vol_niets_kwijt"]),
     ])
 
 
@@ -571,6 +748,16 @@ def test_slot() -> bool:
     nodig = list(funda_ui.SLOT_PLACEHOLDERS)
     waarden = {p: f"<!--{p.strip('_').lower()}-->" for p in nodig}
     gevuld = funda_ui.vul_slot(waarden)
+    namen = ["leaflet/leaflet.css", "app.css", "slot.css", "leaflet/leaflet.js", "app.js", "push.js", "slot.js"]
+    versies = {n: f"{i:010x}" for i, n in enumerate(namen)}
+    met_versie = funda_ui.vul_slot(waarden, versies=versies)
+    fout_versie = []
+    for kapot in ({k: w for k, w in versies.items() if k != "app.js"}, dict(versies, **{"weg.js": "0" * 10})):
+        try:
+            funda_ui.vul_slot(waarden, versies=kapot)
+            fout_versie.append(False)
+        except ValueError:
+            fout_versie.append(True)
     try:
         funda_ui.vul_slot({"__CSP__": "x"})
         fout_bij_missen = False
@@ -582,6 +769,11 @@ def test_slot() -> bool:
         check("precies de placeholders, elk één keer", sorted(gevonden) == sorted(nodig), str(gevonden)),
         check("vul_slot vervangt alles", not re.search(r"__[A-Z_]+__", gevuld)),
         check("vul_slot weigert ontbrekende waarden", fout_bij_missen),
+        check("vul_slot met versies: elk script en elke stylesheet krijgt ?v=, de rest (manifest, iconen) niet",
+              re.findall(r'(?:src|href)="([^"]*\?v=[^"]*)"', met_versie) == [f"{n}?v={versies[n]}" for n in namen]
+              and 'href="manifest.json"' in met_versie and 'href="favicon.svg"' in met_versie
+              and "?v=" not in gevuld),
+        check("vul_slot weigert een bestand zonder versie en een versie zonder bestand", fout_versie == [True, True], str(fout_versie)),
         check("label for=pw", '<label for="pw">' in SLOT),
         check("foutmelding met role=alert", 'role="alert"' in SLOT),
         check("theme-color = THEME_COLOR", bool(theme) and theme.group(1) == funda_ui.THEME_COLOR),
@@ -599,7 +791,8 @@ def test_slot() -> bool:
         check("knop Vergeet dit apparaat", ">Vergeet dit apparaat</button>" in SLOT and "window.fundaApparaat" in SLOT_JS),
         check("terugval met melding", "Onthouden lukt niet in deze browser." in SLOT_JS),
         check("geen merknaam of voornaam", "Funda Shortlist" not in SLOT and "<title>Woningrapport</title>" in SLOT),
-        check("slotscherm (html, css en js) <= 16 kB", len((SLOT + SLOT_CSS + SLOT_JS).encode()) <= 16_000,   # 14 kB plus de pauze na foute pogingen
+        # 14 kB plus de pauze na foute pogingen (16 kB), plus de afgeleide sleutel voor de opslag van de app (17 kB)
+        check("slotscherm (html, css en js) <= 17 kB", len((SLOT + SLOT_CSS + SLOT_JS).encode()) <= 17_000,
               f"{len((SLOT + SLOT_CSS + SLOT_JS).encode())} bytes"),
     ])
 
@@ -649,7 +842,9 @@ def test_groottes() -> bool:
     return all([
         # 40 en 23 kB plus de audit van nov 2026: labels bij de iconknoppen, vervaging van de snelfilters, sluitknop op de toast
         check("ui/app.css <= 42 kB", len(CSS.encode()) <= 42_000, f"{len(CSS.encode())} bytes"),
-        check("ui/app.js <= 24 kB", len(JS.encode()) <= 24_000, f"{len(JS.encode())} bytes"),
+        # Was 24 kB. Erbij (nov 2026): de versleutelde opslag op het apparaat met migratie, en het vlak "Toon kaart".
+        # Was 30 kB. Erbij (19 nov 2026, 1 kB): het tweede vak, zodat een sleutel die niet past niets overschrijft.
+        check("ui/app.js <= 31 kB", len(JS.encode()) <= 31_000, f"{len(JS.encode())} bytes"),
         check("body <= 14 kB per woning", per_woning <= 14_000, f"{per_woning:.0f} bytes per woning"),
     ])
 
@@ -889,7 +1084,7 @@ def test_geen_merknaam() -> bool:
 def main() -> int:
     resultaten = [test_geen_merknaam(), test_contract_testdata(), test_ids_en_attributen(), test_statusregels(), test_status_en_scenario_in_kaart(),
                   test_prijs_onbekend(), test_volgorde(), test_woning_data(), test_css_regels(), test_contrast(),
-                  test_rente_en_budget(), test_meta_en_randgevallen(), test_app_js(), test_slot(), test_veilige_uitvoer(), test_groottes(), test_tekst(),
+                  test_rente_en_budget(), test_meta_en_randgevallen(), test_app_js(), test_opslag_js(), test_slot(), test_veilige_uitvoer(), test_groottes(), test_tekst(),
                   test_fixronde_ui(), test_eindreview_js(), test_omgeving_blok()]
     print()
     if all(resultaten):

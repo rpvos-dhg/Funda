@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from funda_html_zoek import HtmlZoeker, bouw_zoek_url, parse_kaarten, snap_straal
+from funda_sitemap_zoek import DICHT_NA, DetailEndpointDicht, WoningNietGevonden
 
 
 def kaart_html(
@@ -383,10 +384,89 @@ def test_publieke_log() -> bool:
               and "/detail/" in lokaal),
     ])
 
+class ReeksClient:
+    """Detail-endpoint met een vast antwoord per woning: een fout uit `gedrag`, anders een woning."""
+
+    def __init__(self, gedrag: dict[int, Exception]):
+        self.calls: list[str] = []
+        self.gedrag = gedrag
+
+    def get_listing(self, ident):
+        self.calls.append(str(ident))
+        tiny = str(ident).rstrip("/").split("/")[-1]
+        fout = self.gedrag.get(int(tiny) - 44700000)
+        if fout is not None:
+            raise fout
+        return StubListing({"global_id": f"g{tiny}", "tiny_id": tiny, "neighbourhood": "Bomenbuurt"})
+
+
+REEKS_PAGINA = "<html><body>" + "".join(
+    kaart_html(stad_slug="den-haag", slug=f"appartement-reekslaan-{i}", tiny_id=str(44700000 + i),
+               adres=f"Reekslaan {i}", postcode="1234 AB", stad="Den Haag", prijs="€ 250.000 k.k.",
+               m2="60 m²", kamers="3")
+    for i in range(1, 9)) + "</body></html>"
+
+
+def test_detail_dicht() -> bool:
+    """Een dicht detail-endpoint is geen overgeslagen woning: DetailEndpointDicht, en geen call meer."""
+    print("test: weigering of reeks storingen op het detail-endpoint stopt de zoeker")
+    ok = True
+
+    def zoek(gedrag: dict[int, Exception], rondes: int = 1):
+        regels: list[str] = []
+        client = ReeksClient(gedrag)
+        zoeker = HtmlZoeker(client, log=regels.append)
+        zoeker._haal = lambda url: REEKS_PAGINA
+        zoeker._pauze = 0
+        try:
+            for _ in range(rondes):
+                res = zoeker.search_listing(location="den-haag", page=0)
+        except DetailEndpointDicht as exc:
+            return None, client.calls, str(exc)
+        return res, client.calls, ""
+
+    weigering = DetailEndpointDicht("status 403: het endpoint weigert deze client")
+    storing = RuntimeError("time-out")
+    weg = WoningNietGevonden("niet gevonden (status [404])")
+
+    for naam, gedrag, n in (("weigering bij de eerste call", {1: weigering}, 1),
+                            ("weigering halverwege", {4: weigering}, 4),
+                            ("weigering na zeven successen", {8: weigering}, 8),
+                            ("weigering na een storing en een 404", {1: storing, 2: weg, 3: weigering}, 3)):
+        res, calls, fout = zoek(gedrag)
+        ok &= check(f"{naam}: DetailEndpointDicht", res is None and "weigert deze client" in fout, fout)
+        ok &= check(f"{naam}: daarna geen detail-call meer", len(calls) == n, str(len(calls)))
+
+    res, calls, fout = zoek({i: storing for i in range(2, 2 + DICHT_NA)})
+    ok &= check("DICHT_NA storingen op rij na een succes: DetailEndpointDicht",
+                res is None and f"{DICHT_NA} detail-calls op rij mislukt" in fout, fout)
+    ok &= check("DICHT_NA storingen op rij: daarna geen detail-call meer", len(calls) == 1 + DICHT_NA,
+                str(len(calls)))
+
+    # Geen weigering: de woning overslaan en doorgaan, zoals voorheen.
+    res, calls, _ = zoek({3: storing})
+    ok &= check("losse storing: woning overgeslagen, rest opgehaald",
+                res is not None and len(res) == 7 and len(calls) == 8, str(len(calls)))
+    res, calls, _ = zoek({3: weg})
+    ok &= check("losse 404: woning overgeslagen, rest opgehaald", res is not None and len(res) == 7)
+    res, _, _ = zoek({1: storing, 2: storing, 3: storing, 4: storing, 5: weg, 6: storing, 7: storing})
+    ok &= check("een 404 beëindigt de reeks storingen", res is not None and len(res) == 1,
+                str(res and len(res)))
+    res, _, _ = zoek({1: storing, 2: storing, 3: storing, 4: storing, 6: storing, 7: storing})
+    ok &= check("een geslaagde call beëindigt de reeks storingen", res is not None and len(res) == 2,
+                str(res and len(res)))
+
+    # Dezelfde pagina in elke prijsband en sortering: één kapotte woning wordt
+    # telkens opnieuw geprobeerd, maar is geen reeks van DICHT_NA woningen.
+    res, calls, _ = zoek({3: storing}, rondes=DICHT_NA + 3)
+    ok &= check("dezelfde kapotte woning in elke ronde telt één keer",
+                res is not None and len(calls) == 8 + DICHT_NA + 2, str(len(calls)))
+    return ok
+
 
 def main() -> int:
     resultaten = [test_url(), test_straal(), test_parse(), test_zoeker(), test_dedup(), test_delegatie(), test_botmuur(),
-                  test_profiel_www(), test_publieke_log()]
+                  test_profiel_www(), test_publieke_log(), test_detail_dicht()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

@@ -297,6 +297,26 @@ def test_delegatie() -> bool:
     return ok
 
 
+def test_foutregel_publieke_log() -> bool:
+    print("test: de foutregel van een mislukte detail-call gaat door log_tekst()")
+    import os
+    pad = "/detail/koop/voorbeeldstad/appartement-lindelaan-11/41234567/"
+    bron = MailBron(StubClient(), [], pauze=0)
+    oud = os.environ.pop("GITHUB_ACTIONS", None)
+    try:
+        lokaal = bron._fout_regel(pad, LookupError("status 500 voor https://www.funda.nl" + pad))
+        os.environ["GITHUB_ACTIONS"] = "true"
+        publiek = bron._fout_regel(pad, LookupError("status 500 voor https://www.funda.nl" + pad))
+    finally:
+        os.environ.pop("GITHUB_ACTIONS", None)
+        if oud is not None:
+            os.environ["GITHUB_ACTIONS"] = oud
+    ok = check("lokaal blijft het pad staan (diagnose)", pad in lokaal, lokaal)
+    ok &= check("op Actions geen pad, straat of woningnummer", "lindelaan" not in publiek and "41234567" not in publiek
+                and "(woning)" in publiek, publiek)
+    return ok
+
+
 def test_trackerclient() -> bool:
     """links.funda.nl krijgt hetzelfde vaste profiel als www.funda.nl, zonder netwerk."""
     print("\ntest: client voor links.funda.nl")
@@ -339,7 +359,7 @@ def main() -> int:
     resultaten = [
         test_links_direct(), test_links_tracking(), test_links_overig(),
         test_tracking_links(), test_redirect_volgen(), test_hoofdingang(),
-        test_bron(), test_delegatie(), test_trackerclient(),
+        test_bron(), test_delegatie(), test_foutregel_publieke_log(), test_trackerclient(),
     ]
     print()
     if all(resultaten):

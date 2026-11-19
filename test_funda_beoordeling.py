@@ -700,6 +700,372 @@ ADVERTENTIE_ZINNEN = [
     ("Recht van overpad voor de buren.", {"erfdienstbaarheid"}),
 ]
 
+# Ontkenningen in de advertentielezer: terecht (het signaal staat er als feit), onterecht met de ontkenning
+# ervoor en onterecht met de ontkenning erachter. Fictieve zinnen.
+ONTKENNING_ZINNEN = [
+    # Terecht: het signaal staat er als feit.
+    ("Let op: er is asbest verwerkt in de berging.", {"asbest"}),
+    ("In de koopakte komen een ouderdomsclausule en een asbestclausule.", {"ouderdomsclausule", "asbest"}),
+    ("Niet-zelfbewoningsclausule en asbestclausule van toepassing.", {"niet_zelfbewoning", "asbest"}),
+    ("Niet zelfbewoningsclausule, ouderdomsclausule en asbestclausule.", {"niet_zelfbewoning", "ouderdomsclausule", "asbest"}),
+    ("Het is verkoper niet bekend of er asbest in de woning aanwezig is.", {"asbest"}),
+    ("Verkoper is niet bekend met asbest in de woning.", {"asbest"}),
+    ("Funderingsherstel uitgevoerd in 2018, met garantie.", {"funderingsherstel"}),
+    ("Het funderingsherstel is uitgevoerd door een erkend bedrijf.", {"funderingsherstel"}),
+    ("De fundering is vernieuwd.", {"funderingsherstel"}),
+    ("Er is sprake van achterstallig onderhoud aan de kozijnen.", {"opknapper"}),
+    ("Geen lift, wel achterstallig onderhoud.", {"opknapper"}),
+    ("Niet instapklaar: een echte opknapper.", {"opknapper"}),
+    ("De woning heeft geen balkon, maar er is wel lekkage geweest.", {"vocht"}),
+    ("In de badkamer zijn vochtplekken zichtbaar.", {"vocht"}),
+    ("Scheurvorming in de achtergevel, niet hersteld.", {"vocht"}),
+    ("De VvE heeft groot onderhoud gepland voor volgend jaar.", {"extra_bijdrage"}),
+    ("Er komt een extra bijdrage voor het dak.", {"extra_bijdrage"}),
+    ("Asbest is mogelijk verwerkt, een lift is niet aanwezig.", {"asbest"}),
+    ("Geen asbest in de woning. In de schuur is wel asbest verwerkt.", {"asbest"}),
+    ("Huisdieren zijn niet toegestaan.", {"huisdieren"}),
+    ("Het dakterras is zonder vergunning aangelegd.", {"dakterras_zonder_vergunning"}),
+    ("Funderingsherstel uitgevoerd, geen lekkage en geen asbest.", {"funderingsherstel"}),
+    # Onterecht: ontkenning vóór het woord.
+    ("Geen asbest aangetroffen.", set()),
+    ("Er is geen asbest aangetroffen bij de inventarisatie.", set()),
+    ("De woning is vrij van asbest.", set()),
+    ("De woning is asbestvrij opgeleverd.", set()),
+    ("Er is geen sprake van achterstallig onderhoud.", set()),
+    ("Zonder achterstallig onderhoud opgeleverd.", set()),
+    ("Er is nooit lekkage geweest.", set()),
+    ("Geen lekkage, schimmel of scheurvorming.", set()),
+    ("Er is geen funderingsherstel uitgevoerd.", set()),
+    ("Er is geen sprake van funderingsproblemen.", set()),
+    ("Er zijn geen bijzondere heffingen te verwachten.", set()),
+    ("Er is geen groot onderhoud gepland.", set()),
+    ("In de akte komt geen ouderdomsclausule.", set()),
+    ("Beslist geen kluswoning.", set()),
+    # Onterecht: ontkenning achter het woord.
+    ("Asbest is niet aanwezig.", set()),
+    ("Asbest is in de woning niet aangetroffen.", set()),
+    ("Asbest en loden leidingen zijn niet aangetroffen.", set()),
+    ("Van achterstallig onderhoud is geen sprake.", set()),
+    ("Achterstallig onderhoud is er niet.", set()),
+    ("Scheurvorming is niet geconstateerd.", set()),
+    ("Van lekkage is nooit sprake geweest.", set()),
+    ("Een ouderdomsclausule is niet van toepassing.", set()),
+    ("Een extra bijdrage is niet aan de orde.", set()),
+    ("Funderingsherstel is nog niet uitgevoerd.", set()),
+    ("Een complete renovatie is niet nodig.", set()),
+    ("Groot onderhoud gepland? Nee, daarvan is geen sprake.", {"extra_bijdrage"}),
+]
+
+# Voorbehouden, dubbele ontkenningen en lastige vormen uit de review van 19 nov 2026: per zin de verwachte
+# signalen. Een voorbehoud ("niet onderzocht", "niet uit te sluiten", "kan niet garanderen") is geen
+# ontkenning. Fictieve zinnen.
+VOORBEHOUD_ZINNEN = [
+    ("Er is geen asbest aangetroffen in de woning.", set()),
+    ("De woning is asbestvrij opgeleverd.", set()),
+    ("Asbest is in de woning niet aangetroffen.", set()),
+    ("Het is niet bekend of er asbest aanwezig is.", {"asbest"}),
+    ("In de berging is asbest verwerkt.", {"asbest"}),
+    ("Er is geen lift, wel asbest in het dak van de schuur.", {"asbest"}),
+    ("Geen ouderdomsclausule van toepassing.", set()),
+    ("Een ouderdomsclausule en asbestclausule worden opgenomen.", {"ouderdomsclausule", "asbest"}),
+    ("De ouderdomsclausule wordt niet opgenomen in de koopakte.", set()),
+    ("Asbest: niet uitgesloten.", {"asbest"}),
+    ("Verkoper kan niet garanderen dat er geen asbest is verwerkt.", {"asbest"}),              # dubbel, ging al fout
+    ("Er zijn geen aanwijzingen dat er geen asbest in de woning zit.", {"asbest"}),            # dubbel
+    ("Asbest is, voor zover bekend, niet aanwezig; een asbestclausule wordt opgenomen.", {"asbest"}),
+    ("Geen garantie op afwezigheid van asbest.", {"asbest"}),
+    ("Niet uit te sluiten valt dat asbest aanwezig is.", {"asbest"}),                          # gaf op main een signaal
+    ("De asbest in het dak is nog niet gesaneerd.", {"asbest"}),
+    ("Asbest aanwezig. Geen lift.", {"asbest"}),
+    ("Vrij van asbest volgens rapport.", set()),
+    ("Asbestinventarisatie: geen asbest gevonden, maar ouderdomsclausule geldt.", {"ouderdomsclausule", "asbest"}),
+    ("Het dak bevat asbest dat niet verwijderd is.", {"asbest"}),
+    ("Asbest? Nee, niet aanwezig.", {"asbest"}),                                               # over een vraagteken heen: tonen
+    ("De woning is zonder asbest- en ouderdomsclausule.", set()),
+    ("Er wordt nooit meer een asbestclausule gebruikt, behalve hier.", {"asbest"}),            # gaf op main een signaal
+    ("Asbest is in het verleden gesaneerd en nu niet meer aanwezig.", set()),
+    ("Asbesthoudende golfplaten op de schuur zijn niet gesaneerd en niet verwijderd.", {"asbest"}),
+    ("Geen ouderdomsclausule, wel een asbestclausule.", {"asbest"}),
+    ("niet zeker of asbest ontbreekt", {"asbest"}),
+    ("Asbest is niet nodig om te vermelden, maar zit wel in de kelder.", {"asbest"}),          # gaf op main een signaal
+    ("In het pand is asbest niet in hechtgebonden vorm aanwezig.", {"asbest"}),
+    ("Asbestverdacht materiaal is niet uitgesloten", {"asbest"}),
+    ("Verkoper kan niet garanderen dat de woning vrij is van asbest.", {"asbest"}),
+    ("Verkoper staat er niet voor in dat er geen asbest aanwezig is.", {"asbest"}),            # dubbel
+    ("Het is niet uitgesloten dat asbest is verwerkt.", {"asbest"}),                           # ging al fout
+    ("Gezien het bouwjaar kan niet worden uitgesloten dat er asbest is verwerkt.", {"asbest"}),
+    ("Koper verklaart ermee bekend te zijn dat er asbest verwerkt kan zijn; verkoper is hier niet aansprakelijk voor.",
+     {"asbest"}),
+    ("Er is geen onderzoek gedaan naar asbest.", {"asbest"}),                                  # gaf op main een signaal
+    ("Zonder nader onderzoek kan asbest aanwezig zijn.", {"asbest"}),                          # gaf op main een signaal
+    ("Er is geen achterstallig onderhoud.", set()),
+    ("Het achterstallig onderhoud is niet gering.", {"opknapper"}),
+    ("Niet onvermeld mag blijven dat er lekkage is geweest.", {"vocht"}),
+    ("geen garantie dat er geen lekkage optreedt", {"vocht"}),
+    ("Aanwezigheid van asbest is niet onderzocht en dus niet vastgesteld.", {"asbest"}),       # gaf op main een signaal
+    ("De woning is niet geinspecteerd op asbest.", {"asbest"}),
+    ("Er is asbest aangetroffen in de kelder; in de woning zelf is geen asbest aanwezig.", {"asbest"}),
+    ("Uit onderzoek blijkt dat er geen asbest aanwezig is.", set()),                           # onderzoek zonder ontkenning
+]
+
+# (kenmerken, tekst, verwacht maandbedrag of None). Buiten 20 tot 600 euro per maand = onbekend.
+# Punten bij de 45 zinnen hierboven: alleen een feit houdt zijn punten, de rest van de signalen staat op 0.
+VOORBEHOUD_PUNTEN = {"Het achterstallig onderhoud is niet gering.": {"opknapper": -1.5},
+                     "Niet onvermeld mag blijven dat er lekkage is geweest.": {"vocht": -0.5}}
+# Zin -> {signaal: punten}. Leeg = een echte ontkenning (geen item). 0 punten bij een signaal met punten in
+# SIGNALEN = voorbehoud of dubbele ontkenning: "niet uitgesloten", wel de vraag, geen minpunt.
+SIGNAAL_PUNTEN_ZINNEN = [
+    # Een echte ontkenning die "onderzoek", "garantie" of "inspectie" noemt, blijft een ontkenning.
+    ("Er is geen asbest aangetroffen bij het onderzoek.", {}),
+    ("Uit onderzoek blijkt dat er geen asbest aanwezig is.", {}),
+    ("De verkoper garandeert dat er geen asbest is.", {}),
+    ("Geen funderingsproblemen, zo blijkt uit het funderingsonderzoek. Geen lekkage.", {}),
+    ("Geen asbest, zo blijkt uit het onderzoek.", {}),
+    ("Bij de inspectie is geen asbest aangetroffen.", {}),
+    ("Er is geen asbest gevonden tijdens de bouwkundige inspectie.", {}),
+    ("Geen asbest aangetroffen, onderzoek uitgevoerd in 2020.", {}),
+    ("Asbest is niet aangetroffen bij het onderzoek.", {}),
+    ("Voor zover bekend is er geen asbest verwerkt.", {}),
+    ("Voor zover verkoper bekend is er geen asbest aanwezig.", {}),
+    ("Er is geen sprake van lekkage of schimmel.", {}),
+    ("Er is geen achterstallig onderhoud.", {}),
+    ("De woning is asbestvrij.", {}),
+    ("Lekkage is uitgesloten dankzij het nieuwe dak.", {}),
+    ("Er is geen asbest aanwezig, dit is onderzocht en gecontroleerd.", {}),
+    ("Geen lekkage, geen schimmel en geen asbest.", {}),
+    ("Het dak is in 2022 geinspecteerd: geen lekkage.", {}),
+    ("Volgens de garantie van de aannemer is er geen scheurvorming.", {}),
+    ("Er is nooit lekkage geweest.", {}),
+    ("Er is geen sprake van achterstallig onderhoud (het dak is in 2023 vernieuwd met 10 jaar garantie).", {}),
+    ("Er is geen achterstallig onderhoud, niet alle kozijnen zijn echter gecontroleerd.", {}),
+    ("Voor zover bekend is er geen asbest in de woning aanwezig.", {}),
+    ("Lekkage of schimmel is er niet.", {}),
+    # Een voorbehoud in een ander zinsdeel hoort niet bij het signaal (gaf op 480f351 een minpunt).
+    ("Er is geen lekkage geconstateerd en de VvE is niet aansprakelijk gesteld.", {}),
+    ("Er is geen extra bijdrage gepland; het is nog onbekend wanneer de schilder komt.", {}),
+    ("Het appartement kent geen achterstallig onderhoud en de exacte bouwdatum is onbekend.", {}),
+    ("Geen achterstallig onderhoud en verkoper is niet aansprakelijk voor maatverschillen.", {}),
+    ("De VvE is actief, er is geen achterstallig onderhoud en het is niet bekend wanneer de lift vervangen wordt.", {}),
+    ("Geen achterstallig onderhoud: het schilderwerk is in 2024 gedaan zonder garantie op de kleur.", {}),
+    ("De woning heeft geen scheurvorming of lekkage en roken is niet toegestaan, behalve op het balkon.", {}),
+    # Voorbehoud, dubbele ontkenning of uitzondering bij het signaal zelf: het signaal met 0 punten.
+    ("Geen achterstallig onderhoud, behalve het schilderwerk.", {"opknapper": 0.0}),
+    ("Er is geen groot onderhoud gepland, behalve het reguliere schilderwerk.", {"extra_bijdrage": 0.0}),
+    ("Er is geen onderzoek gedaan naar asbest.", {"asbest": 0.0}),
+    ("Niet uit te sluiten valt dat er asbest aanwezig is.", {"asbest": 0.0}),
+    ("Verkoper kan niet garanderen dat er geen asbest is.", {"asbest": 0.0}),
+    ("Het is niet bekend of er asbest is verwerkt.", {"asbest": 0.0}),
+    ("Er zijn geen aanwijzingen dat er geen asbest is.", {"asbest": 0.0}),
+    ("Asbest is niet onderzocht.", {"asbest": 0.0}),
+    ("De woning is niet op asbest geinspecteerd.", {"asbest": 0.0}),
+    ("Verkoper is niet bekend met asbest in de woning.", {"asbest": 0.0}),
+    ("Zonder garantie; asbest kan aanwezig zijn.", {"asbest": 0.0}),
+    ("Achterstallig onderhoud is niet nodig om te vermelden, maar is er wel.", {"opknapper": 0.0}),
+    ("Geen garantie dat er geen schimmel is.", {"vocht": 0.0}),
+    ("Het is niet bekend of er achterstallig onderhoud is.", {"opknapper": 0.0}),
+    ("Lekkage is niet uit te sluiten.", {"vocht": 0.0}),
+    ("Er is niet onderzocht of er scheurvorming is.", {"vocht": 0.0}),
+    # Een feit houdt zijn punten.
+    ("In de schuur is asbest aanwezig.", {"asbest": 0.0}),
+    ("Er is lekkage geweest in 2021.", {"vocht": -0.5}),
+    ("Er is achterstallig onderhoud aan de kozijnen.", {"opknapper": -1.5}),
+    ("Er is lekkage geweest, de oorzaak is onbekend.", {"vocht": -0.5}),
+]
+VVE_GRENS_ZINNEN = [
+    ({"Bijdrage VvE": "€ 1.800"}, "", None),                                    # jaarbedrag zonder periode
+    ({"Bijdrage VvE": "€ 1.800"}, "Servicekosten € 150 per maand.", 150),       # de tekst krijgt dan een kans
+    ({"Bijdrage VvE": "€ 1.800 per jaar"}, "", 150),
+    ({"Servicekosten": "€ 185 p.m."}, "", 185),
+    ({"Periodieke bijdrage": "Ja (€ 0,00 per maand)"}, "", None),
+    ({}, "De jaarlijkse bijdrage aan de VvE is € 1.800.", 150),
+    ({}, "De bijdrage aan de VvE is per kwartaal € 480.", 160),
+    ({}, "Servicekosten € 450 per kwartaal.", 150),
+    ({}, "Servicekosten € 900 p/halfjaar.", 150),
+    ({}, "VvE-bijdrage € 175,- p/m.", 175),
+    ({}, "Servicekosten € 2.400.", None),
+    ({}, "Servicekosten € 750 per maand.", 750),                                # periode erbij: geldt, ook boven 600
+    ({}, "Bijdrage VvE € 12.000 per jaar.", 1000),
+    ({"Bijdrage VvE": "€ 650 per maand"}, "", 650),
+    ({"Bijdrage VvE": "€ 725,00 per maand"}, "", 725),
+    ({"Bijdrage VvE": "€ 1.950 per kwartaal"}, "", 650),
+    ({}, "De servicekosten bedragen € 640,- per maand inclusief voorschot stookkosten.", 640),
+    ({}, "Servicekosten € 650.", None),                                         # zonder periode blijft de bovengrens
+    ({"Bijdrage VvE": "€ 15 per maand"}, "", None),                             # de ondergrens geldt altijd
+    ({}, "Servicekosten: € 5 per maand.", None),
+    ({}, "Servicekosten € 20 per maand.", 20),
+    ({}, "Servicekosten € 600 per maand.", 600),
+    ({}, "Servicekosten € 601 per maand.", 601),
+    ({}, "Servicekosten € 601.", None),
+    ({}, "Servicekosten € 19 per maand.", None),
+    ({}, "Servicekosten € 2.400. De VvE-bijdrage is € 200 per maand.", 200),     # tweede zin telt na een verworpen eerste
+    # Plafond van 2.000 per maand, ook met periode; een bedrag of periode van een ander onderwerp telt niet.
+    ({}, "De maandelijkse bijdrage aan het reservefonds van € 85.000 is hoog.", None),
+    ({}, "VvE-bijdrage: reservefonds € 45.000 per jaar begroot.", None),
+    ({}, "Servicekosten per maand: zie de koopsom € 385.000.", None),
+    ({}, "Servicekosten € 2.400 per jaar, servicekosten € 50 per maand.", 200),
+    ({}, "De VvE-bijdrage is per jaar € 2.400, daarnaast servicekosten € 50 per maand.", 200),
+    ({}, "Per maand zijn de servicekosten laag. De koopsom is € 450.000.", None),
+    ({}, "De bijdrage VvE bedraagt € 15 per maand.", None),
+    ({}, "Bijdrage VvE € 150 per kwartaal.", 50),
+    ({}, "Bijdrage VvE € 1.200 per halfjaar.", 200),
+    ({}, "Bijdrage VvE € 9.000 per jaar.", 750),
+    ({}, "Bijdrage VvE € 2.400.", None),
+    ({}, "Jaarlijks groot onderhoud. Bijdrage VvE € 180.", 180),               # de periode van een andere zin telt niet
+    ({}, "Erfpacht per jaar € 900. Servicekosten € 210.", 210),
+    ({}, "Erfpacht per jaar € 900, servicekosten € 210.", 210),                 # de periode hoort bij het andere bedrag
+    ({"Bijdrage VvE": "€ 2.400 per maand"}, "", None),                          # boven het plafond
+    ({"Bijdrage VvE": "€ 1.500,00 per maand"}, "", 1500),
+    ({"Bijdrage VvE": "€ 2.000 per maand"}, "", 2000),
+    ({"Bijdrage VvE": "€ 2.001 per maand"}, "", None),
+    ({"Bijdrage VvE": "€ 30.000 per jaar"}, "", None),
+    ({"Bijdrage VvE": "€ 0 per maand"}, "servicekosten € 175 p/m", 175),
+    ({}, "Servicekosten: koopsom € 395.000 k.k. per maand opleverbaar.", None),
+    ({}, "Servicekosten zijn € 250,- p.m. en de reserve van de VvE is € 60.000 per 1 januari.", 250),
+    ({}, "VvE bijdrage € 140 per maand en eenmalige bijdrage € 5.000 per appartement.", 140),
+    ({}, "De maandelijkse bijdrage wordt verhoogd; de vraagprijs is € 425.000.", None),
+    ({}, "VvE-bijdrage € 3.000 per m.", None),
+    ({}, "Bijdrage VvE € 150 per jaar.", None),                                 # € 12,50 per maand: onder de ondergrens
+    ({}, "Per jaar betaalt u aan de bijdrage VvE € 1.800 en maandelijks € 30 stook.", 150),
+    ({}, "Servicekosten per kwartaal € 450.", 150),
+    ({}, "De eenmalige bijdrage VvE is € 400.", None),
+    ({}, "Maandelijkse bijdrage: het reservefonds bevat € 32.000 per maand.", None),
+]
+
+
+def test_ontkenningen() -> bool:
+    print("test: advertentielezer en ontkenningen, ervoor en erachter (%d zinnen)" % len(ONTKENNING_ZINNEN))
+    ok = True
+    fout = [(z, sorted({s[0] for s in fb.lees_advertentie(z)})) for z, v in ONTKENNING_ZINNEN
+            if {s[0] for s in fb.lees_advertentie(z)} != v]
+    ok &= check(f"{len(ONTKENNING_ZINNEN) - len(fout)}/{len(ONTKENNING_ZINNEN)} zinnen goed", not fout, str(fout[:4]))
+    fout = [(z, sorted({s[0] for s in fb.lees_advertentie(z)})) for z, v in VOORBEHOUD_ZINNEN
+            if {s[0] for s in fb.lees_advertentie(z)} != v]
+    ok &= check(f"voorbehoud en dubbele ontkenning: {len(VOORBEHOUD_ZINNEN) - len(fout)}/{len(VOORBEHOUD_ZINNEN)} zinnen goed",
+                not fout and len(VOORBEHOUD_ZINNEN) == 45, str(fout[:4]))
+    # Signaal ja of nee, en de punten: alleen een feit houdt zijn punten; een voorbehoud geeft 0 en de vraag.
+    def punten(z):
+        return {s[0]: s[7] for s in fb.lees_advertentie(z)}
+
+    fout = [(z, punten(z)) for z, v in SIGNAAL_PUNTEN_ZINNEN if punten(z) != v]
+    ok &= check(f"signaal en punten: {len(SIGNAAL_PUNTEN_ZINNEN) - len(fout)}/{len(SIGNAAL_PUNTEN_ZINNEN)} zinnen goed",
+                not fout and len(SIGNAAL_PUNTEN_ZINNEN) >= 50, str(fout[:4]))
+    fout = [(z, punten(z)) for z, v in VOORBEHOUD_ZINNEN if punten(z) != VOORBEHOUD_PUNTEN.get(z, dict.fromkeys(v, 0.0))]
+    ok &= check("de 45 zinnen: alleen de twee feiten met punten houden ze", not fout, str(fout[:4]))
+    vb = [s for s in fb.lees_advertentie("Er is geen onderzoek gedaan naar lekkage.")]
+    ok &= check("voorbehoud: 0 punten, 'niet uitgesloten' in de waarde, de vraag blijft, niet bij alleen_feiten",
+                len(vb) == 1 and vb[0][7] == 0 and "niet uitgesloten" in vb[0][6] and vb[0][9]
+                and fb.lees_advertentie("Er is geen onderzoek gedaan naar lekkage.", alleen_feiten=True) == [], str(vb))
+    ok &= check("minstens 30 zinnen, terecht en onterecht",
+                len(ONTKENNING_ZINNEN) >= 30 and sum(1 for _, v in ONTKENNING_ZINNEN if v) >= 10
+                and sum(1 for _, v in ONTKENNING_ZINNEN if not v) >= 20)
+    # Elk signaal met ontkenningscontrole heeft een terechte zin, een ontkenning ervoor en een erachter.
+    met = {sid: re.compile(pat) for sid, pat, ontk, *_ in fb.SIGNALEN if ontk}
+    terecht = {sid for _, v in ONTKENNING_ZINNEN for sid in v}
+    voor, na = set(), set()
+    for zin, v in ONTKENNING_ZINNEN:
+        for sid, pat in met.items():
+            m = pat.search(zin.lower())
+            if m and sid not in v:
+                (voor if re.search(r"\b(?:geen|niet|zonder|nooit|vrij van)\b", zin.lower()[:m.start()]) else na).add(sid)
+    ok &= check("elk signaal: terecht", set(met) <= terecht, str(set(met) - terecht))
+    ok &= check("elk signaal: ontkenning ervoor", set(met) <= voor, str(set(met) - voor))
+    ok &= check("elk signaal: ontkenning erachter (funderingsherstel kan dat niet: het patroon eist 'uitgevoerd')",
+                set(met) - {"funderingsherstel"} <= na, str(set(met) - na))
+    # Een ontkenning van iets goeds houdt zijn betekenis.
+    ok &= check("'geen lift' blijft geen lift", fb.woonlaag({}, "Op de 2e verdieping, geen lift.")[:2] == (3, False))
+    ok &= check("'geen balkon' blijft geen buitenruimte", fb.buitenruimte({}, {}, "De woning heeft geen balkon.")["soort"] is None)
+    ok &= check("'geen erfpacht' blijft eigen grond", fb.erfpacht({}, "Eigen grond, dus geen erfpacht.")["status"] == "eigen")
+    # In de beoordeling: geen item bij een ontkenning, wel bij een feit.
+    profiel = {"bruto_jaar": 62000, "eigen_inleg": 10000, "leeftijd": 30}
+    cfg = fb.laad_config(profiel)
+
+    def labels(tekst):
+        b = fb.beoordeel(_minimaal(price=240000, living_area=70, description=tekst), None, [], [], profiel, cfg, None, vandaag=VANDAAG)
+        return {i["label"] for groep in ("let_op", "pluspunten", "info", "onbekend") for i in b.get(groep, [])}, b["score"]
+
+    schoon, score_schoon = labels("Asbest is niet aanwezig. Van achterstallig onderhoud is geen sprake.")
+    vuil, score_vuil = labels("Er is asbest verwerkt. Er is achterstallig onderhoud.")
+    kaal, score_kaal = labels("Lichte woning.")
+    ok &= check("ontkend: geen item en dezelfde score als zonder de zinnen",
+                not ({"Asbest", "Staat"} & schoon) and score_schoon == score_kaal, f"{sorted(schoon)} {score_schoon} {score_kaal}")
+    ok &= check("feit: wel een item en een lagere score", {"Asbest", "Staat"} <= vuil and score_vuil < score_kaal, f"{score_vuil} {score_kaal}")
+    return ok
+
+
+def test_vve_grens() -> bool:
+    print("test: VvE-bijdrage: onder 20 euro of boven 600 zonder periode is onbekend; met periode geldt hij tot 2.000")
+    ok = True
+    fout = [(ch, t, fb.vve_maand(ch, t)) for ch, t, v in VVE_GRENS_ZINNEN if fb.vve_maand(ch, t)[0] != v]
+    ok &= check(f"{len(VVE_GRENS_ZINNEN) - len(fout)}/{len(VVE_GRENS_ZINNEN)} gevallen goed", not fout, str(fout[:3]))
+    ok &= check("grenzen 20 en 600, plafond 2.000", (fb.VVE_MIN_MAAND, fb.VVE_MAX_MAAND, fb.VVE_PLAFOND_MAAND) == (20, 600, 2000))
+    absurd = fb.beoordeel(_minimaal(price=240000, living_area=70, description="De maandelijkse bijdrage aan het reservefonds van € 85.000."),
+                               None, [], [], {"bruto_jaar": 62000, "eigen_inleg": 10000, "leeftijd": 30},
+                               fb.laad_config({"bruto_jaar": 62000, "eigen_inleg": 10000, "leeftijd": 30}), None, vandaag=VANDAAG)
+    ok &= check("een reservefonds van 85.000 komt nooit in de woonlasten: de aanname",
+                absurd["financiering"]["opbouw"]["vve"] == fb.VVE_GESCHAT and absurd["financiering"]["opbouw"]["vve_geschat"] is True)
+    ok &= check("verworpen bedrag heeft een eigen bron, niets gevonden ook",
+                fb.vve_maand({"Bijdrage VvE": "€ 1.800"}, "") == (None, fb.VVE_ONWAARSCHIJNLIJK)
+                and fb.vve_maand({}, "Lichte woning.") == (None, "niet gevonden"))
+    profiel = {"bruto_jaar": 62000, "eigen_inleg": 10000, "leeftijd": 30}
+    cfg = fb.laad_config(profiel)
+
+    def b(ch, tekst=""):
+        return fb.beoordeel(_minimaal(price=240000, living_area=70, characteristics=ch, description=tekst), None, [], [], profiel, cfg,
+                            None, vandaag=VANDAAG)
+
+    jaar, geen, goed = b({"Bijdrage VvE": "€ 1.800"}), b({}), b({"Bijdrage VvE": "€ 150 per maand"})
+    it = [i for i in jaar["onbekend"] if i["label"] == "VvE-bijdrage"]
+    ok &= check("jaarbedrag zonder periode: onbekend, gerekend met de aanname",
+                len(it) == 1 and it[0]["waarde"] == f"onbekend, gerekend met {fb.eur(fb.VVE_GESCHAT)}" and it[0]["punten"] == 0
+                and it[0]["uitleg"], str(it)[:200])
+    ok &= check("woonlasten rekenen met de aanname, niet met 1.800",
+                jaar["financiering"]["opbouw"]["vve"] == fb.VVE_GESCHAT and jaar["financiering"]["opbouw"]["vve_geschat"] is True
+                and jaar["financiering"]["netto"] == geen["financiering"]["netto"])
+    ok &= check("onbekend is geen minpunt: zelfde score als zonder bedrag", jaar["score"] == geen["score"], f"{jaar['score']} {geen['score']}")
+    ok &= check("een gewoon maandbedrag blijft een feit", goed["financiering"]["opbouw"]["vve"] == 150
+                and goed["financiering"]["opbouw"]["vve_geschat"] is False)
+    it = [i for i in jaar["onbekend"] if i["label"] == "VvE-bijdrage"]
+    ok &= check("de uitleg bij een verworpen bedrag noemt beide grenzen en de periode",
+                fb.eur(fb.VVE_MIN_MAAND) in it[0]["uitleg"] and fb.eur(fb.VVE_MAX_MAAND) in it[0]["uitleg"]
+                and "periode" in it[0]["uitleg"], it[0]["uitleg"])
+    # Met de periode erbij geldt een hoog bedrag: de woonlasten rekenen ermee en er staat een "let op" zonder punten.
+    duur = b({"Bijdrage VvE": "€ 650 per maand"})
+    it = [i for i in duur["let_op"] if i["label"] == "VvE-bijdrage"]
+    ok &= check("650 per maand: let op 'ongewoon hoog', 0 punten, met de vraag wat erin zit",
+                len(it) == 1 and "ongewoon hoog" in it[0]["waarde"] and it[0]["punten"] == 0
+                and all(w in (it[0]["vraag"] or "") for w in ("stookkosten", "erfpacht", "servicekosten")), str(it)[:300])
+    ok &= check("650 per maand zit in de woonlasten, niet de aanname",
+                duur["financiering"]["opbouw"]["vve"] == 650 and duur["financiering"]["opbouw"]["vve_geschat"] is False
+                and duur["financiering"]["netto"] - goed["financiering"]["netto"] == 500,
+                f"{duur['financiering']['netto']} {goed['financiering']['netto']}")
+    ok &= check("geen item 'onbekend' meer bij 650 per maand",
+                not [i for i in duur["onbekend"] if i["label"] == "VvE-bijdrage"])
+    return ok
+
+
+def test_leefbaarometer_afronding() -> bool:
+    print("test: Leefbaarometer-klasse wordt afgerond, niet afgekapt")
+    ok = True
+    profiel = {"bruto_jaar": 62000, "eigen_inleg": 10000, "leeftijd": 30}
+    cfg = fb.laad_config(profiel)
+
+    def lbm(k):
+        b = fb.beoordeel(_minimaal(price=240000, living_area=70), None, [], [], profiel, cfg,
+                         {"buurt": {"status": "ok", "data": {"kscore": k}}}, vandaag=VANDAAG)
+        it = [i for groep in ("let_op", "pluspunten", "info", "onbekend") for i in b.get(groep, []) if i["label"] == "Leefbaarometer"]
+        return (it[0]["waarde"].split(" (")[0] if it else None), bool(b["twijfel"])
+
+    verwacht = [(4, "zwak", True), (4.0, "zwak", True), (4.4, "zwak", True), (4.5, "voldoende", False), (4.6, "voldoende", False),
+                (5, "voldoende", False), (6.5, fb.LBM_KLASSE[7], False), (8.6, fb.LBM_KLASSE[9], False), (9.4, fb.LBM_KLASSE[9], False),
+                (0.5, fb.LBM_KLASSE[1], True), (0.4, None, False), (9.5, None, False), (True, None, False), ("5", None, False)]
+    fout = [(k, lbm(k)) for k, klasse, tw in verwacht if lbm(k) != (klasse, tw)]
+    ok &= check(f"{len(verwacht) - len(fout)}/{len(verwacht)} waarden in de juiste klasse (4,6 is voldoende, geen twijfel)", not fout, str(fout))
+    ok &= check("de klassen zijn de gehele getallen 1 tot 9", sorted(fb.LBM_KLASSE) == list(range(1, 10)))
+    bron = json.loads((HIER / "testdata" / "verrijking" / "leefbaarometer_buurtscore24.json").read_text(encoding="utf-8"))
+    scores = [f["properties"]["kscore"] for f in bron.get("features", []) if "kscore" in f.get("properties", {})]
+    ok &= check("de bron levert kscore als geheel getal", scores and all(type(k) is int and k in fb.LBM_KLASSE for k in scores), str(scores[:5]))
+    return ok
+
 
 def test_parsers() -> bool:
     print("test: parsers (52 zinnen uit de audit, advertentielezer met ontkenning, kenmerken eerst)")
@@ -1117,6 +1483,65 @@ def test_log_kenmerk_labels() -> bool:
     ok &= check("geen waarden in de uitvoer", all(isinstance(k, str) and isinstance(n, int) for k, n in tel.items())
                 and not (set(tel) & waarden - {"Ja", "Nee"}))
     ok &= check("leeg is leeg", fb.log_kenmerk_labels([]) == {} and fb.log_kenmerk_labels(None) == {})
+    return ok
+
+
+def test_log_kenmerk_waarden() -> bool:
+    print("test: log_kenmerk_waarden (vaste lijst, genormaliseerd, hooguit 12, vanaf 5 woningen, hooguit 3 of 2 woorden)")
+    ok = True
+    fx = _fixture()
+    details = [w["listing"] for w in fx["woningen"]]
+    tel = fb.log_kenmerk_waarden(details + [None, {"characteristics": None}, {"characteristics": {"Isolatie": None, "Ligging": ["x"]}}])
+    ok &= check("alleen kenmerken uit de vaste lijst", tel and set(tel) <= set(fb.LOG_WAARDEN_KENMERKEN), str(list(tel)))
+    in_fixture = {k for d in details for k in (d.get("characteristics") or {})}
+    ok &= check("de labelnamen van de lijst komen in de fixture voor",
+                {"Isolatie", "Verwarming", "Ligging", "Aantal woonlagen", "Gelegen op", "Voorzieningen", "Balkon/dakterras"} <= in_fixture,
+                str(set(fb.LOG_WAARDEN_KENMERKEN) - in_fixture))
+    ok &= check("getallen zijn een #", "#e woonlaag" in tel["Gelegen op"]["waarden"] and "# woonlaag" in tel["Aantal woonlagen"]["waarden"],
+                str(tel.get("Gelegen op")))
+    ok &= check("samengestelde waarde gesplitst op komma", "mechanische ventilatie" in tel["Voorzieningen"]["waarden"]
+                and not any("," in w for k in tel.values() for w in k["waarden"]))
+    alles = [w for k in tel.values() for w in k["waarden"]]
+    ok &= check("geen cijfer, geen €, kleine letters, hooguit 40 tekens",
+                all(not re.search(r"\d|€", w) and w == w.lower() and len(w) <= 40 for w in alles), str(alles[:5]))
+    ok &= check("aantallen zijn gehele getallen vanaf 5", all(isinstance(n, int) and n >= fb.LOG_WAARDE_MIN_AANTAL == 5
+                                                               for k in tel.values() for n in k["waarden"].values()))
+    ok &= check("hooguit drie woorden per waarde", fb.LOG_WAARDE_MAX_WOORDEN == 3 and all(len(w.split()) <= 3 for w in alles))
+    ok &= check("Voorzieningen en Ligging hooguit twee woorden",
+                fb.LOG_WAARDE_MAX_WOORDEN_KORT == 2 and fb.LOG_WAARDEN_KORT == ("Voorzieningen", "Ligging")
+                and all(len(w.split()) <= 2 for k in fb.LOG_WAARDEN_KORT for w in tel.get(k, {"waarden": {}})["waarden"]))
+    # Gemaakte gevallen: splitsen op 'en', vrije tekst, bedragen, de grens van 12.
+    ch = [{"characteristics": {"Isolatie": "Dakisolatie, dubbel glas en HR++ glas", "Bijdrage VvE": "€ 95 per maand",
+                               "Ligging": "Aan rustige weg en in woonwijk", "Soort dak": "Plat dak bedekt met bitumineuze dakbedekking"}}] * 5
+    ch.append({"characteristics": {"Ligging": "Lindelaan 11, 1234 AB, € 250.000 k.k.", "Soort dak": "Zadeldak"}})
+    t = fb.log_kenmerk_waarden(ch)
+    ok &= check("splitst op komma en 'en'", t["Isolatie"] == {"waarden": {"dakisolatie": 5, "dubbel glas": 5, "hr++ glas": 5}, "meer": 0}, str(t["Isolatie"]))
+    ok &= check("kenmerk buiten de lijst komt er niet in", "Bijdrage VvE" not in t and "€" not in json.dumps(t, ensure_ascii=False))
+    ok &= check("een waarde bij één woning (mogelijk vrije tekst) alleen als aantal",
+                t["Ligging"] == {"waarden": {"in woonwijk": 5}, "meer": 4}
+                and "lindelaan" not in json.dumps(t), str(t["Ligging"]))
+    ok &= check("een waarde van meer dan drie woorden alleen als aantal, ook bij vijf woningen",
+                t["Soort dak"] == {"waarden": {}, "meer": 2}, str(t["Soort dak"]))
+    # Vrije tekst die bij meerdere woningen gelijk is (hetzelfde complex): een straat of een bedrijfsnaam.
+    vrij = ([{"characteristics": {"Ligging": "Aan de Lindelaan in het centrum", "Isolatie": "Dubbel glas"}}] * 6
+            + [{"characteristics": {"Ligging": "Aan de Lindelaan", "Balkon/dakterras": "Dakterras aanwezig aan Lindelaan 12"}}] * 4)
+    t = fb.log_kenmerk_waarden(vrij)
+    ok &= check("gedeelde vrije tekst komt niet in de log: te lang, of bij minder dan vijf woningen",
+                "lindelaan" not in json.dumps(t) and t["Ligging"] == {"waarden": {}, "meer": 2}
+                and t["Balkon/dakterras"] == {"waarden": {}, "meer": 1} and t["Isolatie"]["waarden"] == {"dubbel glas": 6}, str(t))
+    # Drie woorden zijn genoeg voor een straat of een bedrijf: bij Voorzieningen en Ligging hooguit twee.
+    naam = [{"characteristics": {"Ligging": "Aan de Lindelaan van Voorbeeld, in centrum", "Voorzieningen": "Lift en Jansen Voorbeeld Beheer",
+                                 "Isolatie": "Volledig geisoleerd glas"}}] * 5
+    t = fb.log_kenmerk_waarden(naam)
+    ok &= check("drie woorden bij Voorzieningen of Ligging alleen als aantal, ook bij vijf woningen; elders mag het",
+                t["Voorzieningen"] == {"waarden": {"lift": 5}, "meer": 1} and t["Ligging"] == {"waarden": {"in centrum": 5}, "meer": 1}
+                and t["Isolatie"]["waarden"] == {"volledig geisoleerd glas": 5}, str(t))
+    vier = fb.log_kenmerk_waarden([{"characteristics": {"Isolatie": "Dubbel glas"}}] * 4)
+    ok &= check("vier woningen is te weinig", vier["Isolatie"] == {"waarden": {}, "meer": 1}, str(vier))
+    veel = [{"characteristics": {"Voorzieningen": ", ".join(f"voorziening {chr(97 + i)}" for i in range(15))}}] * 5
+    t = fb.log_kenmerk_waarden(veel)["Voorzieningen"]
+    ok &= check("hooguit 12 waarden, de rest als aantal", len(t["waarden"]) == fb.LOG_WAARDEN_MAX == 12 and t["meer"] == 3, str(t))
+    ok &= check("leeg is leeg", fb.log_kenmerk_waarden([]) == {} and fb.log_kenmerk_waarden(None) == {})
     return ok
 
 
@@ -1625,9 +2050,9 @@ def main() -> int:
         return 0
     resultaten = [test_leentoets(), test_kosten_koper_en_koopsom(), test_scenarios(), test_scenario_regels(),
                   test_geen_scenarionamen(), test_rente(), test_poort(),
-                  test_harde_eisen(), test_score(), test_parsers(), test_erfpacht_fixronde(), test_erfpacht_ontkenning(), test_sortering(), test_contract(),
+                  test_harde_eisen(), test_score(), test_parsers(), test_ontkenningen(), test_vve_grens(), test_leefbaarometer_afronding(), test_erfpacht_fixronde(), test_erfpacht_ontkenning(), test_sortering(), test_contract(),
                   test_geen_bevolkingskenmerken(), test_verrijking_vormen(), test_rommelige_invoer(), test_fixture_verwachting(),
-                  test_log_kenmerk_labels(), test_kansen_en_info(), test_omgeving_items(), test_eerder_zonder_prijs(),
+                  test_log_kenmerk_labels(), test_log_kenmerk_waarden(), test_kansen_en_info(), test_omgeving_items(), test_eerder_zonder_prijs(),
                   test_schuin_dak(), test_label_aanname(), test_binnenklimaat(), test_buurtnaam(), test_import_zonder_personal()]
     print()
     if all(resultaten):

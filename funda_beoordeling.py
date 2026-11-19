@@ -897,7 +897,7 @@ def poort(woning: dict, cfg: dict, fin: dict) -> dict:
         harde.append(("Begane grond: hoort al door het filter te vallen.", "begane grond"))
     if he.get("veiling") and woning.get("is_auction"):
         harde.append(("Veiling: geen financieringsvoorbehoud mogelijk.", "veiling, geen financieringsvoorbehoud"))
-    if he.get("kluswoning") and (woning.get("is_fixer_upper") or any(s[0] == "opknapper" for s in lees_advertentie(tekst))):
+    if he.get("kluswoning") and (woning.get("is_fixer_upper") or any(s[0] == "opknapper" for s in lees_advertentie(tekst, alleen_feiten=True))):
         harde.append(("Kluswoning.", "kluswoning"))
     if he.get("slapende_vve") and vve_status(ch, tekst) == "slapend":
         harde.append(("VvE niet actief.", "VvE niet actief"))
@@ -935,25 +935,87 @@ def status_kort(poort_: str, fin: dict, harde: list[str], cfg: dict) -> str:
 # Parsers: kenmerken eerst, tekst als terugval
 # ---------------------------------------------------------------------------------------
 PER = {"maand": 1, "mnd": 1, "jaar": 1 / 12, "jr": 1 / 12, "kwartaal": 1 / 3, "halfjaar": 1 / 6}
+# Een VvE-bijdrage is geen feit maar onbekend als hij onder de ondergrens ligt (per maand, na omrekenen), of
+# boven de bovengrens terwijl de tekst geen periode noemt: een jaarbedrag zonder "per jaar", een eenmalig
+# bedrag, een reservefonds of € 0. Ondergrens: onder € 20 per maand kan een VvE de opstalverzekering niet
+# betalen. Bovengrens: € 600 is voor een appartement van 150 m² al € 4 per m², boven de drempel "hoog"
+# (vve_bijdrage_hoog_per_m2, 3,0). Staat de periode erbij (per maand, of omgerekend uit jaar, halfjaar of
+# kwartaal), dan geldt het bedrag ook boven de bovengrens: het model rekent ermee en het rapport zet er
+# "ongewoon hoog" bij. Anders zou een dure woning met de lagere aanname goedkoper lijken dan hij is.
+# Daarboven ligt een plafond dat ook met periode geldt: € 2.000 per maand is € 24.000 per jaar, voor 150 m² ruim
+# € 13 per m² en dus meer dan vier keer de drempel "hoog". Zo'n bedrag is in een advertentie eerder een
+# reservefonds, een begroting of een koopsom die naast een periode staat dan een bijdrage. De schade van een
+# leesfout blijft zo begrensd: het model rekent nooit met tienduizenden euro's per maand.
+VVE_MIN_MAAND = 20
+VVE_MAX_MAAND = 600
+VVE_PLAFOND_MAAND = 2000
+VVE_ONWAARSCHIJNLIJK = "bedrag onwaarschijnlijk"   # bron bij een gevonden bedrag buiten de grenzen
+# Groep 1 het bedrag, groep 2 de periode erachter ("per jaar", "p/m", "/mnd", "p.m.").
+_VVE_BEDRAG = r"€\s*([\d.,\-]+)\s*(?:,-)?\s*(?:(?:per|p\.)\s*|p?/\s*)?(maand|mnd|m\b|jaar|jr|kwartaal|halfjaar)?"
+_VVE_PER_ERVOOR = (("maand", r"maandelijks|per\s+maand"), ("jaar", r"jaarlijks|per\s+jaar"),
+                   ("kwartaal", r"per\s+kwartaal|kwartaalbijdrage"), ("halfjaar", r"halfjaarlijks|per\s+half\s?jaar"))
+# Een bedrag dat bij een ander trefwoord hoort, is geen VvE-bijdrage ("servicekosten: zie de koopsom € ...",
+# "VvE-bijdrage: reservefonds € ... per jaar"), en een periode die bij zo'n trefwoord of bij een ander bedrag
+# hoort, zegt niets over dit bedrag ("erfpacht per jaar € 900, servicekosten € 210").
+_VVE_ANDER = re.compile(r"reserve|koopsom|koopprijs|vraagprijs|verkoopprijs|\bwoz\b|erfpacht|canon|begro[ot]|saldo|waarborg"
+                        r"|hypothe|eenmalig|bijzondere|extra|taxatie|\bkavel|overdrachtsbelasting|\bk\.?k\b", re.I)
+_VVE_ZIN = re.compile(r"(?:servicekosten|bijdrage(?:\s+aan\s+de)?\s+v\.?v\.?e\.?|v\.?v\.?e\.?[- ]bijdrage|maandelijkse bijdrage)"
+                      r"[^€.;]{0,40}" + _VVE_BEDRAG, re.I)
+
+
+def _vve_bedrag(m: re.Match, ervoor: str) -> int | None:
+    """Maandbedrag uit een treffer van _VVE_BEDRAG, of None als het geen geloofwaardig maandbedrag is.
+    De periode achter het bedrag gaat voor; anders de laatste periode in het stuk ervoor ('de jaarlijkse
+    bijdrage is € 1.800'); anders per maand. Er wordt nooit een periode geraden uit de hoogte van het bedrag.
+    De bovengrens geldt alleen zonder genoemde periode; de ondergrens en het plafond (VVE_PLAFOND_MAAND) altijd.
+    Een periode ervoor telt alleen in dezelfde zin en als er geen ander bedrag of trefwoord (_VVE_ANDER) tussen staat."""
+    bedrag = _getal(m.group(1))
+    if bedrag is None:
+        return None
+    per = (m.group(2) or "").lower()
+    per = "maand" if per == "m" else per
+    if not per:
+        # Alleen een periode in dezelfde zin, zonder ander bedrag of ander trefwoord tussen periode en bedrag.
+        ervoor = re.sub(r"€\s*$", "", re.split(r"[.!?](?=\s)|\n", ervoor.lower())[-1])
+        gevonden = [(mm.end(), naam) for naam, pat in _VVE_PER_ERVOOR for mm in re.finditer(pat, ervoor)]
+        eind, naam = max(gevonden) if gevonden else (0, "")
+        per = naam if naam and "€" not in ervoor[eind:] and not _VVE_ANDER.search(ervoor[eind:]) else ""
+    maand = int(round(bedrag * PER.get(per or "maand", 1)))
+    if maand < VVE_MIN_MAAND or maand > (VVE_PLAFOND_MAAND if per else VVE_MAX_MAAND):
+        return None
+    return maand
 
 
 def vve_maand(ch: dict, tekst: str) -> tuple[int | None, str]:
     """VvE-bijdrage per maand: kenmerken 'Bijdrage VvE', 'Periodieke bijdrage', 'Servicekosten',
-    dan een zin met trefwoord en €-teken. Jaar en kwartaal worden omgerekend."""
+    dan een zin met trefwoord en €-teken. Jaar, halfjaar en kwartaal worden omgerekend als de tekst
+    de periode noemt. Een bedrag onder VVE_MIN_MAAND, of boven VVE_MAX_MAAND zonder genoemde periode, telt
+    niet: de volgende plek krijgt een kans, en vindt die ook niets, dan is het (None, VVE_ONWAARSCHIJNLIJK)
+    en rekent het model met de aanname, net als bij 'niet gevonden'. Met een periode erbij geldt ook een
+    bedrag boven VVE_MAX_MAAND (_items_vve zet er dan "ongewoon hoog" bij), tot VVE_PLAFOND_MAAND. In de tekst
+    telt een bedrag niet als er tussen het trefwoord en het bedrag een ander trefwoord staat (reservefonds,
+    koopsom, erfpacht: _VVE_ANDER) of als het een eenmalige of extra bijdrage is: dat is geen VvE-bijdrage."""
+    verworpen = False
     for sleutel in ("Bijdrage VvE", "Periodieke bijdrage", "Servicekosten"):
-        v = ch.get(sleutel)
-        if v and "€" in str(v):
-            m = re.search(r"€\s*([\d.,\-]+)\s*(?:per\s+)?(maand|mnd|jaar|jr|kwartaal|halfjaar)?", str(v))
-            if m and _getal(m.group(1)) is not None:
-                return int(round(_getal(m.group(1)) * PER.get(m.group(2) or "maand", 1))), f"kenmerk '{sleutel}'"
-    zin = re.search(r"(?:servicekosten|bijdrage(?:\s+aan\s+de)?\s+v\.?v\.?e\.?|v\.?v\.?e\.?[- ]bijdrage|maandelijkse bijdrage)"
-                    r"[^€.;]{0,40}€\s*([\d.,\-]+)\s*(?:,-)?\s*(?:per\s+|p/)?(maand|mnd|m\b|jaar|jr|kwartaal)?",
-                    tekst or "", re.I)
-    if zin and _getal(zin.group(1)) is not None:
-        per = (zin.group(2) or "maand").lower()
-        per = "maand" if per == "m" else per
-        return int(round(_getal(zin.group(1)) * PER.get(per, 1))), "advertentietekst"
-    return None, "niet gevonden"
+        v = str(ch.get(sleutel) or "")
+        m = re.search(_VVE_BEDRAG, v, re.I) if "€" in v else None
+        if m and _getal(m.group(1)) is not None:
+            maand = _vve_bedrag(m, v[:m.start()])
+            if maand is not None:
+                return maand, f"kenmerk '{sleutel}'"
+            verworpen = True
+    t = tekst or ""
+    for zin in _VVE_ZIN.finditer(t):
+        if _getal(zin.group(1)) is None:
+            continue
+        if _VVE_ANDER.search(t[zin.start():zin.start(1)]) or re.search(r"(?:eenmalige|extra|bijzondere)\s+$", t[max(0, zin.start() - 12):zin.start()], re.I):
+            verworpen = True
+            continue
+        maand = _vve_bedrag(zin, t[max(0, zin.start() - 30):zin.start(1)])
+        if maand is not None:
+            return maand, "advertentietekst"
+        verworpen = True
+    return None, VVE_ONWAARSCHIJNLIJK if verworpen else "niet gevonden"
 
 
 def stookkosten_in_vve(ch: dict, tekst: str) -> bool:
@@ -1213,11 +1275,12 @@ def _zin_rond(t: str, start: int, eind: int) -> str:
     return t[a:min(einden) if einden else len(t)]
 
 
-def _zonder_ontkenning(patroon: re.Pattern, t: str, niet: re.Pattern | None = None, eis: re.Pattern | None = None) -> bool:
+def _zonder_ontkenning(patroon: re.Pattern, t: str, niet: re.Pattern | None = None, eis: re.Pattern | None = None,
+                       voor: re.Pattern = _ONTKEND_VOOR, na: re.Pattern = _ONTKEND_NA) -> bool:
     """Staat het patroon in t, niet ontkend (ervoor of erachter)? niet: een zin waarin dit patroon staat,
-    telt niet. eis: de zin moet dit patroon ook bevatten."""
+    telt niet. eis: de zin moet dit patroon ook bevatten. voor en na: de ontkenningsvormen."""
     for m in patroon.finditer(t):
-        if _ONTKEND_VOOR.search(t[max(0, m.start() - 30):m.start()]) or _ONTKEND_NA.search(t[m.end():m.end() + 80]):
+        if voor.search(t[max(0, m.start() - 30):m.start()]) or na.search(t[m.end():m.end() + 80]):
             continue
         if niet is not None or eis is not None:
             zin = _zin_rond(t, m.start(), m.end())
@@ -1289,11 +1352,12 @@ def vve_status(ch: dict, tekst: str) -> str:
 
 
 # Advertentielezer: (id, patroon, ontkenning_controleren, onderdeel, oordeel, label, waarde,
-# punten, kort, vraag). Ontkenning: 'geen/niet/zonder' in de 25 tekens ervoor = niet tellen.
+# punten, kort, vraag). Ontkenning (alleen bij True): ervoor of erachter, zie _SIGNAAL_ONTKEND_VOOR en _NA.
+# False = het patroon is zelf al de hele bewering ("huisdieren niet toegestaan", "zonder vergunning").
 SIGNALEN = [
     ("ouderdomsclausule", r"ouderdomsclausule", True, "clausules", "let_op", "Ouderdomsclausule", "in advertentie", 0.0,
      "ouderdomsclausule", "Laat een bouwkundige keuring doen: de clausule beperkt wat je later kunt claimen."),
-    ("asbest", r"asbest(?:clausule)?", True, "clausules", "let_op", "Asbest", "genoemd in advertentie", 0.0,
+    ("asbest", r"asbest(?!\s*-?\s*vrij)(?:clausule)?", True, "clausules", "let_op", "Asbest", "genoemd in advertentie", 0.0,
      "asbest genoemd", "Vraag of er een asbestinventarisatie is."),
     ("niet_zelfbewoning", r"niet[- ]?zelfbewoning", False, "clausules", "neutraal", "Niet-zelfbewoning",
      "verkoper woonde er niet", 0.0, "niet-zelfbewoning",
@@ -1321,14 +1385,112 @@ SIGNALEN = [
 ]
 
 
-def lees_advertentie(tekst: str) -> list[tuple]:
-    """De signalen uit SIGNALEN die in de tekst staan (elk hooguit één keer)."""
+# Ontkenning vóór een signaal: "geen asbest aangetroffen", "vrij van asbest", "geen sprake van lekkage".
+# Niet als ontkenning tellen: "niet-zelfbewoningsclausule en asbestclausule" (naam van een clausule), "niet
+# bekend of er asbest is" (voorbehoud, juist een reden om te vragen) en een ontkenning van iets anders met
+# een tegenstelling of dubbele punt ertussen ("geen lift, wel achterstallig onderhoud").
+_SIGNAAL_ONTKEND_VOOR = re.compile(r"(?:\b(?:geen|zonder|nergens|nooit)\b|\bniet\b(?![- ]?(?:zelf)?bewon|\s+bekend)"
+                                   r"|\bvrij\s+van\b)(?:(?!\b(?:maar|wel|echter|helaas)\b)[^.!?\n:;]){0,25}$")
+# Ontkenning erachter, binnen hetzelfde zinsdeel (tot een komma): "asbest is niet aanwezig", "van achterstallig
+# onderhoud is geen sprake", "scheurvorming is niet geconstateerd". Alleen vaste vormen; "niet bekend" hoort
+# er bewust niet bij.
+_SIGNAAL_ONTKEND_NA = re.compile(r"^[^.!?\n,;:]{0,45}?\b(?:niet|geen|nooit)\s+(?:\w+\s+){0,2}?(?:aanwezig|aangetroffen"
+                                 r"|geconstateerd|gevonden|waargenomen|vastgesteld|verwerkt|gebruikt|toegepast|opgenomen"
+                                 r"|sprake|van\s+toepassing|aan\s+de\s+orde|nodig|gepland|voorzien)\b"
+                                 r"|^(?:\s+(?:of|en)\s+[\w-]+){0,2}\s*(?:is|zijn)\s+er\s+niet\b|^\s*(?:is|zijn)\s+uitgesloten\b")
+
+
+# Een voorbehoud is geen ontkenning maar juist een reden om te vragen. Twee soorten, bewust smal:
+# - vaste vormen, in het zinsdeel van het signaal of in de ontkenning die erover gaat: er is NIET onderzocht
+#   ("geen onderzoek gedaan naar asbest", "niet op asbest geinspecteerd"), iets is NIET uit te sluiten of te
+#   garanderen ("niet uitgesloten", "kan niet garanderen dat", "geen garantie", "staat er niet voor in"), of
+#   het is niet bekend ("niet bekend of"). Onderzoek dat wel gedaan is, is geen voorbehoud: "uit onderzoek
+#   blijkt dat er geen asbest is" en "niet aangetroffen bij het onderzoek" blijven een ontkenning.
+# - losse woorden (onbekend, aansprakelijk, instaan), alleen in hetzelfde zinsdeel en binnen
+#   _SIGNAAL_LOS_AFSTAND tekens van het signaal; "behalve" en "uitgezonderd" alleen vlak erachter.
+_GEEN_VONDST = r"(?!aangetroffen|geconstateerd|gevonden|waargenomen|vastgesteld|aanwezig|gebleken|sprake)"
+_SIGNAAL_VOORBEHOUD = re.compile(
+    r"\b(?:geen|zonder)\s+(?:" + _GEEN_VONDST + r"[\w-]+\s+){0,2}(?:onderzoek|inspectie|controle|keuring|garantie)"
+    r"|\b(?:niet|nooit)\s+(?:" + _GEEN_VONDST + r"[\w-]+\s+){0,3}(?:onderzocht|ge[iï]nspecteerd|gecontroleerd|gekeurd"
+    r"|garanderen|gegarandeerd|garandeert)"
+    r"|\b(?:niet|nooit)\s+(?:[\w-]+\s+){0,2}(?:uitgesloten|uit\s+te\s+sluiten|uitsluiten)"
+    r"|\bsluit\w*\b[^.!?\n,;:]{0,20}\bniet\s+uit\b|\bniet\b[^.!?\n,;:]{0,15}\bvoor\s+in\b"
+    r"|\bniet\s+(?:[\w-]+\s+)?(?:bekend|zeker|duidelijk)\b")
+_SIGNAAL_VOORBEHOUD_LOS = re.compile(r"\bonbekend\b|\baansprakelijk|\binstaan\b|\bin\s+te\s+staan\b")
+_SIGNAAL_UITZONDERING = re.compile(r"^(?:(?!\s(?:en|maar)\s)[^.!?\n;:]){0,30}?\b(?:behalve|uitgezonderd)\b")
+_SIGNAAL_LOS_AFSTAND = 30
+# Een zinsdeel loopt tot een komma, puntkomma, dubbele punt, "en", "maar" of de zinsgrens.
+_ZINSDEEL_GRENS = re.compile(r"[,;:.!?\n]|\s(?:en|maar|echter|doch)\s")
+# Een tweede ontkenning in een bijzin heft de eerste op: "geen aanwijzingen dat er geen asbest is", "niet
+# garanderen dat er geen lekkage optreedt". Een opsomming ("geen lekkage en geen asbest") is dat niet.
+_SIGNAAL_DUBBEL = re.compile(r"\b(?:geen|niet|nooit)\b[^.!?\n,;:]{0,40}\b(?:dat|of)\b[^.!?\n,;:]{0,30}\b(?:geen|niet)\b"
+                             r"[^.!?\n,;:]{0,25}$")
+# Na een ontkenning erachter: "is niet nodig om te vermelden, maar zit wel in de kelder".
+_SIGNAAL_TOCH = re.compile(r"\b(?:maar|echter|doch)\b[^.!?\n]*\bwel\b")
+SIGNAAL_FEIT, SIGNAAL_VOORBEHOUD = "feit", "voorbehoud"
+
+
+def _signaal_stand(patroon: re.Pattern, t: str) -> str | None:
+    """Hoe staat het signaal in t? SIGNAAL_FEIT: minstens één keer zonder ontkenning en zonder voorbehoud.
+    SIGNAAL_VOORBEHOUD: alleen met een voorbehoud, een dubbele ontkenning of 'niet ..., maar wel': niet
+    uitgesloten, geen vastgesteld gebrek. None: niet genoemd, of alleen echt ontkend (ervoor of erachter)."""
+    stand = None
+    for m in patroon.finditer(t):
+        begin = max(t.rfind(c, 0, m.start()) for c in ".!?\n") + 1
+        einden = [i for i in (t.find(c, m.end()) for c in ".!?\n") if i >= 0]
+        eind = min(einden) if einden else len(t)
+        voor = _SIGNAAL_ONTKEND_VOOR.search(t[max(begin, m.start() - 30):m.start()])
+        na = _SIGNAAL_ONTKEND_NA.search(t[m.end():m.end() + 80])
+        # Het zinsdeel van het signaal; bij een ontkenning ervoor of erachter hoort die ontkenning erbij.
+        grenzen = [g.end() for g in _ZINSDEEL_GRENS.finditer(t, begin, m.start())]
+        deel_a = grenzen[-1] if grenzen else begin
+        g = _ZINSDEEL_GRENS.search(t, m.end(), eind)
+        deel_b = g.start() if g else eind
+        if voor:
+            deel_a = min(deel_a, max(begin, m.start() - 30) + voor.start())
+        if na:
+            deel_b = max(deel_b, min(eind, m.end() + na.end()))
+        los_a, los_b = max(deel_a, m.start() - _SIGNAAL_LOS_AFSTAND), min(deel_b, m.end() + _SIGNAAL_LOS_AFSTAND)
+        if (_SIGNAAL_VOORBEHOUD.search(t[deel_a:deel_b]) or _SIGNAAL_VOORBEHOUD_LOS.search(t[los_a:los_b])
+                or _SIGNAAL_UITZONDERING.search(t[m.end():eind])):
+            stand = SIGNAAL_VOORBEHOUD
+        elif not voor and not na:
+            return SIGNAAL_FEIT
+        elif (voor and _SIGNAAL_DUBBEL.search(t[begin:m.start()])) or (na and not voor and _SIGNAAL_TOCH.search(t[m.end() + na.end():eind])):
+            stand = SIGNAAL_VOORBEHOUD
+    return stand
+
+
+def _signaal_voorbehoud(regel: tuple) -> tuple:
+    """De regel van een signaal dat alleen als voorbehoud in de tekst staat: 0 punten, wel de vraag. Het is
+    'niet uitgesloten', geen vastgesteld gebrek, dus geen minpunt (en ook geen pluspunt)."""
+    sid, pat, ontk, onderdeel, oordeel, label, _waarde, _punten, kort, vraag = regel
+    naam = kort.replace(" genoemd", "")
+    return (sid, pat, ontk, onderdeel, "let_op" if oordeel in ("let_op", "sterk") else "neutraal", label,
+            f"{naam} niet uitgesloten (voorbehoud in advertentie)", 0.0, f"{naam} niet uitgesloten", vraag)
+
+
+def lees_advertentie(tekst: str, alleen_feiten: bool = False) -> list[tuple]:
+    """De signalen uit SIGNALEN die in de tekst staan (elk hooguit één keer). Een ontkend signaal telt
+    niet, ervoor ("geen asbest aangetroffen") of erachter ("asbest is niet aanwezig"); staat het woord
+    ook één keer zonder ontkenning in de tekst, dan telt het wel, met zijn punten. Een voorbehoud ("niet
+    onderzocht", "niet uit te sluiten", "kan niet garanderen") en een dubbele ontkenning geven het signaal
+    met 0 punten en de vraag (_signaal_voorbehoud): niet uitgesloten is geen vastgesteld gebrek. Alleen een
+    signaal dat als feit in de tekst staat, houdt zijn punten. alleen_feiten: zonder de voorbehouden (voor
+    de harde eis kluswoning en voor wat op een feit moet leunen)."""
     t = (tekst or "").lower()
-
-    def ontkend(m):
-        return re.search(r"\b(?:geen|niet|zonder)\b[^.]{0,25}$", t[max(0, m.start() - 25):m.start()])
-
-    return [regel for regel in SIGNALEN if any(not (regel[2] and ontkend(m)) for m in re.finditer(regel[1], t))]
+    uit = []
+    for regel in SIGNALEN:
+        if not regel[2]:
+            if re.search(regel[1], t):
+                uit.append(regel)
+            continue
+        stand = _signaal_stand(re.compile(regel[1]), t)
+        if stand == SIGNAAL_FEIT:
+            uit.append(regel)
+        elif stand == SIGNAAL_VOORBEHOUD and not alleen_feiten:
+            uit.append(_signaal_voorbehoud(regel))
+    return uit
 
 
 def _tijd(change: dict) -> str:
@@ -1966,7 +2128,18 @@ def _items_vve(ch: dict, tekst: str, vve, vve_bron: str, stook: bool, m2: int, n
     add = uit.append
     if vve is None:
         add(_item("vve", "onbekend", "VvE-bijdrage", f"onbekend, gerekend met {eur(VVE_GESCHAT)}", "aanname",
-                  kort="VvE-bijdrage onbekend", vraag="Vraag de maandelijkse VvE-bijdrage op."))
+                  kort="VvE-bijdrage onbekend", vraag="Vraag de maandelijkse VvE-bijdrage op.",
+                  uitleg=(f"De advertentie noemt een bedrag dat als maandbedrag niet aannemelijk is: onder "
+                          f"{eur(VVE_MIN_MAAND)}, boven {eur(VVE_MAX_MAAND)} zonder dat de periode erbij staat, boven "
+                          f"{eur(VVE_PLAFOND_MAAND)}, of bij een ander onderwerp genoemd (kan een jaarbedrag, een "
+                          "eenmalig bedrag of een reservefonds zijn). Daarom niet gebruikt.")
+                  if vve_bron == VVE_ONWAARSCHIJNLIJK else None))
+    elif vve > VVE_MAX_MAAND:
+        # De periode stond erbij, dus het bedrag geldt en zit in de woonlasten. Geen punten: die doen het werk al.
+        add(_item("vve", "let_op", "VvE-bijdrage", f"{eur(vve)} per maand, ongewoon hoog", vve_bron,
+                  kort=f"VvE {eur(vve)} ongewoon hoog",
+                  vraag="Vraag wat er in de VvE-bijdrage zit: stookkosten, erfpacht of servicekosten.",
+                  uitleg="Zit al in je woonlasten."))
     else:
         per_m2 = vve / max(m2, 1)
         hoogte = (None if stook else "laag" if per_m2 < dr["vve_bijdrage_laag_per_m2"]
@@ -2065,8 +2238,12 @@ def _items_buurt(twijfel_z: list[str], verrijking, dr: dict) -> list[dict]:
     st, bu, reden = _bron(verrijking, "buurt")
     if st == "ok" and bu:
         k = bu.get("kscore")
-        if isinstance(k, (int, float)) and int(k) in LBM_KLASSE:
-            k = int(k)
+        # De bron geeft kscore als geheel getal 1 tot 9 (klassen, geen schaal). Komt er toch een gebroken waarde
+        # binnen (cache, andere jaargang), dan naar de dichtstbijzijnde klasse en een half omhoog: 4,6 is
+        # "voldoende" en niet "zwak". Bewust geen round(): dat rondt 4,5 naar 4 (even). Buiten 1 tot 9 na
+        # afronden = geen klasse, dus geen item.
+        if isinstance(k, (int, float)) and not isinstance(k, bool) and math.floor(k + 0.5) in LBM_KLASSE:
+            k = math.floor(k + 0.5)
             klasse, jaar = LBM_KLASSE[k], bu.get("jaar") or 2024
             buurt = cbs_buurt(verrijking)
             in_buurt = f"Geldt voor de buurt {buurt} (indeling CBS)." if buurt else None
@@ -2218,7 +2395,7 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
                         "woz": (hist["woz"] or {}).get("bedrag")}, cfg, profiel, rente, vandaag)
     gate = poort(w, cfg, fin)
     signalen = lees_advertentie(tekst)
-    sig_ids = {s[0] for s in signalen}
+    sig_ids = {s[0] for s in lees_advertentie(tekst, alleen_feiten=True)}   # een voorbehoud is geen feit
     laag, lift, laag_bron = woonlaag(ch, tekst)
     # De lage m²-prijs van een kluswoning of een slecht label is geen koopje.
     verklaard = bool(w.get("is_fixer_upper")) or "opknapper" in sig_ids or label in dr["energielabel_slecht"]
@@ -2366,6 +2543,55 @@ def log_kenmerk_labels(details_lijst) -> dict[str, int]:
             if isinstance(k, str) and k.strip():
                 teller[k.strip()] = teller.get(k.strip(), 0) + 1
     return dict(sorted(teller.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
+# Kenmerken waarvan de log ook de waarden telt. Alleen deze lijst: het zijn keuzelijsten van funda. Andere
+# kenmerken (bijdragen, prijzen, lasten, kadaster) kunnen een bedrag of adresachtige tekst bevatten.
+LOG_WAARDEN_KENMERKEN = ("Soort dak", "Isolatie", "Verwarming", "Ligging", "Aantal woonlagen", "Gelegen op",
+                         "Voorzieningen", "Balkon/dakterras")
+LOG_WAARDEN_MAX = 12        # per kenmerk hooguit zoveel waarden in de log
+LOG_WAARDE_MIN_AANTAL = 5   # een waarde bij een paar woningen kan vrije tekst zijn (een straatnaam, enkele
+#                             woningen in hetzelfde complex): alleen meetellen
+LOG_WAARDE_MAX_WOORDEN = 3  # een keuzewaarde is kort; een langere waarde is eerder een zin: alleen meetellen
+# Bij deze kenmerken past een straat- of bedrijfsnaam in drie woorden ("laan van ...", "... beheer bv"): twee.
+LOG_WAARDE_MAX_WOORDEN_KORT = 2
+LOG_WAARDEN_KORT = ("Voorzieningen", "Ligging")
+LOG_WAARDE_LENGTE = 40
+
+
+def _log_waarden(v) -> set[str]:
+    """De genormaliseerde delen van één kenmerkwaarde: kleine letters, elk getal een '#', alleen letters en
+    een paar leestekens (dus geen €-teken), gesplitst op komma, puntkomma en 'en', hooguit 40 tekens."""
+    uit = set()
+    for deel in re.split(r"[,;\n]|\s+en\s+", str(v).lower()):
+        deel = re.sub(r"\d+(?:[.,]\d+)*", "#", deel)
+        deel = " ".join(re.sub(r"[^a-zà-ÿ#/+()' -]", " ", deel).split())[:LOG_WAARDE_LENGTE].strip()
+        if deel:
+            uit.add(deel)
+    return uit
+
+
+def log_kenmerk_waarden(details_lijst) -> dict[str, dict]:
+    """Meting voor de log: welke waarden funda geeft bij de kenmerken uit LOG_WAARDEN_KENMERKEN, met het
+    aantal woningen per waarde. Per kenmerk {"waarden": {waarde: aantal} (de LOG_WAARDEN_MAX meest
+    voorkomende, elk bij minstens LOG_WAARDE_MIN_AANTAL woningen en hooguit LOG_WAARDE_MAX_WOORDEN woorden
+    lang, bij LOG_WAARDEN_KORT hooguit LOG_WAARDE_MAX_WOORDEN_KORT), "meer": aantal soorten dat niet getoond wordt}. Geen adressen, geen getallen, geen bedragen."""
+    uit: dict[str, dict] = {}
+    for naam in LOG_WAARDEN_KENMERKEN:
+        teller: dict[str, int] = {}
+        for det in details_lijst or []:
+            v = _blok(det, "characteristics").get(naam) if isinstance(det, dict) else None
+            if isinstance(v, (str, int, float)) and not isinstance(v, bool):
+                for w in _log_waarden(v):
+                    teller[w] = teller.get(w, 0) + 1
+        if teller:
+            woorden = LOG_WAARDE_MAX_WOORDEN_KORT if naam in LOG_WAARDEN_KORT else LOG_WAARDE_MAX_WOORDEN
+            top = sorted((kv for kv in teller.items()
+                          if kv[1] >= LOG_WAARDE_MIN_AANTAL and len(kv[0].split()) <= woorden),
+                         key=lambda kv: (-kv[1], kv[0]))
+            top = top[:LOG_WAARDEN_MAX]
+            uit[naam] = {"waarden": dict(top), "meer": len(teller) - len(top)}
+    return uit
 
 
 def log_prijshistorie(woningen) -> dict:

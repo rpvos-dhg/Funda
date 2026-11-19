@@ -1,29 +1,63 @@
-// Woningrapport: service worker (network-first, cache als terugval)
-const CACHE = 'funda-shortlist-v7';
-const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png',
-  'app.css', 'slot.css', 'app.js', 'slot.js', 'push.js', 'leaflet/leaflet.js', 'leaflet/leaflet.css'];
+// Woningrapport: service worker. Afgeleid uit de bestanden door funda_rapport.py; niet met de hand wijzigen.
+const CACHE = 'funda-shortlist-ee93407d2f';
+// Statische bestanden met hun versie: de eerste 10 hextekens van de sha256 van de inhoud.
+const VERSIES = {
+  'app.css': '9ac584e38c',
+  'app.js': '8a80536967',
+  'leaflet/leaflet.css': 'a783710282',
+  'leaflet/leaflet.js': 'db49d009c8',
+  'push.js': 'e9cffc8527',
+  'slot.css': 'e758187e81',
+  'slot.js': '57996ff0d4'
+};
+const LOS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png'];
+const BASIS = new URL('./', self.location).pathname;
+const sleutel = p => p + '?v=' + VERSIES[p];
+async function klopt(resp, versie) {
+  const som = new Uint8Array(await crypto.subtle.digest('SHA-256', await resp.clone().arrayBuffer()));
+  return Array.from(som.slice(0, versie.length / 2), b => b.toString(16).padStart(2, '0')).join('') === versie;
+}
 self.addEventListener('install', e => {
   self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+  e.waitUntil(caches.open(CACHE).then(async c => {
+    await c.addAll(LOS);
+    // Een bestand waarvan de inhoud niet bij de versie past (update nog onderweg) blijft uit de cache.
+    await Promise.all(Object.keys(VERSIES).map(async p => {
+      const resp = await fetch(sleutel(p));
+      if (resp.ok && await klopt(resp, VERSIES[p])) await c.put(sleutel(p), resp);
+    }));
+  }));
 });
 self.addEventListener('activate', e => e.waitUntil(
   caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
     .then(() => self.clients.claim())
 ));
+async function antwoord(req, url) {
+  const c = await caches.open(CACHE);
+  const p = url.pathname.startsWith(BASIS) ? url.pathname.slice(BASIS.length) : '';
+  const vast = Object.prototype.hasOwnProperty.call(VERSIES, p);
+  const huidig = vast && url.searchParams.get('v') === VERSIES[p];
+  if (huidig) {
+    const r = await c.match(sleutel(p));
+    if (r) return r;
+  }
+  try {
+    const resp = await fetch(req);
+    if (resp.ok && resp.type === 'basic') {
+      if (!vast) c.put(req, resp.clone()).catch(()=>{});
+      else if (huidig && await klopt(resp, VERSIES[p])) c.put(sleutel(p), resp.clone()).catch(()=>{});
+    }
+    return resp;
+  } catch (_) {
+    const r = await c.match(vast ? sleutel(p) : req) || (req.mode === 'navigate' ? await c.match('index.html') : null);
+    return r || Response.error();
+  }
+}
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
-  e.respondWith(
-    fetch(e.request).then(resp => {
-      if (resp.ok && resp.type === 'basic') {
-        const clone = resp.clone();
-        caches.open(CACHE).then(c => c.put(e.request, clone)).catch(()=>{});
-      }
-      return resp;
-    }).catch(() => caches.match(e.request).then(r =>
-      r || (e.request.mode === 'navigate' ? caches.match('index.html') : Response.error())))
-  );
+  e.respondWith(antwoord(e.request, url));
 });
 self.addEventListener('push', e => {
   let data = {};
