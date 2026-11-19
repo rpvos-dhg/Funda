@@ -48,16 +48,11 @@ Bestanden:
   Palet en schrijfregels: `.interface-design/system.md`.
 - `.github/workflows/funda-daily.yml` (de run) en `funda-debug.yml` ("Funda API
   debug", alleen handmatig: job **tests** en job **funda-live**).
-- `scripts/`: gereedschap buiten de run. `funda_api_debug.py`,
-  `funda_html_validatie.py`, `funda_html_analyse.py`,
-  `funda_sitemap_validatie.py`, `funda_sitemap_probe.py`,
-  `funda_mail_validatie.py`, `funda_mail_imap_check.py`, `state_migratie.py` en
-  `send_web_push.cjs` (de push, ook in de workflow).
-- `requirements.in` en `requirements.txt`, `package.json` en
-  `package-lock.json`: zie 12.
-- `data/trhk_2026_tabel1.json`: tabel 1 van de leentoets en de labelbedragen.
-- `testdata/`: fictieve fixtures en ingekorte echte antwoorden van open bronnen.
-- `funda_personal.example.json`: voorbeeld van de privé-config, fictieve waarden.
+- `scripts/`: gereedschap buiten de run (debug, validatie, probe,
+  `state_migratie.py`) en `send_web_push.cjs` (de push, ook in de workflow).
+- `data/trhk_2026_tabel1.json` (tabel 1 van de leentoets, labelbedragen),
+  `testdata/` (fictieve fixtures, ingekorte echte antwoorden van open bronnen),
+  `funda_personal.example.json` (voorbeeldconfig met fictieve waarden).
 
 ## 2. Privébestanden en secrets
 
@@ -86,29 +81,24 @@ mogen weg.
 
 Elk punt is een besluit; de uitleg staat in de genoemde sectie.
 
-- **Funda's botbescherming omzeilen**: geen wisselende vingerafdrukken, geen
-  andere host om een blokkade te passeren, geen app-vermomming. Bij 401, 403 of
-  429 stoppen (5).
-- **Bevolkingskenmerken** (herkomst, nationaliteit, inkomen van een buurt)
-  lezen, bewaren of tonen (9).
-- **Een eurobedrag in de pushmelding**, of inkomen in rapport, log of push (7).
-- **Adressen, postcodes, woningnummers of profielbedragen in de log** (11).
-- **Een merknaam, kleur of font van derden** in de repo of in een commitbericht
-  (10).
-- **Echte scenarionamen, persoonsgegevens, echte mailinhoud of tracking-tokens**
-  in code, tests, fixtures of notities (8, 6).
-- **De padenlijst van de Actions-cache wijzigen zonder migratie** (12).
-- **Onversleuteld publiceren** (12).
-- **Rekenen met prijs 0** bij een woning zonder vraagprijs (7).
-- **Een test uitschakelen of versoepelen** om iets groen te krijgen. De
-  scantests (merknaam, scenarionamen, publieke log, jaartest) falen met opzet.
-- **Met de hand in `requirements.txt` werken**, of pyfunda upgraden zonder de
-  code mee te porten (12).
-- **`auto_push()` laten draaien in een test**, of meer dan `docs/` laten
-  committen door een run (12).
-- **Stil verliezen.** Onbekend = doorlaten of "onbekend" tonen, twijfel =
-  onderaan zetten. Een woning verdwijnt nooit door een ontbrekend gegeven
-  (uitzondering: geen vraagprijs, zie 7).
+- Funda's botbescherming omzeilen: geen wisselende vingerafdrukken, geen andere
+  host om een blokkade te passeren, geen app-vermomming (5).
+- Bevolkingskenmerken (herkomst, nationaliteit, inkomen van een buurt) lezen,
+  bewaren of tonen (9).
+- Een eurobedrag in de pushmelding, of inkomen in rapport, log of push (7).
+- Adressen, postcodes, woningnummers of profielbedragen in de log (11).
+- Een merknaam, kleur of font van derden in de repo of een commitbericht (10).
+- Echte scenarionamen, persoonsgegevens, mailinhoud of tracking-tokens in code,
+  tests, fixtures of notities (8, 6).
+- De padenlijst van de Actions-cache wijzigen zonder migratie; onversleuteld
+  publiceren; met de hand in `requirements.txt` werken; een run meer dan `docs/`
+  laten committen (12).
+- Rekenen met prijs 0 bij een woning zonder vraagprijs (7).
+- Een test uitschakelen of versoepelen om iets groen te krijgen. De scantests
+  (merknaam, scenarionamen, publieke log, jaartest) falen met opzet.
+- Stil verliezen. Onbekend = doorlaten of "onbekend" tonen, twijfel = onderaan.
+  Een woning verdwijnt nooit door een ontbrekend gegeven (uitzondering: geen
+  vraagprijs, zie 7).
 
 ## 4. Wanneer stopt een run met exit 2
 
@@ -151,61 +141,50 @@ van de zoek-calls dat mislukt. De workflow stopt al vóór de run als
 
 ## 5. Funda als bron: wat dicht is en wat we niet doen
 
-Stand (verloop en metingen: notities):
-
-- De zoek-API (`listing-search-wonen.funda.io`) is dicht sinds 18 aug 2026: App
-  Check met device attestation. Dat komt niet terug via code.
-- `www.funda.nl` geeft sinds 8 okt 2026 een 403 vanaf Actions op de zoekpagina
-  en detailpagina's. De blokkade hangt aan het IP van de runner; headers of
-  TLS-profielen aanpassen helpt niet. robots.txt en de sitemaps komen wel door.
-- Het detail-endpoint (`listing-detail-page.funda.io`) geeft de eerlijke client
-  200. Op Actions is de sitemaproute daarom de bron (besluit eigenaar, 6 nov
-  2026).
-
-Regels:
+Stand (verloop, metingen en de afweging achter het besluit: notities). De
+zoek-API is dicht sinds 18 aug 2026 (App Check met device attestation; komt
+niet terug via code). `www.funda.nl` geeft sinds 8 okt 2026 een 403 vanaf
+Actions op zoek- en detailpagina's; dat hangt aan het IP van de runner, dus
+headers of TLS-profielen aanpassen helpt niet. robots.txt, de sitemaps en het
+detail-endpoint (`listing-detail-page.funda.io`) werken. Op Actions is de
+sitemaproute daarom de bron (besluit eigenaar, 6 nov 2026).
 
 - **Niet omzeilen.** Een nieuwere TLS-vingerafdruk of de host
   `listing-search-wonen.funda.nl` is bewust niet geprobeerd. Wat wel mag: de
-  sitemaps, het detail-endpoint, funda's eigen mails, en draaien vanaf een eigen
+  sitemaps, het detail-endpoint, funda's eigen mails, draaien vanaf een eigen
   netwerk.
 - **Eerlijke client voor funda's API-hosts.** Elk verzoek van de
   `Funda`-subklasse gaat via curl zonder browser- of app-profiel, met
   `EERLIJKE_UA` (één constante in `funda_verrijking.py`, door `funda_zoek`
   opnieuw geëxporteerd), zonder app- of traceheaders. pyfunda zelf doet zich
-  voor als de app en zoekt bij een weigering een werkende vingerafdruk; gebruik
-  daarom altijd `from funda_zoek import Funda`, nooit pyfunda's eigen `Funda`.
-  Niet terugzetten zonder bewuste keuze van de eigenaar. Test:
-  `test_eerlijke_client`.
+  voor als de app en zoekt bij een weigering een werkende vingerafdruk: gebruik
+  altijd `from funda_zoek import Funda`, nooit pyfunda's eigen `Funda`. Niet
+  terugzetten zonder bewuste keuze van de eigenaar. Test: `test_eerlijke_client`.
 - **Statuscodes** (in de subklasse): 401/403/429 = `DetailEndpointDicht` (exit
   2), 404/410 = `WoningNietGevonden` (woning weg, endpoint werkt), de rest een
   gewone `LookupError` (storing).
 - **Eén vast profiel voor `www.funda.nl` en `links.funda.nl`:**
-  `funda_sitemap_zoek.UA` en `IMPERSONATE` (`safari15_5`), ook in de HTML-zoeker
-  en als `funda_mail_bron.TRACKER_IMPERSONATE`. Een 401, 403 of bot-controle =
-  luid falen. Test: `test_funda_html.py::test_profiel_www`.
-- **Probes** draaien alleen handmatig en gebruiken per host één vaste client. De
-  dagelijkse workflow start na een mislukte run geen probe.
-- **Diagnose:** in "Funda API debug" zegt job tests iets over de code en job
-  funda-live (bewust `continue-on-error` op job-niveau) iets over funda. Het
-  echte faalsignaal is de rode dagelijkse workflow.
+  `funda_sitemap_zoek.UA` en `IMPERSONATE`, ook in de HTML-zoeker en als
+  `funda_mail_bron.TRACKER_IMPERSONATE`. Een 401, 403 of bot-controle = luid
+  falen. Test: `test_funda_html.py::test_profiel_www`.
+- **Probes** alleen handmatig, per host één vaste client. In "Funda API debug"
+  zegt job tests iets over de code en job funda-live (bewust `continue-on-error`
+  op job-niveau) iets over funda. Het echte faalsignaal is de rode dagelijkse
+  workflow.
 
 **Besluit robots.txt van de API-hosts (6 nov 2026): doorgaan.** De detail-host
 heeft `Disallow: /`; dat was bekend en is geaccepteerd, dus geen reden om te
 heroverwegen. `detail_verboden()` leest alleen de robots.txt van `www.funda.nl`
-en houdt de detail-calls niet tegen. De waarborgen blijven staan:
-
-- `EERLIJKE_UA` met repo-link, zodat funda ons kan herkennen en blokkeren;
-- meteen stoppen bij 401/403/429, nooit omzeilen;
-- hooguit `sitemap_max_verkennen` (200) verkennende detail-calls per run,
-  eenmalig 600 en niet hoger (`SITEMAP_MAX_VERKENNEN_PLAFOND`);
-- geen wisselende vingerafdrukken.
-
-Heroverwegen zodra funda de eerlijke client weigert, funda's voorwaarden dit
-uitdrukkelijk verbieden, of funda erom vraagt. Alternatief: Huispedia (prototype
-op branch `claude/probe-andere-woningsites`). Een thuisnetwerk lost dat niet op;
-ook daar verrijkt elke route via de detail-host. `local-listings` en
-`listing-detail-summary` roept dit script niet aan. Afweging en volumes:
-notities.
+en houdt de detail-calls niet tegen. Waarborgen, die blijven staan:
+`EERLIJKE_UA` met repo-link (funda kan ons herkennen en blokkeren); meteen
+stoppen bij 401/403/429; hooguit `sitemap_max_verkennen` (200) verkennende
+detail-calls per run, eenmalig 600 en niet hoger
+(`SITEMAP_MAX_VERKENNEN_PLAFOND`); geen wisselende vingerafdrukken.
+**Heroverwegen** zodra funda de eerlijke client weigert, funda's voorwaarden dit
+uitdrukkelijk verbieden, of funda erom vraagt. Alternatief: Huispedia (het prototype
+stond op een oude branch die is opgeruimd; de eigenaar heeft de bestanden als
+zip). Een thuisnetwerk lost dat niet op:
+ook daar verrijkt elke route via de detail-host.
 
 ## 6. Zoeken, filters en pool
 
@@ -215,23 +194,21 @@ notities.
   nooit.
 - **Prijsbanden:** funda kapt een zoekopdracht af op ongeveer 140 resultaten.
   Daarom zoeken per prijsband (stap 20k) en sortering, met dedup.
-- **Sitemaproute** (`SitemapZoeker`; metingen en opstart: notities).
-  - Index: `https://www.funda.nl/sitemap_index.xml/` (met slash). De sitemap
-    geeft URL en lastmod; de rest komt van het detail-endpoint en staat in
-    `funda_sitemap_cache.json`.
-  - Steden via `sitemap_steden` (`stad_slug()`), daarna een slug-afwijslijst.
+- **Sitemaproute** (`SitemapZoeker`; metingen en opstart: notities). Index:
+  `https://www.funda.nl/sitemap_index.xml/` (met slash). De sitemap geeft URL en
+  lastmod; de rest komt van het detail-endpoint en staat in
+  `funda_sitemap_cache.json`. Steden via `sitemap_steden` (`stad_slug()`).
   - Koop-sitemaps alleen opnieuw ophalen als de index veranderde, met 10 minuten
-    speling (`INDEX_SPELING_SECONDEN`). Kandidatenlijst hooguit 36 uur
+    speling (`INDEX_SPELING_SECONDEN`); de kandidatenlijst hooguit 36 uur
     hergebruiken (`MAX_HERGEBRUIK_UUR`).
   - Geen detail-call bij ongewijzigde lastmod én buiten de doelmarkt of
-    afgewezen door een nafilter (`_sitemap_overslaan`). Woningen die door alle
-    filters komen: elke run vers.
+    afgewezen door een nafilter (`_sitemap_overslaan`). Wat door alle filters
+    komt: elke run vers.
   - Verkennen: `sitemap_max_verkennen` per run (workflow-input, wordt
     `FUNDA_SITEMAP_MAX_VERKENNEN`), nieuwste lastmod eerst, tijdsbudget
-    `MAX_SECONDEN` (15 minuten). De job heeft `timeout-minutes: 45`.
-  - De logregels "Meting lastmod", "Pool en sitemap" en "Run-kosten" tellen
-    alleen aantallen. Bij "Meting lastmod" hoort het aantal "ongewijzigde
-    lastmod, toch andere prijs of status" 0 te zijn.
+    `MAX_SECONDEN` (15 minuten); de job heeft `timeout-minutes: 45`.
+  - In de logregel "Meting lastmod" hoort het aantal "ongewijzigde lastmod, toch
+    andere prijs of status" 0 te zijn.
 - **Nafilters: elke route filtert na het ophalen** (`nafilter`, `NAFILTERS`:
   woningtype, niet beschikbaar, prijs/m2/straal, stad, buurt, straat-segment;
   daarna belegging, begane grond en blacklist in `detailcheck`). Niet elke bron
@@ -266,8 +243,6 @@ notities.
     de pool niet hoeft op te halen, het detail-endpoint bepaalt wat weg is. Niet
     meer in de sitemap = één controle-call.
   - Tests: `test_pool`, `test_pool_in_run`, `test_geen_dubbele_detail_calls`.
-- **Tracking** (`funda_tracking.json`): eigen prijsvolging, los van funda.
-  Vlaggen voor prijsdaling en "lang op funda".
 - **HTML-route** (lokaal; op Actions 403): de straal moet een waarde zijn die
   funda kent (1, 2, 5, 10, 15, 30, 50), anders komt er status 200 met nul
   kaarten; daarom `snap_straal()`. Postcode lowercase zonder spatie. De parser
@@ -334,8 +309,6 @@ notities.
 - **Jaarwissel:** `test_funda_beoordeling.py` faalt op 1 januari tot
   `data/trhk_2026_tabel1.json`, `NHG_GRENS` en `STARTERS_GRENS` van het nieuwe
   jaar zijn. Los het op, zet de test niet uit.
-- **Fixture-render:** de 13 fictieve woningen in `testdata/woningen.json` gaan
-  in `test_rapport_testdata` door het echte `genereer_rapport()`.
 
 ## 8. Config
 
@@ -397,9 +370,9 @@ en de docstring van `funda_verrijking.py`.
   `STANDAARD_RENTE` in `funda_beoordeling`. Tests: `test_ua`, `test_een_bron`,
   `test_import_zonder_personal`.
 - **Bronnen** apart aan of uit in `beoordeling.verrijking.bronnen`
-  (`kerncijfers`, `veiligheid`, `lucht`, `groen`, `klimaat`, `erfgoed`, naast
-  BAG, fundering, geluid, Leefbaarometer en tevredenheid). Een bron die uit
-  staat of niets gaf, levert geen item.
+  (`bag`, `fundering`, `geluid`, `buurt`, `tevredenheid`, `kerncijfers`,
+  `veiligheid`, `lucht`, `groen`, `klimaat`, `erfgoed`). Een bron die uit staat
+  of niets gaf, levert geen item.
 - **Budget:** 90 verzoeken per run (`max_calls_per_run` gaat voor). Wat niet
   past krijgt "budget" en gaat de volgende run verder; Past en Krap eerst.
 - **Laagnamen en jaren met een datum** (`RIVM_LAGEN`, `RIVM_LUCHT_LAGEN`,
@@ -421,39 +394,38 @@ en de docstring van `funda_verrijking.py`.
   dan 10 jaar = toetsrente 5%. Ouder dan 30 dagen = melding bovenaan.
 - **Geocoding** (`funda_verrijking.Geocoder`, BAG-collectie `adres` op
   `api.pdok.nl`): per postcode eerst de config (`werk_coords`, `thuis_coords`),
-  dan de caches `funda_werk_coords.json` en `funda_thuis_coords.json`, dan één
-  poging per run (`limit=1`, time-out 60 s; het is traag).
-  - De sleutel in die caches is een hash (`postcode_sleutel`); een oude leesbare
-    sleutel wordt bij het laden omgezet (`coords_cache_lees`).
-  - Eén stand voor `api.pdok.nl` per run, gedeeld met de verrijking
-    (`neem_cache_over`, `Sessie.neem_over`). Een weigering sluit de host een dag
-    voor beide; een time-out van de geocoding sluit de verrijking niet.
-  - Mislukt = `::warning::` met alleen aantallen en de reden, nooit de postcode.
-    Zonder werkpunt "reisafstand onbekend" (geen minpunt).
-  - Route via OSRM met `EERLIJKE_UA`, anders hemelsbreed maal 1,3.
+  dan de caches `funda_werk_coords.json` en `funda_thuis_coords.json` (sleutel =
+  hash, `postcode_sleutel`; oude leesbare sleutels zet `coords_cache_lees` om),
+  dan één poging per run (`limit=1`, time-out 60 s; het is traag). Eén stand
+  voor `api.pdok.nl` per run, gedeeld met de verrijking (`neem_cache_over`,
+  `Sessie.neem_over`): een weigering sluit de host een dag voor beide, een
+  time-out van de geocoding sluit de verrijking niet. Mislukt = `::warning::`
+  met alleen aantallen en de reden, nooit de postcode; zonder werkpunt
+  "reisafstand onbekend" (geen minpunt). Route via OSRM met `EERLIJKE_UA`,
+  anders hemelsbreed maal 1,3.
 
 ## 10. PWA en huisstijl
 
 Volledige beschrijving (sleutelopbouw, CSP, slotscherm): notities en
 `test_funda_pwa.py`. Regels:
 
-- **Sleutels** (`funda_rapport.beveilig_html`): hoofdsleutel = PBKDF2-SHA256 met
-  het vaste `APP_ZOUT` en 600.000 iteraties; runsleutel = HKDF met een run-zout,
-  voor AES-256-GCM. Zout en IV elke run nieuw. `APP_ZOUT` wijzigen = iedereen
-  vult één keer het wachtwoord in.
-- **Eerst gzip, dan opvullen (`vul_op`, `BLOK` van 8 kB), dan AES**, zodat de
-  bestandsgrootte het aanbod niet verraadt.
+- **Versleuteling** (`funda_rapport.beveilig_html`): hoofdsleutel =
+  PBKDF2-SHA256 met het vaste `APP_ZOUT` en 600.000 iteraties; runsleutel = HKDF
+  met een run-zout, voor AES-256-GCM; zout en IV elke run nieuw. Eerst gzip, dan
+  opvullen (`vul_op`, `BLOK` van 8 kB), dan AES: zo verraadt de bestandsgrootte
+  het aanbod niet. `APP_ZOUT` wijzigen = iedereen vult één keer het wachtwoord
+  in.
 - **"Onthoud op dit apparaat"** bewaart de hoofdsleutel als niet-exporteerbare
   HKDF-sleutel in IndexedDB (30 dagen), nooit het wachtwoord. Oude bewaarde
   sleutels en wachtwoorden worden gewist, niet omgezet.
-- **Wrapper zonder code:** `ui/slot.html` heeft alleen markup, de CSP en het
-  pakket in `#slot-data`. CSS en JS staan als bestanden in `docs/`
-  (`schrijf_statisch`, `STATISCH`). Leaflet 1.9.4 is zelf gehost, ongewijzigd,
-  sha256 vastgepind in de test.
-- **CSP** (`funda_rapport.CSP`): `script-src 'self'` en `style-src 'self'`. Dus
-  geen inline script, geen `style=` in de markup, geen externe scripts. Externe
-  links met `rel="noopener noreferrer"`; `funda_ui.funda_url` laat alleen
-  `https://www.funda.nl/...` door; `#woning-data` escapet `<`, `>` en `&`.
+- **Wrapper zonder code, strikte CSP** (`funda_rapport.CSP`: `script-src 'self'`
+  en `style-src 'self'`). `ui/slot.html` heeft alleen markup, de CSP en het
+  pakket in `#slot-data`; CSS en JS staan als bestanden in `docs/`
+  (`schrijf_statisch`, `STATISCH`). Dus geen inline script, geen `style=` in de
+  markup, geen externe scripts; Leaflet 1.9.4 is zelf gehost, ongewijzigd, met
+  sha256 in de test. Externe links met `rel="noopener noreferrer"`;
+  `funda_ui.funda_url` laat alleen `https://www.funda.nl/...` door;
+  `#woning-data` escapet `<`, `>` en `&`.
 - **Service worker:** cache `funda-shortlist-v7`. Ophogen bij elke nieuwe
   wrapper en bij elk gewijzigd bestand in `ASSETS`, anders blijft een
   geïnstalleerde PWA de oude tonen.
@@ -461,11 +433,10 @@ Volledige beschrijving (sleutelopbouw, CSP, slotscherm): notities en
   `funda_slot_pogingen` in `localStorage`, het enige wat het slotscherm daar
   bewaart). Ontgrendelt niet in een frame. Zonder `DecompressionStream` zegt het
   dat, niet "fout wachtwoord".
-- **Manifest** zonder voornaam ("Woningrapport" / "Woningen"): het staat
-  publiek. De verversknop linkt naar de Actions-pagina, zonder token.
-- **Push zonder backend:** de webapp toont een subscription-JSON voor de secret
-  `WEB_PUSH_SUBSCRIPTION`; de publieke sleutel staat in
-  `<meta name="funda-push-key">`.
+- **Publiek leesbaar** zijn wrapper, manifest en CSS: geen voornaam in het
+  manifest, geen token in de verversknop (die linkt naar de Actions-pagina).
+  Push werkt zonder backend: de webapp toont een subscription-JSON voor de
+  secret `WEB_PUSH_SUBSCRIPTION`.
 - **Tekst in het rapport:** de poort heet "Status", het scenario
   "Financiering". Geen "run", hostnaam of bestandsnaam (uitzondering: de naam
   `WEB_PUSH_SUBSCRIPTION` in het meldingenblok). Knoppen in de gebiedende wijs,
@@ -486,8 +457,8 @@ De Actions-log van deze publieke repo is voor iedereen leesbaar. Overal geldt:
 **alleen aantallen**. Nooit adressen, postcodes, woningnummers of bedragen van
 het profiel. Op Actions (`publieke_log()`, `GITHUB_ACTIONS` gezet) ook:
 
-- postcode als "(verborgen)"; de zoek-URL van de HTML-route zonder prijs- en
-  m2-grenzen;
+- postcode als "(verborgen)", ook gebied, prijs en m2 in de zoek-URL van de
+  HTML-route;
 - geen woninglijst maar `toon_aantallen()` (lokaal `toon_lijsten()`);
 - geen regel per prijsband en geen aantallen zoek-calls (die verraden het
   budget); elke zoekfout één keer;
@@ -545,26 +516,19 @@ python funda_zoek.py --debug-wijken  # buurten met aantallen (alleen lokaal)
 Tests zijn gewone scripts, offline: `python test_funda_zoek.py` enzovoort. De
 job tests in "Funda API debug" draait elk `test_*.py`.
 
-- `test_funda_zoek.py`: `main()` met stub-zoekers. Exit 2, nafilters, pool,
-  auto-volgorde, fixture-render, push (met node, anders overgeslagen), publieke
-  log, geocoding, eerlijke client. `auto_push()` staat hier uit.
-- `test_funda_sitemap.py`: de sitemaproute, met een vaste klok (`NU`).
-- `test_funda_html.py`, `test_funda_mail.py`, `test_funda_mail_ophalen.py`: de
-  lokale routes, op fixtures en een stub-mailbox.
-- `test_funda_beoordeling.py`: het model, met de golden file
-  `testdata/beoordeling_verwacht.json` (bijwerken: `--schrijf-verwacht`, en de
-  diff lezen), de jaartest en de scan op scenarionamen.
-- `test_funda_ui.py`: de UI op `testdata/beoordeling_v3.json`, contrast, de scan
-  op merk- en fontnamen, het slotscherm.
-- `test_funda_verrijking.py`, `test_funda_rente.py`: open bronnen, rente en
-  geocoding met een nep-HTTP-functie.
-- `test_funda_pwa.py`: sleutelopbouw en ontsleutelen (Python, en met node het
-  echte `ui/slot.js`), CSP, geen onversleuteld rapport in CI, service worker,
-  manifest.
+Eén testbestand per module. Let op:
 
-Tegen de echte site, alleen handmatig: `scripts/funda_html_validatie.py`,
-`scripts/funda_sitemap_validatie.py`, `scripts/funda_sitemap_probe.py`,
-`scripts/funda_mail_validatie.py`, `scripts/funda_mail_imap_check.py`.
+- `test_funda_zoek.py` draait `main()` met stub-zoekers; `auto_push()` staat
+  daar uit en de push-tests vragen node (anders overgeslagen).
+- `test_funda_sitemap.py` heeft een vaste klok (`NU`).
+- `test_funda_beoordeling.py` heeft een golden file,
+  `testdata/beoordeling_verwacht.json` (bijwerken met `--schrijf-verwacht`, en
+  de diff lezen), de jaartest en de scan op scenarionamen.
+- `test_funda_ui.py` scant op merk- en fontnamen; `test_funda_pwa.py` ontsleutelt
+  ook met node het echte `ui/slot.js`.
+
+Tegen de echte site, alleen handmatig: de `..._validatie.py`-scripts,
+`funda_sitemap_probe.py` en `funda_mail_imap_check.py` in `scripts/`.
 
 ## 14. Open punten en ideeën
 
