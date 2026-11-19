@@ -1561,6 +1561,16 @@ def _omgeving_erfgoed(eg: dict, monument_funda: bool) -> list[dict]:
     return uit
 
 
+BUURT_LABEL = "Buurt (CBS)"   # funda_ui zet deze naam ook in de kop van het blok
+
+
+def cbs_buurt(verrijking: dict | None) -> str:
+    """De naam van de CBS-buurt waarvoor de buurtcijfers gelden, of '' als die niet bekend is."""
+    status, data, _ = _bron(verrijking, "buurt")
+    naam = (data or {}).get("buurtnaam") if status == "ok" else None
+    return str(naam).strip() if isinstance(naam, str) and naam.strip() else ""
+
+
 def omgeving_items(verrijking: dict | None, dr: dict | None = None, monument_funda: bool = False) -> list[dict]:
     """Items uit de open bronnen kerncijfers, veiligheid, lucht, klimaat en erfgoed. Allemaal 0 punten.
 
@@ -1569,6 +1579,12 @@ def omgeving_items(verrijking: dict | None, dr: dict | None = None, monument_fun
     vullen met bronnen die niet meetellen); de status per bron staat in beoordeling["verrijking"]."""
     dr = dr or STANDAARD["drempels"]
     uit: list[dict] = []
+    buurt = cbs_buurt(verrijking)
+    if buurt:
+        # Verzoek eigenaar (19 nov 2026): zeg over welke buurt de cijfers gaan. Funda gebruikt eigen buurtnamen.
+        uit.append(_omgeving(BUURT_LABEL, buurt, "CBS", f"buurt {buurt}",
+                             "De buurtcijfers en de Leefbaarometer gelden voor deze buurt volgens de indeling van het CBS. "
+                             "Funda gebruikt eigen buurtnamen; die kunnen een ander gebied bedoelen."))
     for naam, maak in (("kerncijfers", _omgeving_kerncijfers), ("veiligheid", _omgeving_veiligheid),
                        ("lucht", lambda lu: _omgeving_lucht(lu, dr)), ("klimaat", _omgeving_klimaat),
                        ("erfgoed", lambda eg: _omgeving_erfgoed(eg, monument_funda))):
@@ -2050,15 +2066,16 @@ def _items_buurt(twijfel_z: list[str], verrijking, dr: dict) -> list[dict]:
         if isinstance(k, (int, float)) and int(k) in LBM_KLASSE:
             k = int(k)
             klasse, jaar = LBM_KLASSE[k], bu.get("jaar") or 2024
+            in_buurt = f"Geldt voor de buurt {cbs_buurt(verrijking)} (indeling CBS)." if cbs_buurt(verrijking) else None
             if k <= dr["leefbaarometer_twijfel_max"]:
                 if not any(z.lower().startswith("twijfelbuurt") for z in twijfel_z):
                     twijfel_z.append(f"Leefbaarometer {klasse} ({jaar}). Buurt staat niet op jouw lijst.")
                 uit.append(_item("buurt", "sterk", "Leefbaarometer", f"{klasse} ({jaar})", "Leefbaarometer 3.0", kort="buurt zwak",
-                                 uitleg="Staat niet op je uitsluitlijst. Zelf bekijken en eventueel toevoegen."))
+                                 uitleg=" ".join(filter(None, (in_buurt, "Staat niet op je uitsluitlijst. Zelf bekijken en eventueel toevoegen.")))))
             else:
                 goed = k >= dr["leefbaarometer_goed_min"]
                 uit.append(_item("buurt", "goed" if goed else "neutraal", "Leefbaarometer", f"{klasse} ({jaar})", "Leefbaarometer 3.0",
-                                 0.5 if goed else 0.0, kort=f"buurt {klasse}"))
+                                 0.5 if goed else 0.0, kort=f"buurt {klasse}", uitleg=in_buurt))
         onv = bu.get("onv")
         if isinstance(onv, (int, float)) and onv <= dr["leefbaarometer_onv_let_op"]:
             uit.append(_item("buurt", "let_op", "Overlast en onveiligheid", f"{nl(onv, 2)} tegenover Nederland", "Leefbaarometer 3.0",
