@@ -70,6 +70,51 @@ window.fundaApparaat = {
   /* Vergrendel: de bewaarde sleutel weg en terug naar het slotscherm. Lukt het wissen niet, dan toch herladen. */
   vergrendel: async () => { try { await wis(); } catch(_){} $("content").innerHTML = ""; location.reload(); }
 };
+/* Pauze na foute pogingen: vanaf de vijfde 30 seconden, daarna telkens het dubbele, hooguit een kwartier.
+   Dit remt raden op het slotscherm zelf (iemand met je apparaat in handen). Tegen een aanval op het
+   publieke versleutelde bestand helpt het niet: daar beschermt alleen een sterk wachtwoord. */
+const POGINGEN = "funda_slot_pogingen", GRATIS = 4, PAUZE_S = 30, PAUZE_MAX_S = 900;
+let pogingenGeheugen = {n: 0, tot: 0};   // als localStorage niet werkt
+function pogingen(){
+  try {
+    const p = JSON.parse(localStorage.getItem(POGINGEN) || "null");
+    if(p && Number.isFinite(p.n) && Number.isFinite(p.tot)) return {n: Math.max(0, p.n), tot: p.tot};
+  } catch(_){}
+  return pogingenGeheugen;
+}
+function zetPogingen(p){
+  pogingenGeheugen = p;
+  try { if(p.n) localStorage.setItem(POGINGEN, JSON.stringify(p)); else localStorage.removeItem(POGINGEN); } catch(_){}
+}
+function pauzeSeconden(n){ return n <= GRATIS ? 0 : Math.min(PAUZE_S * Math.pow(2, n - GRATIS - 1), PAUZE_MAX_S); }
+function foutePoging(){
+  const p = pogingen(), n = p.n + 1;
+  zetPogingen({n: n, tot: Date.now() + pauzeSeconden(n) * 1000});
+}
+function restSeconden(){
+  const p = pogingen(), rest = Math.ceil((p.tot - Date.now()) / 1000);
+  /* Een klok die is teruggezet mag de pauze niet langer maken dan de langste pauze. */
+  return Math.max(0, Math.min(rest, PAUZE_MAX_S));
+}
+function wachtTekst(s){
+  const m = Math.floor(s / 60), r = String(s % 60).padStart(2, "0");
+  return "Te veel foute pogingen. Probeer het over " + m + ":" + r + " opnieuw.";
+}
+/* Zet het formulier op slot tot de pauze om is. Geeft true als er een pauze loopt. */
+function pauzeer(){
+  clearInterval(pauzeer.t);
+  const pw = $("pw"), btn = $("btn"), err = $("err");
+  if(restSeconden() <= 0) return false;
+  pw.disabled = true; btn.disabled = true; btn.textContent = "Ontgrendelen";
+  const tik = () => {
+    const s = restSeconden();
+    if(s > 0){ err.textContent = wachtTekst(s); return; }
+    clearInterval(pauzeer.t);
+    err.textContent = ""; pw.disabled = false; btn.disabled = false; pw.focus();
+  };
+  tik(); pauzeer.t = setInterval(tik, 1000);
+  return true;
+}
 function melding(tekst){
   const m = $("slot-melding"); m.textContent = tekst; m.hidden = false;
   clearTimeout(melding.t); melding.t = setTimeout(() => { m.hidden = true; }, 8000);
@@ -105,6 +150,7 @@ $("vergeet").addEventListener("click", async () => {
 $("slot-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const pw = $("pw"), btn = $("btn"), err = $("err");
+  if(pauzeer()) return;
   err.textContent = ""; pw.removeAttribute("aria-invalid");
   btn.disabled = true; btn.innerHTML = '<span class="draai" aria-hidden="true"></span> Ontgrendelen';
   try {
@@ -112,6 +158,7 @@ $("slot-form").addEventListener("submit", async (e) => {
     const hoofd = await hoofdSleutel(pw.value);
     const html = await decrypt(hoofd);
     pw.value = "";
+    zetPogingen({n: 0, tot: 0});
     if($("remember").checked){
       try { await bewaar(hoofd); onthouden(true); }
       catch(_){ melding("Onthouden lukt niet in deze browser. Vul je wachtwoord de volgende keer opnieuw in."); }
@@ -119,14 +166,19 @@ $("slot-form").addEventListener("submit", async (e) => {
     toon(html);
   } catch(ex){
     if(ex instanceof TeOud){ err.textContent = TE_OUD; }
-    else { pw.setAttribute("aria-invalid", "true"); err.textContent = "Dit wachtwoord klopt niet. Probeer het opnieuw."; }
-    btn.disabled = false; btn.textContent = "Ontgrendelen"; pw.focus();
+    else {
+      foutePoging();
+      pw.setAttribute("aria-invalid", "true"); err.textContent = "Dit wachtwoord klopt niet. Probeer het opnieuw.";
+    }
+    btn.disabled = false; btn.textContent = "Ontgrendelen";
+    if(!pauzeer()) pw.focus();
   }
 });
 (async () => {
   // Migratie: een oud bewaard wachtwoord en een sleutel van het oude soort gaan weg, ongebruikt.
   // Daarna vul je één keer je wachtwoord in.
   await opruimen();
+  pauzeer();   // een lopende pauze overleeft herladen
   let bewaard = null;
   try { bewaard = await haal(); } catch(_){}
   if(!bewaard) return;

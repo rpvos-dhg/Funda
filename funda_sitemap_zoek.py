@@ -126,6 +126,10 @@ CACHE_VELDEN = (
     "detail_url", "latitude", "longitude",
 )
 
+# Waaronder de datum "eerder zonder vraagprijs gezien" in de data van een woning staat (zie
+# SitemapZoeker._element); funda_beoordeling leest dezelfde sleutel uit de woning-dict.
+ZONDER_PRIJS_SLEUTEL = "_zonder_prijs_gezien"
+
 # Mislukken zoveel detail-calls op rij, dan is het detail-endpoint dicht en niet
 # een paar woningen weg. Dan luid falen in plaats van een lege of halve oogst
 # door te geven. Ook halverwege de run: een geslaagde call eerder bewijst niet dat
@@ -707,7 +711,9 @@ class SitemapZoeker:
         if not k or self._afgehandeld.get(url_id) == OPGEHAALD:
             return False
         data.setdefault("detail_url", k["pad"])
-        self._woningen[url_id] = {"lastmod": k["lastmod"], "velden": velden_uit(data)}
+        self._woningen[url_id] = self._element(k["lastmod"], velden_uit(data), data, self._woningen.get(url_id))
+        if data.get(ZONDER_PRIJS_SLEUTEL) and isinstance(getattr(listing, "data", None), dict):
+            listing.data[ZONDER_PRIJS_SLEUTEL] = data[ZONDER_PRIJS_SLEUTEL]
         self._afgehandeld[url_id] = OPGEHAALD
         self._onthoud(listing, data, url_id)
         self._vuil = True
@@ -954,7 +960,7 @@ class SitemapZoeker:
             if oud:
                 self._meet(oud.get("velden") or {}, velden,
                            "lastmod_gelijk" if k["url_id"] in ververs_ids else "lastmod_gewijzigd")
-            cache[k["url_id"]] = {"lastmod": k["lastmod"], "velden": velden}
+            cache[k["url_id"]] = self._element(k["lastmod"], velden, data, oud)
             if self._is_doel(velden):
                 resultaten.append(data)
 
@@ -1012,6 +1018,29 @@ class SitemapZoeker:
             "status_kenmerk" in oud and oud.get("status_kenmerk") != nieuw.get("status_kenmerk"))
         if andere_status:
             self.meting[f"{soort}_andere_status"] += 1
+
+    def _element(self, lastmod: Any, velden: dict[str, Any], data: dict[str, Any],
+                 oud: dict[str, Any] | None) -> dict[str, Any]:
+        """Het cache-element van een woning, met het signaal "eerder zonder prijs".
+
+        Staat een woning zonder vraagprijs te koop, dan onthoudt het element de dag waarop dat het
+        laatst is gezien (`zonder_prijs`, JJJJ-MM-DD), ook als de nafilter hem afwijst. Heeft hij
+        later wel een prijs, dan blijft die datum staan en gaat hij mee in de data
+        (`_zonder_prijs_gezien`), zodat het rapport "Eerder zonder prijs" kan tonen. Er wordt nooit
+        met een prijs 0 gerekend: dit is alleen een datum.
+        """
+        e: dict[str, Any] = {"lastmod": lastmod, "velden": velden}
+        eerder = (oud or {}).get("zonder_prijs")
+        prijs = velden.get("price")
+        if isinstance(prijs, (int, float)) and prijs > 0:
+            if isinstance(eerder, str) and eerder:
+                e["zonder_prijs"] = eerder
+                data[ZONDER_PRIJS_SLEUTEL] = eerder
+        elif str(velden.get("status") or "available").lower() == "available":
+            e["zonder_prijs"] = self._nu().date().isoformat()
+        elif isinstance(eerder, str) and eerder:
+            e["zonder_prijs"] = eerder
+        return e
 
     def _onthoud(self, listing: Any, data: dict[str, Any], url_id: str) -> None:
         for id_veld in ("global_id", "listing_id", "tiny_id"):

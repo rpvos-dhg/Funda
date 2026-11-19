@@ -132,27 +132,24 @@ def geocodeer_postcode(postcode: str) -> tuple[tuple[float, float] | None, str |
 def get_werk_coords() -> dict[str, tuple[float, float]]:
     """Punt per werkpostcode uit de config: {postcode: (lat, lon)}.
 
-    Per postcode: `werk_coords` in de config gaat voor, dan funda_werk_coords.json (zelfde vorm:
-    {postcode: [lat, lon]}), dan één poging via PDOK; een gevonden punt komt voorgoed in dat bestand.
+    Per postcode: `werk_coords` in de config gaat voor, dan funda_werk_coords.json ({hash van de
+    postcode: [lat, lon]}, funda_verrijking.postcode_sleutel), dan één poging via PDOK; een gevonden punt komt voorgoed in dat bestand.
     Lukt het niet, dan een ::warning:: met alleen aantallen en geen route naar dat adres: de
     reisafstand is dan onbekend (geen minpunt)."""
     vast = _PERSONAL.get("werk_coords")
     vast = vast if isinstance(vast, dict) else {}
-    try:
-        cache = json.loads(WERK_CACHE.read_text(encoding="utf-8")) if WERK_CACHE.exists() else {}
-    except Exception:  # noqa: BLE001
-        cache = {}
-    cache = cache if isinstance(cache, dict) else {}
+    # De sleutels in het bestand zijn gehasht; een oude leesbare postcode wordt bij het laden omgezet.
+    cache, nieuw = funda_verrijking.coords_cache_lees(WERK_CACHE)
     postcodes = _werk_postcodes()
     coords: dict[str, tuple[float, float]] = {}
     redenen: Counter[str] = Counter()
-    nieuw = False
     for pc, _ in postcodes:
-        punt = funda_verrijking.coord_paar(vast.get(pc)) or funda_verrijking.coord_paar(cache.get(pc))
+        sleutel = funda_verrijking.postcode_sleutel(pc)
+        punt = funda_verrijking.coord_paar(vast.get(pc)) or funda_verrijking.coord_paar(cache.get(sleutel))
         if punt is None:
             punt, reden = geocodeer_postcode(pc)
-            if punt:
-                cache[pc] = list(punt)
+            if punt and sleutel:
+                cache[sleutel] = list(punt)
                 nieuw = True
             else:
                 redenen[reden or "onbekend"] += 1
@@ -160,7 +157,7 @@ def get_werk_coords() -> dict[str, tuple[float, float]]:
             coords[pc] = punt
     if nieuw:
         try:
-            WERK_CACHE.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+            funda_verrijking.coords_cache_schrijf(WERK_CACHE, cache)
         except Exception as exc:  # noqa: BLE001
             print(f"[rapport] Werkcoördinaten niet bewaard ({type(exc).__name__}).")
     if redenen:
@@ -530,6 +527,15 @@ def log_aantallen(rijen: list[dict]) -> None:
     print("[rapport] Per poort: " + ", ".join(f"{naam} {tel.get(p, 0)}"
                                              for p, naam in funda_beoordeling.POORT_NAAM.items())
           + f"; met twijfel {twijfel}.")
+    # Meting voor "eerder zonder prijs aangeboden": welke statuswaarden funda's prijshistorie geeft en
+    # hoeveel regels geen bedrag hebben. Alleen aantallen.
+    ph = funda_beoordeling.log_prijshistorie([r.get("d") for r in rijen])
+    zonder = sum(ph["zonder_bedrag"].values())
+    print(f"[rapport] Prijshistorie: {ph['regels']} regels bij {ph['woningen']} van {len(rijen)} woningen; status "
+          + (", ".join(f"{k} {n}" for k, n in ph["status"].items()) or "geen")
+          + f"; zonder bedrag {zonder}"
+          + (" (" + ", ".join(f"{k} {n}" for k, n in ph["zonder_bedrag"].items()) + ")" if zonder else "")
+          + f"; eerder zonder prijs gezien {sum(1 for r in rijen if (r.get('d') or {}).get('_zonder_prijs_gezien'))}.")
     # De CSP van de PWA laat alleen foto's van FOTO_HOST door. Die host is niet gemeten; komt funda
     # met een andere, dan blijven de foto's leeg en zegt deze regel waarom (alleen een aantal).
     fotos = [u for r in rijen for u in ((r.get("details") or {}).get("photo_urls") or [])
@@ -768,6 +774,9 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
                              ("Kansen", "kansen")):
             if b.get(sleutel):
                 lines.append(f"- {kop}: {_punten_md(b[sleutel])}")
+        omgeving = [it for it in b.get("info") or [] if it.get("onderdeel") in funda_beoordeling.INFO_TONEN]
+        if omgeving:
+            lines.append(f"- Buurt en omgeving (telt niet mee in de score): {_punten_md(omgeving)}")
         if b.get("zelf_nagaan"):
             lines.append("- Zelf nagaan:")
             lines.extend(f"  {n}. {_md(v)}" for n, v in enumerate(b["zelf_nagaan"], 1))

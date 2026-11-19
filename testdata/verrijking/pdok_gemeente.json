@@ -1,0 +1,35 @@
+{
+ "type": "FeatureCollection",
+ "timeStamp": "2026-11-18T23:50:21Z",
+ "links": [],
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "gemeentecode": "GM0518",
+    "gemeentenaam": "'s-Gravenhage",
+    "water": "JA",
+    "woningvoorraad": -99997,
+    "aantal_inwoners": -1,
+    "gemiddeld_inkomen_per_inwoner": -1
+   },
+   "geometry": null,
+   "id": "9e655a5f-b754-564d-ac89-0b2fd5f9157f"
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "gemeentecode": "GM0518",
+    "gemeentenaam": "'s-Gravenhage",
+    "water": "NEE",
+    "woningvoorraad": 272242,
+    "aantal_inwoners": -1,
+    "gemiddeld_inkomen_per_inwoner": -1
+   },
+   "geometry": null,
+   "id": "097ed136-658b-5a1e-8651-f1f4cdf2b6c2"
+  }
+ ],
+ "numberReturned": 2,
+ "_ingekort": "geometrie en de overige velden weggelaten; bevolkingsvelden op -1 om de allowlist te testen"
+}

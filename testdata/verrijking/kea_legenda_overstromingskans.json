@@ -1,0 +1,49 @@
+{
+ "Legend": [
+  {
+   "layerName": "plaatsgebonden_overstromingskans_huidig_20_cm_20251120",
+   "title": "plaatsgebonden_overstromingskans_huidig_20_cm_20251120",
+   "rules": [
+    {
+     "symbolizers": [
+      {
+       "Raster": {
+        "colormap": {
+         "entries": [
+          {
+           "label": "Extreem kleine kans: <1/30.000 per jaar ",
+           "quantity": "1",
+           "color": "#619900"
+          },
+          {
+           "label": "Zeer kleine kans: 1/3.000 tot 1/30.000 per jaar",
+           "quantity": "2",
+           "color": "#C5DB00"
+          },
+          {
+           "label": "Kleine kans: 1/300 tot 1/3.000 per jaar",
+           "quantity": "3",
+           "color": "#FFD900"
+          },
+          {
+           "label": "Middelgrote kans: 1/30 tot 1/300 per jaar",
+           "quantity": "4",
+           "color": "#FF8400"
+          },
+          {
+           "label": "Grote kans: > 1/30 per jaar",
+           "quantity": "5",
+           "color": "#FF2600"
+          }
+         ],
+         "type": "values"
+        },
+        "opacity": "1.0"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

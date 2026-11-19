@@ -1,0 +1,59 @@
+{
+ "odata.metadata": "https://dataderden.cbs.nl/ODataApi/OData/47018NED/$metadata#Cbs.OData.WebAPI.TypedDataSet",
+ "value": [
+  {
+   "ID": 87821,
+   "SoortMisdrijf": "0.0.0 ",
+   "WijkenEnBuurten": "GM0518    ",
+   "Perioden": "2025JJ00",
+   "GeregistreerdeMisdrijven_1": 39880,
+   "Gemeentenaam_2": "                              ",
+   "SoortRegio_3": "        "
+  },
+  {
+   "ID": 89067,
+   "SoortMisdrijf": "0.0.0 ",
+   "WijkenEnBuurten": "BU05182812",
+   "Perioden": "2025JJ00",
+   "GeregistreerdeMisdrijven_1": 952,
+   "Gemeentenaam_2": "                              ",
+   "SoortRegio_3": "        "
+  },
+  {
+   "ID": 348347,
+   "SoortMisdrijf": "1.1.1 ",
+   "WijkenEnBuurten": "GM0518    ",
+   "Perioden": "2025JJ00",
+   "GeregistreerdeMisdrijven_1": 617,
+   "Gemeentenaam_2": "                              ",
+   "SoortRegio_3": "        "
+  },
+  {
+   "ID": 349593,
+   "SoortMisdrijf": "1.1.1 ",
+   "WijkenEnBuurten": "BU05182812",
+   "Perioden": "2025JJ00",
+   "GeregistreerdeMisdrijven_1": 2,
+   "Gemeentenaam_2": "                              ",
+   "SoortRegio_3": "        "
+  },
+  {
+   "ID": 5558867,
+   "SoortMisdrijf": "2.2.1 ",
+   "WijkenEnBuurten": "GM0518    ",
+   "Perioden": "2025JJ00",
+   "GeregistreerdeMisdrijven_1": 3617,
+   "Gemeentenaam_2": "                              ",
+   "SoortRegio_3": "        "
+  },
+  {
+   "ID": 5560113,
+   "SoortMisdrijf": "2.2.1 ",
+   "WijkenEnBuurten": "BU05182812",
+   "Perioden": "2025JJ00",
+   "GeregistreerdeMisdrijven_1": 79,
+   "Gemeentenaam_2": "                              ",
+   "SoortRegio_3": "        "
+  }
+ ]
+}

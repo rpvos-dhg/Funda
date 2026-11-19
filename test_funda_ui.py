@@ -597,7 +597,7 @@ def test_slot() -> bool:
         check("knop Vergeet dit apparaat", ">Vergeet dit apparaat</button>" in SLOT and "window.fundaApparaat" in SLOT_JS),
         check("terugval met melding", "Onthouden lukt niet in deze browser." in SLOT_JS),
         check("geen merknaam of voornaam", "Funda Shortlist" not in SLOT and "<title>Woningrapport</title>" in SLOT),
-        check("slotscherm (html, css en js) <= 14 kB", len((SLOT + SLOT_CSS + SLOT_JS).encode()) <= 14_000,
+        check("slotscherm (html, css en js) <= 16 kB", len((SLOT + SLOT_CSS + SLOT_JS).encode()) <= 16_000,   # 14 kB plus de pauze na foute pogingen
               f"{len((SLOT + SLOT_CSS + SLOT_JS).encode())} bytes"),
     ])
 

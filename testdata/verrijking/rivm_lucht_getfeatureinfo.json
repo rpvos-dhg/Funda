@@ -1,0 +1,33 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": "",
+   "geometry": null,
+   "properties": {
+    "GRAY_INDEX": 18.330331802368164
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "",
+   "geometry": null,
+   "properties": {
+    "GRAY_INDEX": 8.658061981201172
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "",
+   "geometry": null,
+   "properties": {
+    "GRAY_INDEX": 16
+   }
+  }
+ ],
+ "totalFeatures": "unknown",
+ "numberReturned": 3,
+ "timeStamp": "2026-11-18T23:50:25.097Z",
+ "crs": null
+}

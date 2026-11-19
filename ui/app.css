@@ -316,6 +316,7 @@ details.groep[open]>.sectie-kop .chev{transform:rotate(180deg)}
 .opbouw[open]>summary .chev{transform:rotate(180deg)}
 .opbouw>summary .waarde{font-weight:400;color:var(--foreground-color-subtle)}
 .scorezin{padding:0 var(--spacing-150) var(--spacing-100);font:var(--paragraph-body-small)}
+.opbouw>.punten,.opbouw>.punt-tekst{padding:0 var(--spacing-150) var(--spacing-100)}
 .rekensom{padding:0 var(--spacing-150) var(--spacing-150);font:var(--paragraph-body-small)}
 .rekensom>div{display:grid;grid-template-columns:1fr 3.5rem 4.5rem;gap:var(--spacing-100);align-items:center;padding:var(--spacing-50) 0}
 .rekensom.geld>div{grid-template-columns:1fr auto}

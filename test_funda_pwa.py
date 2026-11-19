@@ -205,8 +205,14 @@ def test_slot_js() -> bool:
     ok &= check("alleen een sleutel van het nieuwe soort telt", 'k.algorithm.name === "HKDF"' in js and "k.extractable === false" in js)
     ok &= check("migratie: oude basissleutel en oud wachtwoord gewist, niet gebruikt",
                 'OUD_ID = "basis"' in js and "s.delete(OUD_ID)" in js and "localStorage.removeItem(OUD_PW)" in js
-                and 'sessionStorage.removeItem("funda_pw")' in js and "localStorage.getItem" not in js)
-    ok &= check("nooit het wachtwoord bewaren", "localStorage.setItem" not in js and "sessionStorage.setItem" not in js)
+                and 'sessionStorage.removeItem("funda_pw")' in js)
+    ok &= check("nooit het wachtwoord bewaren: localStorage alleen voor de teller van foute pogingen",
+                js.count("localStorage.getItem(") == 1 and "localStorage.getItem(POGINGEN)" in js
+                and js.count("localStorage.setItem(") == 1 and "localStorage.setItem(POGINGEN, JSON.stringify(p))" in js
+                and "sessionStorage.setItem" not in js and "pw.value" not in js.split("function zetPogingen")[1].split("function pauzeSeconden")[0])
+    ok &= check("pauze na foute pogingen: vier vrij, dan 30 s en verdubbelen tot een kwartier, ook na herladen",
+                "GRATIS = 4, PAUZE_S = 30, PAUZE_MAX_S = 900" in js and "if(pauzeer()) return;" in js
+                and "pauzeer();   // een lopende pauze overleeft herladen" in js and "zetPogingen({n: 0, tot: 0});" in js)
     ok &= check("in een frame niet ontgrendelen, met een melding", "window.top !== window.self" in js
                 and "Dit rapport opent niet binnen een andere pagina." in js)
     ok &= check("vergrendel: sleutel weg en herladen", "vergrendel: async () => { try { await wis(); }" in js
@@ -241,6 +247,7 @@ el('slot-data').textContent = JSON.stringify(invoer.pakket);
     uit.push({body: el('content').innerHTML, fout: el('err').textContent, knop_uit: el('btn').disabled});
   }
   console.log(JSON.stringify(uit));
+  process.exit(0);   // de aftelklok van een pauze houdt node anders in leven
 })().catch(e => { console.error(e); process.exit(1); });
 """
 
@@ -265,6 +272,12 @@ def test_slot_js_node() -> bool:
         return check("node draait slot.js", False, fout)
     ok = check("fout wachtwoord: melding, geen body", uit[0]["body"] == "" and "klopt niet" in uit[0]["fout"])
     ok &= check("goed wachtwoord: de body, byte voor byte", uit[1]["body"] == body, uit[1]["fout"])
+    uit, fout = _node_slot(fr.beveilig_html(body, WACHTWOORD), ["a", "b", "c", "d", WACHTWOORD])
+    ok &= check("vier foute pogingen: nog geen pauze, het goede wachtwoord opent", uit is not None and uit[4]["body"] == body, fout)
+    uit, fout = _node_slot(fr.beveilig_html(body, WACHTWOORD), ["a", "b", "c", "d", "e", WACHTWOORD])
+    ok &= check("vijfde foute poging: pauze, ook het goede wachtwoord opent nu niet", uit is not None
+                and "Te veel foute pogingen" in uit[4]["fout"] and uit[5]["body"] == ""
+                and "Te veel foute pogingen" in uit[5]["fout"] and uit[5]["knop_uit"], fout or str(uit and uit[4:]))
     uit, fout = _node_slot(fr.beveilig_html(body, WACHTWOORD, gz=False), [WACHTWOORD])
     ok &= check("gz 0: zonder uitpakken de body", uit is not None and uit[0]["body"] == body, fout)
     uit, fout = _node_slot(fr.beveilig_html(body, WACHTWOORD), [WACHTWOORD], frame=True)

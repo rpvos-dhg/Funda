@@ -293,6 +293,11 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
     gewist, niet omgezet: één keer het wachtwoord invullen. In een frame
     ontgrendelt het niet (`frame-ancestors` werkt niet in een meta-tag).
     "Vergrendel" (blok "Dit apparaat" in de voet) wist de sleutel en herlaadt.
+    Na vier foute wachtwoorden volgt een pauze: 30 seconden, daarna telkens
+    het dubbele, hooguit een kwartier; de teller staat in `localStorage`
+    (`funda_slot_pogingen`, het enige wat het slotscherm daar bewaart) en
+    overleeft herladen. Dat remt raden op het apparaat zelf, niet een aanval
+    op het publieke versleutelde bestand: daar beschermt alleen het wachtwoord.
   - **Service worker** cache `funda-shortlist-v6` (ophogen bij elke nieuwe
     wrapper, anders blijft een geïnstalleerde PWA de oude tonen), met de
     statische bestanden in `ASSETS`; alleen same-origin GET's komen in de cache.

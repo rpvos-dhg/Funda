@@ -711,9 +711,13 @@ def test_geocoding() -> bool:
                         [urllib.parse.urlparse(u).path for u in calls][0] == "/robots.txt"
                         and adresvragen() == ["1013AB", "9999ZZ"], str(calls))
             bewaard = json.loads(fr.WERK_CACHE.read_text(encoding="utf-8"))
-            ok &= check("gevonden punt voorgoed in funda_werk_coords.json, oude regels blijven",
-                        bewaard == {"1011AB": [51.0, 5.0], "1012AB": [52.5, 4.5], "0000XX": [52.0, 4.0],
-                                    "1013AB": [52.39, 4.88]}, str(bewaard))
+            hs = fv.postcode_sleutel
+            ok &= check("gevonden punt voorgoed in funda_werk_coords.json, oude regels blijven (sleutels gehasht)",
+                        bewaard == {hs("1011AB"): [51.0, 5.0], hs("1012AB"): [52.5, 4.5], hs("0000XX"): [52.0, 4.0],
+                                    hs("1013AB"): [52.39, 4.88]}, str(bewaard))
+            ok &= check("migratie: geen leesbare postcode meer in het bestand, sleutel in de vorm pc:<hash>",
+                        not any(pc in fr.WERK_CACHE.read_text(encoding="utf-8") for pc in ("1011AB", "1012AB", "1013AB", "0000XX"))
+                        and all(re.fullmatch(r"pc:[0-9a-f]{20}", k) for k in bewaard), str(list(bewaard)))
             tekst = uit.getvalue()
             ok &= check("::warning:: met aantallen, zonder postcode of label",
                         "::warning::" in tekst and "1 van 4" in tekst and "9999" not in tekst
@@ -740,8 +744,18 @@ def test_geocoding() -> bool:
             fz._THUIS.clear()
             nieuwe_run()
             ok &= check("thuis: via PDOK", fz.thuis_coords() == (52.37, 4.9) and adresvragen()[-1] == "1011AB")
-            ok &= check("thuis: in funda_thuis_coords.json, zelfde vorm",
-                        json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {"1011AB": [52.37, 4.9]})
+            ok &= check("thuis: in funda_thuis_coords.json, onder de hash van de postcode",
+                        json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {fv.postcode_sleutel("1011AB"): [52.37, 4.9]})
+            # Een oud bestand met de leesbare postcode: bij het laden omgezet en zo teruggeschreven.
+            fz.THUIS_CACHE.write_text(json.dumps({"1011 ab": [52.37, 4.9], "rommel": [1, 2], "1012AB": "x"}), encoding="utf-8")
+            fz._THUIS.clear()
+            nieuwe_run()
+            n_voor = len(calls)
+            ok &= check("thuis: oud bestand met leesbare postcode werkt zonder verzoek",
+                        fz.thuis_coords() == (52.37, 4.9) and len(calls) == n_voor)
+            ok &= check("thuis: daarna alleen de gehashte sleutel in het bestand",
+                        json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {fv.postcode_sleutel("1011AB"): [52.37, 4.9]},
+                        fz.THUIS_CACHE.read_text(encoding="utf-8"))
             fz._THUIS.clear()
             nieuwe_run()
             n = len(calls)
@@ -759,7 +773,7 @@ def test_geocoding() -> bool:
                 thuis = fz.thuis_coords()
             ok &= check("thuis: niet te vinden = None, ::warning:: zonder postcode, cache onaangeroerd",
                         thuis is None and "::warning::" in uit.getvalue() and "9999" not in uit.getvalue()
-                        and json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {"1011AB": [52.37, 4.9]},
+                        and json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {fv.postcode_sleutel("1011AB"): [52.37, 4.9]},
                         uit.getvalue().strip())
             ok &= check("thuis: zonder punt geen afstandsfilter",
                         fz.buiten_zoekcriteria({"price": 280_000, "latitude": 51.0, "longitude": 4.0}, thuis,

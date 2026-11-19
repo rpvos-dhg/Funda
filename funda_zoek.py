@@ -48,7 +48,8 @@ from funda_sitemap_zoek import (
 # Hoe deze client zich bij funda's API-hosts meldt: als zichzelf, met een link naar de (publieke)
 # repo. Geen browser, geen app. EERLIJKE_UA staat in funda_verrijking (één bron) en wordt hier
 # opnieuw geëxporteerd: de Funda-subklasse gebruikt hem, en scripts lezen hem als funda_zoek.EERLIJKE_UA.
-from funda_verrijking import EERLIJKE_UA, coord_paar
+from funda_verrijking import (EERLIJKE_UA, coord_paar, coords_cache_lees, coords_cache_schrijf,
+                              postcode_sleutel)
 
 try:
     from funda_rapport import genereer_rapport
@@ -668,7 +669,7 @@ def thuis_coords() -> tuple[float, float] | None:
     """Coördinaten van de zoekpostcode, voor het afstandsfilter.
 
     Volgorde: `thuis_coords` uit de config, dan funda_thuis_coords.json
-    ({postcode: [lat, lon]}), dan één poging via PDOK (CLAUDE.md, "Geocoding en routes");
+    ({hash van de postcode: [lat, lon]}), dan één poging via PDOK (CLAUDE.md, "Geocoding en routes");
     een gevonden punt komt voorgoed in dat bestand. Staat het afstandsfilter uit,
     dan geen verzoek. Lukt het niet, dan een ::warning:: en None: het
     afstandsfilter slaat dan over in plaats van alles weg te gooien. Eén keer per
@@ -678,20 +679,25 @@ def thuis_coords() -> tuple[float, float] | None:
         return _THUIS["v"]
     resultaat = coord_paar(_PERSONAL.get("thuis_coords"))
     if resultaat is None:
-        try:
-            cache = json.loads(THUIS_CACHE.read_text(encoding="utf-8"))
-        except Exception:
-            cache = {}
-        resultaat = coord_paar(cache.get(POSTCODE)) if isinstance(cache, dict) else None
+        # De sleutel in het bestand is een hash van de postcode; een oud bestand met de leesbare
+        # postcode wordt bij het laden omgezet en meteen zo teruggeschreven.
+        cache, omgezet = coords_cache_lees(THUIS_CACHE)
+        sleutel = postcode_sleutel(POSTCODE)
+        if omgezet:
+            try:
+                coords_cache_schrijf(THUIS_CACHE, cache)
+            except Exception as exc:
+                print(f"Thuiscoördinaten niet bewaard ({type(exc).__name__}).")
+        resultaat = coord_paar(cache.get(sleutel)) if sleutel else None
         if resultaat is None and nafilter_straal_km() is not None:
             try:
                 from funda_rapport import geocodeer_postcode
                 resultaat, reden = geocodeer_postcode(POSTCODE)
             except Exception as exc:
                 resultaat, reden = None, f"interne fout ({type(exc).__name__})"
-            if resultaat:
+            if resultaat and sleutel:
                 try:
-                    THUIS_CACHE.write_text(json.dumps({POSTCODE: list(resultaat)}), encoding="utf-8")
+                    coords_cache_schrijf(THUIS_CACHE, {sleutel: list(resultaat)})
                 except Exception as exc:
                     print(f"Thuiscoördinaten niet bewaard ({type(exc).__name__}).")
             else:

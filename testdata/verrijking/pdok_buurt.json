@@ -27,7 +27,19 @@
     "perc_geb_buiten_nl_met_herkomstlnd_buiten_europa": -1,
     "gemiddeld_inkomen_per_inwoner": -1,
     "opleidingsniveau_laag": -1,
-    "percentage_huishoudens_met_kinderen": -1
+    "percentage_huishoudens_met_kinderen": -1,
+    "percentage_huurwoningen": 72,
+    "perc_huurwoningen_in_bezit_woningcorporaties": 8,
+    "percentage_meergezinswoning": 87,
+    "percentage_woningen_met_stadsverwarming": 10,
+    "percentage_aardgasvrije_woningen": 11,
+    "grote_supermarkt_gemiddelde_afstand_in_km": 0.6,
+    "treinstation_gemiddelde_afstand_in_km": 1.3,
+    "huisartsenpraktijk_gemiddelde_afstand_in_km": 1,
+    "woningvoorraad": 1911,
+    "aantal_huishoudens": -1,
+    "percentage_personen_65_jaar_en_ouder": -1,
+    "aantal_personen_met_een_alg_bijstandsuitkering_tot": -1
    },
    "geometry": null,
    "id": "13c03aa8-bd65-57dc-917b-0aea77658fbd"

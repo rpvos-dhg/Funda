@@ -1,0 +1,27 @@
+{
+ "type": "FeatureCollection",
+ "timeStamp": "2026-11-18T23:51:14Z",
+ "links": [],
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "ci_citation": "https://kennis.cultureelerfgoed.nl/index.php/Gezicht/1599",
+    "designation": "https://data.cultureelerfgoed.nl/term/id/rn/2/fd968529-bf70-4afa-8564-7c6c2fcfcc54",
+    "designationscheme": "https://data.cultureelerfgoed.nl/term/id/rn/2/18787a16-b6d2-45f6-8402-1a5234863670",
+    "language": "nld",
+    "legalfoundationdate": "1971-07-05",
+    "localid": "10134440.00",
+    "namespace": "nlps-stadsendorpsgezichten",
+    "percentageunderdesignation": "100",
+    "script": "Latn",
+    "siteprotectionclassification": "http://inspire.ec.europa.eu/codelist/ProtectionClassificationValue/cultural",
+    "text": "'s-Gravenhage - Binnenhof e.o.",
+    "versionid": "2026-09-02T11:38:46Z"
+   },
+   "geometry": null,
+   "id": "c5db3875-f951-5260-a8d8-1e700ca3f8d4"
+  }
+ ],
+ "numberReturned": 1
+}

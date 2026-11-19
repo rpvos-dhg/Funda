@@ -1,0 +1,50 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": "nl_fcab_omgevingsscore_wateroverlast_v20260806.3276164",
+   "geometry": null,
+   "geometry_name": "geom",
+   "properties": {
+    "identificatie_bag": "0518100000211472",
+    "bouwjaar": 1290,
+    "ahn_invliegjaar": 2023,
+    "waterdiepte_p99": 0.949999988079071,
+    "waterdiepte_klasse": "meer dan 30 cm"
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "",
+   "geometry": null,
+   "properties": {
+    "GRAY_INDEX": 0
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "kans_grondwateroverlast_2050hoog.fid--36496a2_1a1f0e7864f_4501",
+   "geometry": null,
+   "geometry_name": "geom",
+   "properties": {
+    "gid": 30440,
+    "objectid": 30440,
+    "id": 30440,
+    "gridcode": 5,
+    "shape_leng": 325500,
+    "shape_area": 199750000
+   }
+  }
+ ],
+ "totalFeatures": "unknown",
+ "numberReturned": 3,
+ "timeStamp": "2026-11-18T23:50:42.476Z",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "urn:ogc:def:crs:CRS::84"
+  }
+ },
+ "_ingekort": "geometrie weggelaten; de twee niet-gebruikte lagen (hitteeiland, gevoelstemperatuur_2022) uit het antwoord gehaald"
+}

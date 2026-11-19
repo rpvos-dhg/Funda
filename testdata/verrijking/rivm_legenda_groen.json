@@ -1,0 +1,68 @@
+{
+ "Legend": [
+  {
+   "layerName": "groenkaart_cjp_2022_500m",
+   "title": "groenkaart_cjp_2022_500m",
+   "rules": [
+    {
+     "title": "Titel rule",
+     "symbolizers": [
+      {
+       "Raster": {
+        "geometry": "[grid]",
+        "colormap": {
+         "entries": [
+          {
+           "label": "Gemiddeld oppervlak groen (%)",
+           "quantity": "-2",
+           "color": "#FFFFFF",
+           "opacity": "1.0E-4"
+          },
+          {
+           "label": "binnen 500 meter",
+           "quantity": "-1",
+           "color": "#FFFFFF",
+           "opacity": "1.0E-4"
+          },
+          {
+           "label": "< 5",
+           "quantity": "5",
+           "color": "#FFFFCC",
+           "opacity": "1.0"
+          },
+          {
+           "label": "5 - 40",
+           "quantity": "40",
+           "color": "#C2E699",
+           "opacity": "1.0"
+          },
+          {
+           "label": "40 - 70",
+           "quantity": "70",
+           "color": "#78C679",
+           "opacity": "1.0"
+          },
+          {
+           "label": "70 - 90",
+           "quantity": "90",
+           "color": "#31A354",
+           "opacity": "1.0"
+          },
+          {
+           "label": "90 - 100",
+           "quantity": "101",
+           "color": "#006837",
+           "opacity": "1.0"
+          }
+         ],
+         "type": "intervals"
+        },
+        "opacity": "1.0"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

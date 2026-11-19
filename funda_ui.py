@@ -242,6 +242,9 @@ def _woning(rij: dict, meta: dict) -> dict:
         "poort": poort, "twijfel": [_zin(t) for t in (b.get("twijfel") or []) if str(t).strip()],
         "score": _getal(b.get("score")) or 0.0, "onderdelen": b.get("onderdelen") or {},
         "let_op": b.get("let_op") or [], "plus": b.get("pluspunten") or [], "onbekend": b.get("onbekend") or [],
+        # Informatieve items zonder punten die een eigen blok krijgen (open bronnen, "eerder zonder prijs",
+        # "mogelijk onder schuin dak"). De overige neutrale items staan al in de kerncijfers en kenmerken.
+        "omgeving": [x for x in (b.get("info") or []) if x.get("onderdeel") in funda_beoordeling.INFO_TONEN],
         "kansen": kansen, "zelf": (b.get("zelf_nagaan") or [])[:6], "fin": f, "routes": routes,
         "foto": rij.get("foto_url"), "fotos": fotos, "lat": _getal(rij.get("lat")), "lon": _getal(rij.get("lon")),
         "ch": ch, "woz": woz, "aangeboden": det.get("offered_since") or d.get("offered_since"),
@@ -306,15 +309,15 @@ def _placeholder_lasten(woningen: list[dict]) -> str:
 
 
 # ── HTML ─────────────────────────────────────────────────────────────────────
-def punt_html(it, met_punten=True) -> str:
+def punt_html(it, met_punten=True, met_uitleg=False) -> str:
     o = it.get("oordeel") or "neutraal"
     ptxt = punten(it.get("punten") or 0)
     pcls = "pt-plus" if ptxt.startswith("+") else "pt-min" if ptxt.startswith("−") else "pt-nul"
     pt = f'<span class="pt {pcls}">{ptxt if ptxt != "0" else ""}</span>' if met_punten else "<span></span>"
     # Geen voorvoegsel: de vraagzinnen beginnen zelf al met "Vraag ..." of een eigen label ("Kleine VvE: ...").
     vraag = f'<span class="vraag">{ic("vraag", "ic ic-s")}<span>{h(it["vraag"])}</span></span>' if it.get("vraag") else ""
-    uitleg = (f'<span class="uitleg">{h(it["uitleg"])}</span>' if it.get("uitleg") and o in ("sterk", "let_op")
-              and it.get("onderdeel") != "woonlasten" else "")
+    uitleg = (f'<span class="uitleg">{h(it["uitleg"])}</span>'
+              if it.get("uitleg") and (o in ("sterk", "let_op") or met_uitleg) and it.get("onderdeel") != "woonlasten" else "")
     return (f'<li class="punt">{ic(OORDEEL_IC.get(o, "info"), "ic o-" + o)}'
             f'<span class="punt-tekst"><b>{h(it.get("label"))}</b>: {h(it.get("waarde"))}'
             f'<span class="vh"> ({OORDEEL_TEKST.get(o, o)})</span>'
@@ -499,6 +502,12 @@ def kaart_html(w, meta: dict | None = None) -> str:
     if onb or kans:
         blokken.append(f'<section class="blok"><h4>{ic("vraag", "ic o-onbekend")}Onbekend en kansen</h4><ul class="punten">{onb}{kans}</ul>'
                        f'<p class="punt-tekst gesch mt-100">Telt niet mee in de score.</p></section>')
+    if w["omgeving"]:
+        omg = "".join(punt_html(x, False, True) for x in w["omgeving"])
+        blokken.append(f'<section class="blok"><details class="opbouw omgeving"><summary>Buurt en omgeving '
+                       f'<span class="waarde">{len(w["omgeving"])}</span>{ic("chev", "ic chev")}</summary>'
+                       f'<ul class="punten">{omg}</ul>'
+                       f'<p class="punt-tekst gesch mt-100">Uit open bronnen. Telt nog niet mee in de score.</p></details></section>')
     if w["beoordeeld"]:
         blokken.append(f'<section class="blok">{opbouw_score(w)}</section>')
     blokken.append(f'<section class="blok"><h4>Geld</h4><div class="geld-blok">{opbouw_lasten(w)}{financiering(w, meta)}</div></section>')

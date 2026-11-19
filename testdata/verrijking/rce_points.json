@@ -1,0 +1,83 @@
+{
+ "type": "FeatureCollection",
+ "timeStamp": "2026-11-18T23:51:34Z",
+ "links": [],
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "ci_citation": "https://monumentenregister.cultureelerfgoed.nl/monumenten/17650",
+    "designation": "https://data.cultureelerfgoed.nl/term/id/rn/2/fc966a68-8863-4970-a83e-110f96006c21",
+    "designationscheme": "https://data.cultureelerfgoed.nl/term/id/rn/2/b6103f26-22c6-4f0f-b480-0bd44d77c424",
+    "language": "nld",
+    "legalfoundationdate": "1967-01-11",
+    "localid": "20943.00",
+    "namespace": "nlps-rijksmonumenten",
+    "percentageunderdesignation": "100",
+    "script": "Latn",
+    "siteprotectionclassification": "http://inspire.ec.europa.eu/codelist/ProtectionClassificationValue/cultural",
+    "text": null,
+    "versionid": "2026-06-19T14:44:28Z"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4.314450583734867,
+     52.08043555312422
+    ]
+   },
+   "id": "467cc2dc-7b90-5834-b69a-ab1901840fc0"
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "ci_citation": "https://monumentenregister.cultureelerfgoed.nl/monumenten/17476",
+    "designation": "https://data.cultureelerfgoed.nl/term/id/rn/2/fc966a68-8863-4970-a83e-110f96006c21",
+    "designationscheme": "https://data.cultureelerfgoed.nl/term/id/rn/2/b6103f26-22c6-4f0f-b480-0bd44d77c424",
+    "language": "nld",
+    "legalfoundationdate": "1967-01-11",
+    "localid": "27487.00",
+    "namespace": "nlps-rijksmonumenten",
+    "percentageunderdesignation": "100",
+    "script": "Latn",
+    "siteprotectionclassification": "http://inspire.ec.europa.eu/codelist/ProtectionClassificationValue/cultural",
+    "text": null,
+    "versionid": "2025-03-25T16:03:01Z"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4.313942227358108,
+     52.08034103659502
+    ]
+   },
+   "id": "273194ae-2667-5c35-9034-874d4733418d"
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "ci_citation": "https://monumentenregister.cultureelerfgoed.nl/monumenten/17477",
+    "designation": "https://data.cultureelerfgoed.nl/term/id/rn/2/fc966a68-8863-4970-a83e-110f96006c21",
+    "designationscheme": "https://data.cultureelerfgoed.nl/term/id/rn/2/b6103f26-22c6-4f0f-b480-0bd44d77c424",
+    "language": "nld",
+    "legalfoundationdate": "1967-01-11",
+    "localid": "60809.00",
+    "namespace": "nlps-rijksmonumenten",
+    "percentageunderdesignation": "100",
+    "script": "Latn",
+    "siteprotectionclassification": "http://inspire.ec.europa.eu/codelist/ProtectionClassificationValue/cultural",
+    "text": null,
+    "versionid": "2025-03-25T16:21:04Z"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4.313942227358108,
+     52.08034103659502
+    ]
+   },
+   "id": "0d8440d4-acd8-5c04-af31-6c83d62a1915"
+  }
+ ],
+ "numberReturned": 3
+}

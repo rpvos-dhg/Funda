@@ -2741,340 +2741,6 @@
    }
   },
   {
-   "id": "w02",
-   "beoordeling": {
-    "poort": "PAST NIET",
-    "poort_redenen": [
-     "Max. hypotheek € 279.043: € 9.957 uit eigen geld.",
-     "Eigen geld: € 10.073 tekort."
-    ],
-    "status_kort": "Past niet · € 10.073 eigen geld te weinig",
-    "twijfel": [],
-    "score": 6.7,
-    "onderdelen": {
-     "woonlasten": {
-      "punten": 0.69,
-      "kort": "woonlasten € 1.381"
-     },
-     "buitenruimte": {
-      "punten": 1.0,
-      "kort": "dakterras 18 m²"
-     },
-     "oppervlak": {
-      "punten": -0.45,
-      "kort": "61 m²"
-     },
-     "woonlaag_lift": {
-      "punten": -0.5,
-      "kort": "3e zonder lift"
-     },
-     "buurt": {
-      "punten": 0.5,
-      "kort": "buurt zeer goed"
-     },
-     "markt": {
-      "punten": 0.5,
-      "kort": "m²-prijs 11% onder buurt"
-     }
-    },
-    "uitleg_regel": "6,7 · dakterras 18 m² +1,0 · woonlasten € 1.381 +0,7 · 3e zonder lift −0,5 · overig +0,6",
-    "let_op": [
-     {
-      "onderdeel": "financiering",
-      "groep": "let_op",
-      "oordeel": "sterk",
-      "label": "Leenruimte",
-      "waarde": "€ 9.957 boven max. hypotheek",
-      "bron": "leentoets 2026",
-      "punten": 0.0,
-      "kort": "leenruimte te klein",
-      "vraag": null,
-      "uitleg": null
-     },
-     {
-      "onderdeel": "woonlaag_lift",
-      "groep": "let_op",
-      "oordeel": "let_op",
-      "label": "Trappen",
-      "waarde": "3e woonlaag, geen lift",
-      "bron": "kenmerk 'Gelegen op'",
-      "punten": -0.5,
-      "kort": "3e zonder lift",
-      "vraag": null,
-      "uitleg": null
-     },
-     {
-      "onderdeel": "reisafstand",
-      "groep": "let_op",
-      "oordeel": "let_op",
-      "label": "Werk B",
-      "waarde": "≈ 11,7 km",
-      "bron": "route",
-      "punten": -0.5,
-      "kort": "werk 11,7 km",
-      "vraag": null,
-      "uitleg": null
-     },
-     {
-      "onderdeel": "vve",
-      "groep": "let_op",
-      "oordeel": "let_op",
-      "label": "Kleine VvE",
-      "waarde": "4 adressen in het pand",
-      "bron": "BAG",
-      "punten": -0.5,
-      "kort": "VvE van 4",
-      "vraag": "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
-      "uitleg": "Grote kosten (dak, fundering) deel je met weinig eigenaren."
-     },
-     {
-      "onderdeel": "financiering",
-      "groep": "let_op",
-      "oordeel": "let_op",
-      "label": "Eigen geld",
-      "waarde": "€ 10.073 tekort",
-      "bron": "berekening, kosten koper ≈",
-      "punten": 0.0,
-      "kort": "eigen geld",
-      "vraag": null,
-      "uitleg": null
-     }
-    ],
-    "pluspunten": [
-     {
-      "onderdeel": "buitenruimte",
-      "groep": "plus",
-      "oordeel": "goed",
-      "label": "Dakterras",
-      "waarde": "18 m²",
-      "bron": "kenmerk 'Balkon/dakterras'",
-      "punten": 1.0,
-      "kort": "dakterras 18 m²",
-      "vraag": "Is er een vergunning voor het dakterras en staat het in de splitsingsakte?",
-      "uitleg": null
-     },
-     {
-      "onderdeel": "reisafstand",
-      "groep": "plus",
-      "oordeel": "goed",
-      "label": "Werk A",
-      "waarde": "≈ 2,3 km",
-      "bron": "route",
-      "punten": 0.5,
-      "kort": "werk 2,3 km",
-      "vraag": null,
-      "uitleg": null
-     },
-     {
-      "onderdeel": "vve",
-      "groep": "plus",
-      "oordeel": "goed",
-      "label": "VvE op orde",
-      "waarde": "KvK, ALV, reservefonds, MJOP",
-      "bron": "kenmerken",
-      "punten": 0.5,
-      "kort": "VvE op orde",
-      "vraag": null,
-      "uitleg": null
-     },
-     {
-      "onderdeel": "buurt",
-      "groep": "plus",
-      "oordeel": "goed",
-      "label": "Leefbaarometer",
-      "waarde": "zeer goed (2024)",
-      "bron": "Leefbaarometer 3.0",
-      "punten": 0.5,
-      "kort": "buurt zeer goed",
-      "vraag": null,
-      "uitleg": null
-     },
-     {
-      "onderdeel": "markt",
-      "groep": "plus",
-      "oordeel": "goed",
-      "label": "Prijs per m²",
-      "waarde": "11% onder de buurt",
-      "bron": "funda-buurtcijfer",
-      "punten": 0.5,
-      "kort": "m²-prijs 11% onder buurt",
-      "vraag": null,
-      "uitleg": "Vergeleken met alle te koop staande woningen in de buurt."
-     },
-     {
-      "onderdeel": "energielabel",
-      "groep": "plus",
-      "oordeel": "goed",
-      "label": "Energielabel",
-      "waarde": "B",
-      "bron": "funda",
-      "punten": 0.0,
-      "kort": "label B",
-      "vraag": null,
-      "uitleg": "Lagere stookkosten en meer leenruimte; dat zit al in woonlasten en leentoets."
-     },
-     {
-      "onderdeel": "erfpacht",
-      "groep": "plus",
-      "oordeel": "goed",
-      "label": "Grond",
-      "waarde": "eigen grond",
-      "bron": "kenmerk 'Eigendomssituatie'",
-      "punten": 0.0,
-      "kort": "eigen grond",
-      "vraag": null,
-      "uitleg": null
-     },
-     {
-      "onderdeel": "fundering",
-      "groep": "plus",
-      "oordeel": "goed",
-      "label": "Funderingsrisico buurt",
-      "waarde": "laag",
-      "bron": "Klimaateffectatlas, buurtniveau",
-      "punten": 0.0,
-      "kort": "fundering laag",
-      "vraag": null,
-      "uitleg": null
-     }
-    ],
-    "onbekend": [],
-    "info": [
-     {
-      "onderdeel": "woonlasten",
-      "groep": "info",
-      "oordeel": "neutraal",
-      "label": "Woonlasten",
-      "waarde": "€ 1.381 netto per maand",
-      "bron": "berekening",
-      "punten": 0.69,
-      "kort": "woonlasten € 1.381",
-      "vraag": null,
-      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
-     },
-     {
-      "onderdeel": "oppervlak",
-      "groep": "info",
-      "oordeel": "neutraal",
-      "label": "Woonoppervlak",
-      "waarde": "61 m² (wens 70)",
-      "bron": "funda",
-      "punten": -0.45,
-      "kort": "61 m²",
-      "vraag": null,
-      "uitleg": null
-     },
-     {
-      "onderdeel": "vve",
-      "groep": "info",
-      "oordeel": "neutraal",
-      "label": "VvE-bijdrage",
-      "waarde": "€ 95 p/m",
-      "bron": "kenmerk 'Bijdrage VvE'",
-      "punten": 0.0,
-      "kort": "VvE € 95",
-      "vraag": null,
-      "uitleg": null
-     },
-     {
-      "onderdeel": "geluid",
-      "groep": "info",
-      "oordeel": "neutraal",
-      "label": "Geluid aan de gevel",
-      "waarde": "52 dB, nacht 43 dB (weg)",
-      "bron": "RIVM 2022/2023",
-      "punten": 0.0,
-      "kort": "geluid 52 dB",
-      "vraag": null,
-      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
-     },
-     {
-      "onderdeel": "clausules",
-      "groep": "info",
-      "oordeel": "neutraal",
-      "label": "Oplevering",
-      "waarde": "in overleg",
-      "bron": "kenmerk 'Aanvaarding'",
-      "punten": 0.0,
-      "kort": "oplevering in overleg",
-      "vraag": null,
-      "uitleg": null
-     },
-     {
-      "onderdeel": "info",
-      "groep": "info",
-      "oordeel": "neutraal",
-      "label": "WOZ-waarde",
-      "waarde": "€ 268.000 (WOZ 2026)",
-      "bron": "funda prijshistorie",
-      "punten": 0.0,
-      "kort": "WOZ-waarde",
-      "vraag": null,
-      "uitleg": "Waardepeildatum 1 januari 2025: de WOZ loopt achter op de markt."
-     },
-     {
-      "onderdeel": "info",
-      "groep": "info",
-      "oordeel": "neutraal",
-      "label": "Makelaar",
-      "waarde": "8,9 uit 58 reviews",
-      "bron": "funda, Makelaardij Het Plein",
-      "punten": 0.0,
-      "kort": "makelaar",
-      "vraag": null,
-      "uitleg": null
-     }
-    ],
-    "kansen": [],
-    "zelf_nagaan": [
-     "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
-     "Is er een vergunning voor het dakterras en staat het in de splitsingsakte?",
-     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
-     "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
-    ],
-    "financiering": {
-     "max_hypotheek": 279043,
-     "marge_lenen": -9957,
-     "kosten_koper": 7116,
-     "kk_soort": "startersvrijstelling",
-     "tekort": 10073,
-     "netto": 1381,
-     "bruto": 1711,
-     "grens": 1450,
-     "grens_soort": "netto",
-     "opbouw": {
-      "bruto_hyp": 1350,
-      "belastingvoordeel": 330,
-      "vve": 95,
-      "vve_bron": "kenmerk 'Bijdrage VvE'",
-      "vve_geschat": false,
-      "energie": 106,
-      "stook_in_vve": false,
-      "overig": 160,
-      "canon_maand": 0,
-      "woz": 268000,
-      "woz_geschat": false
-     },
-     "koopsom": 289000,
-     "hypotheek": 279043,
-     "over": -69,
-     "rente": 0.0411,
-     "rente_datum": "2026-07-06",
-     "rente_bron": "standaard",
-     "rentevast_jaren": 30,
-     "scenarios": [],
-     "planning": null,
-     "scenario_tekst": null
-    },
-    "verrijking": {
-     "bag": "ok",
-     "fundering": "ok",
-     "geluid": "ok",
-     "buurt": "ok"
-    }
-   }
-  },
-  {
    "id": "w05",
    "beoordeling": {
     "poort": "PAST NIET",
@@ -3402,6 +3068,357 @@
      "koopsom": 269000,
      "hypotheek": 252511,
      "over": 26,
+     "rente": 0.0411,
+     "rente_datum": "2026-07-06",
+     "rente_bron": "standaard",
+     "rentevast_jaren": 30,
+     "scenarios": [],
+     "planning": null,
+     "scenario_tekst": null
+    },
+    "verrijking": {
+     "bag": "ok",
+     "fundering": "ok",
+     "geluid": "ok",
+     "buurt": "ok"
+    }
+   }
+  },
+  {
+   "id": "w02",
+   "beoordeling": {
+    "poort": "PAST NIET",
+    "poort_redenen": [
+     "Max. hypotheek € 279.043: € 9.957 uit eigen geld.",
+     "Eigen geld: € 10.073 tekort."
+    ],
+    "status_kort": "Past niet · € 10.073 eigen geld te weinig",
+    "twijfel": [],
+    "score": 6.2,
+    "onderdelen": {
+     "woonlasten": {
+      "punten": 0.69,
+      "kort": "woonlasten € 1.381"
+     },
+     "buitenruimte": {
+      "punten": 1.0,
+      "kort": "dakterras 18 m²"
+     },
+     "oppervlak": {
+      "punten": -0.45,
+      "kort": "61 m²"
+     },
+     "woonlaag_lift": {
+      "punten": -0.5,
+      "kort": "3e zonder lift"
+     },
+     "schuin_dak": {
+      "punten": -0.5,
+      "kort": "onder schuin dak"
+     },
+     "buurt": {
+      "punten": 0.5,
+      "kort": "buurt zeer goed"
+     },
+     "markt": {
+      "punten": 0.5,
+      "kort": "m²-prijs 11% onder buurt"
+     }
+    },
+    "uitleg_regel": "6,2 · dakterras 18 m² +1,0 · woonlasten € 1.381 +0,7 · 3e zonder lift −0,5",
+    "let_op": [
+     {
+      "onderdeel": "financiering",
+      "groep": "let_op",
+      "oordeel": "sterk",
+      "label": "Leenruimte",
+      "waarde": "€ 9.957 boven max. hypotheek",
+      "bron": "leentoets 2026",
+      "punten": 0.0,
+      "kort": "leenruimte te klein",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "woonlaag_lift",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Trappen",
+      "waarde": "3e woonlaag, geen lift",
+      "bron": "kenmerk 'Gelegen op'",
+      "punten": -0.5,
+      "kort": "3e zonder lift",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "schuin_dak",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Schuin dak",
+      "waarde": "woonruimte onder schuin dak",
+      "bron": "advertentietekst",
+      "punten": -0.5,
+      "kort": "onder schuin dak",
+      "vraag": "Vraag de bruikbare oppervlakte boven 1,50 m hoogte op.",
+      "uitleg": "Onder een schuin dak is minder vloer bruikbaar dan het aantal m² doet denken, en de ruimte voelt anders."
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Werk B",
+      "waarde": "≈ 11,7 km",
+      "bron": "route",
+      "punten": -0.5,
+      "kort": "werk 11,7 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Kleine VvE",
+      "waarde": "4 adressen in het pand",
+      "bron": "BAG",
+      "punten": -0.5,
+      "kort": "VvE van 4",
+      "vraag": "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+      "uitleg": "Grote kosten (dak, fundering) deel je met weinig eigenaren."
+     },
+     {
+      "onderdeel": "financiering",
+      "groep": "let_op",
+      "oordeel": "let_op",
+      "label": "Eigen geld",
+      "waarde": "€ 10.073 tekort",
+      "bron": "berekening, kosten koper ≈",
+      "punten": 0.0,
+      "kort": "eigen geld",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "pluspunten": [
+     {
+      "onderdeel": "buitenruimte",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Dakterras",
+      "waarde": "18 m²",
+      "bron": "kenmerk 'Balkon/dakterras'",
+      "punten": 1.0,
+      "kort": "dakterras 18 m²",
+      "vraag": "Is er een vergunning voor het dakterras en staat het in de splitsingsakte?",
+      "uitleg": null
+     },
+     {
+      "onderdeel": "reisafstand",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Werk A",
+      "waarde": "≈ 2,3 km",
+      "bron": "route",
+      "punten": 0.5,
+      "kort": "werk 2,3 km",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "VvE op orde",
+      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "bron": "kenmerken",
+      "punten": 0.5,
+      "kort": "VvE op orde",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "buurt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Leefbaarometer",
+      "waarde": "zeer goed (2024)",
+      "bron": "Leefbaarometer 3.0",
+      "punten": 0.5,
+      "kort": "buurt zeer goed",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "markt",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Prijs per m²",
+      "waarde": "11% onder de buurt",
+      "bron": "funda-buurtcijfer",
+      "punten": 0.5,
+      "kort": "m²-prijs 11% onder buurt",
+      "vraag": null,
+      "uitleg": "Vergeleken met alle te koop staande woningen in de buurt."
+     },
+     {
+      "onderdeel": "energielabel",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Energielabel",
+      "waarde": "B",
+      "bron": "funda",
+      "punten": 0.0,
+      "kort": "label B",
+      "vraag": null,
+      "uitleg": "Lagere stookkosten en meer leenruimte; dat zit al in woonlasten en leentoets."
+     },
+     {
+      "onderdeel": "erfpacht",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Grond",
+      "waarde": "eigen grond",
+      "bron": "kenmerk 'Eigendomssituatie'",
+      "punten": 0.0,
+      "kort": "eigen grond",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "fundering",
+      "groep": "plus",
+      "oordeel": "goed",
+      "label": "Funderingsrisico buurt",
+      "waarde": "laag",
+      "bron": "Klimaateffectatlas, buurtniveau",
+      "punten": 0.0,
+      "kort": "fundering laag",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "onbekend": [],
+    "info": [
+     {
+      "onderdeel": "woonlasten",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonlasten",
+      "waarde": "€ 1.381 netto per maand",
+      "bron": "berekening",
+      "punten": 0.69,
+      "kort": "woonlasten € 1.381",
+      "vraag": null,
+      "uitleg": "Netto, jaar 1. Je grens: € 1.450."
+     },
+     {
+      "onderdeel": "oppervlak",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Woonoppervlak",
+      "waarde": "61 m² (wens 70)",
+      "bron": "funda",
+      "punten": -0.45,
+      "kort": "61 m²",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "vve",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "VvE-bijdrage",
+      "waarde": "€ 95 p/m",
+      "bron": "kenmerk 'Bijdrage VvE'",
+      "punten": 0.0,
+      "kort": "VvE € 95",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "geluid",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Geluid aan de gevel",
+      "waarde": "52 dB, nacht 43 dB (weg)",
+      "bron": "RIVM 2022/2023",
+      "punten": 0.0,
+      "kort": "geluid 52 dB",
+      "vraag": null,
+      "uitleg": "Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn."
+     },
+     {
+      "onderdeel": "clausules",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Oplevering",
+      "waarde": "in overleg",
+      "bron": "kenmerk 'Aanvaarding'",
+      "punten": 0.0,
+      "kort": "oplevering in overleg",
+      "vraag": null,
+      "uitleg": null
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "WOZ-waarde",
+      "waarde": "€ 268.000 (WOZ 2026)",
+      "bron": "funda prijshistorie",
+      "punten": 0.0,
+      "kort": "WOZ-waarde",
+      "vraag": null,
+      "uitleg": "Waardepeildatum 1 januari 2025: de WOZ loopt achter op de markt."
+     },
+     {
+      "onderdeel": "info",
+      "groep": "info",
+      "oordeel": "neutraal",
+      "label": "Makelaar",
+      "waarde": "8,9 uit 58 reviews",
+      "bron": "funda, Makelaardij Het Plein",
+      "punten": 0.0,
+      "kort": "makelaar",
+      "vraag": null,
+      "uitleg": null
+     }
+    ],
+    "kansen": [],
+    "zelf_nagaan": [
+     "Vraag de bruikbare oppervlakte boven 1,50 m hoogte op.",
+     "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+     "Is er een vergunning voor het dakterras en staat het in de splitsingsakte?",
+     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
+    ],
+    "financiering": {
+     "max_hypotheek": 279043,
+     "marge_lenen": -9957,
+     "kosten_koper": 7116,
+     "kk_soort": "startersvrijstelling",
+     "tekort": 10073,
+     "netto": 1381,
+     "bruto": 1711,
+     "grens": 1450,
+     "grens_soort": "netto",
+     "opbouw": {
+      "bruto_hyp": 1350,
+      "belastingvoordeel": 330,
+      "vve": 95,
+      "vve_bron": "kenmerk 'Bijdrage VvE'",
+      "vve_geschat": false,
+      "energie": 106,
+      "stook_in_vve": false,
+      "overig": 160,
+      "canon_maand": 0,
+      "woz": 268000,
+      "woz_geschat": false
+     },
+     "koopsom": 289000,
+     "hypotheek": 279043,
+     "over": -69,
      "rente": 0.0411,
      "rente_datum": "2026-07-06",
      "rente_bron": "standaard",

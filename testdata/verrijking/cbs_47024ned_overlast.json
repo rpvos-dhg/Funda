@@ -1,0 +1,41 @@
+{
+ "odata.metadata": "https://dataderden.cbs.nl/ODataApi/OData/47024NED/$metadata#Cbs.OData.WebAPI.Overlast",
+ "value": [
+  {
+   "Key": "0.0.0 ",
+   "Title": "Totaal registraties overlast"
+  },
+  {
+   "Key": "E33   ",
+   "Title": "Overlast door verward persoon"
+  },
+  {
+   "Key": "E35   ",
+   "Title": "Melding overlast jeugd"
+  },
+  {
+   "Key": "E38   ",
+   "Title": "Overlast ivm alcohol/ drugs"
+  },
+  {
+   "Key": "E41   ",
+   "Title": "Overlast zwervers"
+  },
+  {
+   "Key": "F010  ",
+   "Title": "Openbare dronkenschap"
+  },
+  {
+   "Key": "M061  ",
+   "Title": "Geluidshinder horeca"
+  },
+  {
+   "Key": "M062  ",
+   "Title": "Geluidshinder evenement"
+  },
+  {
+   "Key": "M22   ",
+   "Title": "Geluidshinder overig"
+  }
+ ]
+}
