@@ -235,12 +235,37 @@ class DropIn:
         self._pauze = pauze
         self._log = log or (lambda _bericht: None)
         self._cache: dict[str, Any] = {}
+        # De woningen waarvan de detail-call als laatste mislukte, zonder een
+        # geslaagde call of een nette 404 ertussen (zie _bewaak_reeks).
+        self._reeks_mislukt: set[str] = set()
 
     def get_listing(self, listing_id: Any) -> Any:
         sleutel = str(listing_id)
         if sleutel in self._cache:
             return self._cache[sleutel]
         return self._client.get_listing(listing_id)
+
+    def _bewaak_reeks(self, pad: str, exc: Exception) -> None:
+        """Een mislukte detail-call in de HTML- of mailroute: is het endpoint dicht?
+
+        Dezelfde regel als in de sitemapzoeker en de pool. Een weigering
+        (`DetailEndpointDicht`, status 401, 403 of 429) gaat meteen door naar de
+        aanroeper: main() stopt met exit 2 en er volgt geen detail-call meer. Een
+        nette 404 is een antwoord en beëindigt een reeks storingen. Mislukken
+        DICHT_NA woningen op rij, dan ook `DetailEndpointDicht`. De reeks telt
+        woningen, niet pogingen: de HTML-route komt dezelfde woning tegen in
+        elke prijsband en sortering, en één kapotte woning is geen dicht endpoint.
+        """
+        if isinstance(exc, DetailEndpointDicht):
+            raise exc
+        if isinstance(exc, WoningNietGevonden):
+            self._reeks_mislukt.clear()
+            return
+        self._reeks_mislukt.add(pad)
+        if len(self._reeks_mislukt) >= DICHT_NA:
+            raise DetailEndpointDicht(
+                f"Detail-endpoint werkt niet: {len(self._reeks_mislukt)} detail-calls op rij "
+                f"mislukt (laatste: {type(exc).__name__}: {exc}).") from exc
 
     def onthoud(self, listing: Any, *extra_sleutels: str | None) -> None:
         data = getattr(listing, "data", None) or {}
@@ -261,13 +286,18 @@ class DropIn:
         return log_tekst(f"Detail mislukt voor {waar}: {exc}")
 
     def _haal_detail(self, pad: str, bron: str, sleutel: str | None, *, vers: bool = False,
-                     aanvullen: dict[str, Any] | None = None,
+                     aanvullen: dict[str, Any] | None = None, bewaak: bool = True,
                      ) -> tuple[dict[str, Any] | None, Exception | None]:
         """Detaildata van één woning: (data, None), (None, fout) of (None, None) bij een leeg antwoord.
 
         Uit het geheugen als de woning deze run al is opgehaald (tenzij `vers`),
         anders één detail-call met pauze. `aanvullen` vult alleen gaten: detaildata
         wint. De listing wordt onthouden onder zijn id's en onder `sleutel`.
+
+        Met `bewaak` (de standaard) geeft een weigering of DICHT_NA mislukte
+        woningen op rij een `DetailEndpointDicht` (zie _bewaak_reeks); een losse
+        storing en een 404 komen gewoon terug als (None, fout). De sitemapzoeker
+        zet het uit: die houdt zelf de reeks bij en bewaart eerst zijn cache.
         """
         listing = None if vers or not sleutel else self._cache.get(sleutel)
         if listing is None:
@@ -275,9 +305,12 @@ class DropIn:
                 listing = self._client.get_listing(f"https://www.funda.nl{pad}")
             except Exception as exc:  # noqa: BLE001
                 self._log(self._fout_regel(pad, exc))
+                if bewaak:
+                    self._bewaak_reeks(pad, exc)
                 return None, exc
             finally:
                 time.sleep(self._pauze)
+            self._reeks_mislukt.clear()
         data = dict(getattr(listing, "data", None) or {})
         if not data:
             return None, None
@@ -1136,7 +1169,7 @@ class SitemapZoeker(DropIn):
 
     def _detail(self, k: dict[str, Any]) -> tuple[dict[str, Any] | None, Exception | None]:
         """Altijd een verse detail-call; zie DropIn._haal_detail voor de vorm van het antwoord."""
-        data, exc = self._haal_detail(k["pad"], "sitemap", k["url_id"], vers=True)
+        data, exc = self._haal_detail(k["pad"], "sitemap", k["url_id"], vers=True, bewaak=False)
         if data is not None:
             data["_sitemap_lastmod"] = k["lastmod"]
         return data, exc
