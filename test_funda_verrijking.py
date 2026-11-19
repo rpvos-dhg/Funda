@@ -72,6 +72,11 @@ class NepWeb:
         self.klimaat: dict[str, tuple] = {}                # global_id -> (waterdiepte_klasse, kans, gridcode)
         self.lucht: dict[str, list] = {}                   # global_id -> [no2, pm25, groen]
         self.politie_leeg = False                          # buurt zonder rij in de politietabellen
+        # Fundering en klimaat in één verzoek: wat de dienst met het gecombineerde verzoek doet.
+        # None = gewoon; "400" en "xml" = de combinatie als geheel geweigerd; "zonder_fundering" en
+        # "zonder_klimaat" = die lagen ontbreken in het antwoord; "klimaat_kapot" = onverwachte vorm.
+        self.kea_combi: str | None = None
+        self.kea_fund_leeg: set[str] = set()               # global_id's zonder kaartwaarde voor de fundering
         buurten = sorted({w.get("neighbourhood") or "" for w in ws})
         self.code = {b: f"BU9{i:07d}" for i, b in enumerate(buurten)}
 
@@ -163,13 +168,37 @@ class NepWeb:
             for f in r["features"]:
                 f["geometry"]["coordinates"] = [w["longitude"] + 0.0001, w["latitude"]]     # ~7 m verderop
             return 200, json.dumps(r).encode()
-        if host == "cas.cloud.sogelink.com" and v.KEA_KLIMAAT_LAGEN["wateroverlast"] in q["layers"][0]:
-            k = fixture("kea_klimaat_getfeatureinfo.json")
+        if host == "cas.cloud.sogelink.com":
+            # De features per gevraagde laag achter elkaar, in de volgorde van het verzoek: de vorm van
+            # de gemeten antwoorden met meerdere lagen (en van kea_gecombineerd_getfeatureinfo.json).
+            lagen = q["layers"][0].split(",")
+            fund, klim = list(v.KEA_LAGEN.values()), list(v.KEA_KLIMAAT_LAGEN.values())
+            combi = any(x in fund for x in lagen) and any(x in klim for x in lagen)
+            if combi and self.kea_combi == "400":
+                return 400, b"{}"
+            if combi and self.kea_combi == "xml":
+                return 200, b"<ServiceExceptionReport/>"
+            f, k = fixture("kea_getfeatureinfo.json"), fixture("kea_klimaat_getfeatureinfo.json")
             w = self._midden(q)
-            diepte, kans, grond = self.klimaat.get(str(w["global_id"]), ("0 tot 2 cm", 0, 5)) if w else ("0 tot 2 cm", 0, 5)
+            gid = str(w["global_id"]) if w else ""
+            vz, pr = self.kea.get(gid, (1.2, 0.1))
+            diepte, kans, grond = self.klimaat.get(gid, ("0 tot 2 cm", 0, 5))
+            f["features"][0]["properties"]["sterke_c_1"] = vz
+            f["features"][1]["properties"]["sterke_c_2"] = pr
             k["features"][0]["properties"]["waterdiepte_klasse"] = diepte
             k["features"][1]["properties"]["GRAY_INDEX"] = kans
             k["features"][2]["properties"]["gridcode"] = grond
+            if combi and self.kea_combi == "klimaat_kapot":
+                for x in k["features"]:
+                    x["properties"] = ["kapot"]
+            per_laag = dict(zip(fund, f["features"]))
+            per_laag.update(zip(klim, k["features"]))
+            if gid in self.kea_fund_leeg or (combi and self.kea_combi == "zonder_fundering"):
+                per_laag = {n: x for n, x in per_laag.items() if n not in fund}
+            if combi and self.kea_combi == "zonder_klimaat":
+                per_laag = {n: x for n, x in per_laag.items() if n not in klim}
+            k["features"] = [per_laag[n] for n in lagen if n in per_laag]
+            k["numberReturned"] = len(k["features"])
             return 200, json.dumps(k).encode()
         if host == "data.rivm.nl" and "rivm_nsl_" in q["layers"][0]:
             r = fixture("rivm_lucht_getfeatureinfo.json")
@@ -187,13 +216,6 @@ class NepWeb:
             if self.politie_leeg:
                 c["value"] = [r for r in c["value"] if not r["WijkenEnBuurten"].startswith("BU")]
             return 200, json.dumps(c).encode()
-        if host == "cas.cloud.sogelink.com":
-            k = fixture("kea_getfeatureinfo.json")
-            w = self._midden(q)
-            vz, pr = self.kea.get(str(w["global_id"]), (1.2, 0.1)) if w else (1.2, 0.1)
-            k["features"][0]["properties"]["sterke_c_1"] = vz
-            k["features"][1]["properties"]["sterke_c_2"] = pr
-            return 200, json.dumps(k).encode()
         if host == "data.rivm.nl":
             r = fixture("rivm_getfeatureinfo.json")
             w = self._midden(q)
@@ -551,7 +573,9 @@ def test_volledige_run() -> bool:
     nieuw = [w for w in ws if (w.get("construction_year") or 0) >= 1970]
     ok &= check("geen KEA-verzoek voor panden van na 1970",
                 web.aantal("cas.cloud.sogelink.com", "/wms", "risicopaalrot") == len(ws) - len(nieuw))
-    ok &= check("13 nieuwe woningen: tussen 140 en 175 verzoeken", 140 <= len(web.calls) <= 175, str(len(web.calls)))
+    ok &= check("fundering en klimaat samen: één KEA-verzoek per woning",
+                web.aantal("cas.cloud.sogelink.com", "/wms") == len(ws), str(web.aantal("cas.cloud.sogelink.com", "/wms")))
+    ok &= check("13 nieuwe woningen: tussen 130 en 165 verzoeken", 130 <= len(web.calls) <= 165, str(len(web.calls)))
     ok &= check("nieuwe bronnen ok", all(st[b] == {"ok"} for b in ("kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed")),
                 str(st))
     buurten = len({w.get("neighbourhood") or "" for w in ws})
@@ -731,7 +755,10 @@ def test_budget() -> bool:
     cache: dict = {}
     uit = v.verrijk(ws, cache, cfg(max_calls_per_run=120), VANDAAG, http=web, ua=UA, log=STIL)
     ok = check("hooguit 120 verzoeken", len(web.calls) <= 120, str(len(web.calls)))
-    ok &= check("budget opgemaakt (120 verzoeken)", len(web.calls) == 120, str(len(web.calls)))
+    # Het budget gaat per woning: wat overblijft is minder dan één nieuwe woning in een nieuwe buurt (13).
+    ok &= check("budget benut tot er geen hele woning meer past", 107 < len(web.calls) <= 120, str(len(web.calls)))
+    ok &= check("geen halve woning", all(_heel(x) for x in uit.values()),
+                str([sorted({x[b]["status"] for b in v.BRONNEN}) for x in uit.values() if not _heel(x)][:3]))
     statussen = [x["geluid"]["status"] for x in uit.values()]
     ok &= check("een deel krijgt 'budget'", "budget" in statussen and "ok" in statussen)
     past_ok = [uit[str(w["global_id"])]["geluid"]["status"] == "ok" for w in ws if w["_beoordeling"]["poort"] == "PAST"]
@@ -749,6 +776,413 @@ def test_budget() -> bool:
     web3 = NepWeb(ws)
     v.verrijk(ws, {}, cfg(max_calls_per_run=7), VANDAAG, http=web3, ua=UA, log=STIL)
     ok &= check("ander budget uit de config", len(web3.calls) <= 7, str(len(web3.calls)))
+    return ok
+
+
+def _heel(x: dict) -> bool:
+    """Een woning is heel als hij geen enkele bron op "budget" heeft, of alles wat hij nog moest vragen
+    (wat al in de cache stond, telt niet mee)."""
+    st = {x[b]["status"] for b in v.BRONNEN if not (x[b]["status"] == "ok" and x[b]["uit_cache"])} - {"uit", "niet_nodig"}
+    return "budget" not in st or st == {"budget"}
+
+
+def _eigen_punt(n: int, **kw) -> list[dict]:
+    """n fictieve woningen in dezelfde buurt, elk op een eigen punt, pand van voor de funderingsdrempel."""
+    basis = woningen()[0]
+    ws = []
+    for i in range(n):
+        w = copy.deepcopy(basis)
+        w.update({"global_id": 8_100_000 + i, "latitude": round(52.03 + i * 0.002, 6),
+                  "longitude": round(4.25 + i * 0.002, 6), "construction_year": 1930,
+                  "house_number": str(10 + i)})
+        w.update(kw)
+        ws.append(w)
+    return ws
+
+
+def _kea(web: NepWeb) -> list[str]:
+    return [u for u in web.calls if "cas.cloud.sogelink.com" in u and "robots.txt" not in u]
+
+
+def _lagen(url: str) -> list[str]:
+    return urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["layers"][0].split(",")
+
+
+FUND_LAGEN, KLIM_LAGEN = list(v.KEA_LAGEN.values()), list(v.KEA_KLIMAAT_LAGEN.values())
+
+
+def test_kea_gecombineerd() -> bool:
+    print("Fundering en klimaat in één verzoek, met terugval")
+    fx = fixture("kea_gecombineerd_getfeatureinfo.json")
+    ok = check("samengestelde fixture: beide parsers lezen hetzelfde als uit de losse antwoorden",
+               v.kea_parse(fx) == v.kea_parse(fixture("kea_getfeatureinfo.json"))
+               and v.klimaat_parse(fx) == v.klimaat_parse(fixture("kea_klimaat_getfeatureinfo.json")))
+    ok &= check("samengestelde fixture zegt dat hij niet gemeten is", "NIET gemeten" in fx.get("_samengesteld", ""))
+
+    def run(ws, cache=None, web=None, logs=None, **bronnen):
+        web = web or NepWeb(ws)
+        cache = {} if cache is None else cache
+        uit = v.verrijk(ws, cache, cfg(bronnen=bronnen) if bronnen else cfg(), VANDAAG, http=web, ua=UA,
+                        log=(logs.append if logs is not None else STIL))
+        return uit, cache, web
+
+    ws = _eigen_punt(1)
+    gid = str(ws[0]["global_id"])
+    uit, cache, web = run(ws)
+    ok &= check("nieuwe woning: één verzoek met de vijf lagen",
+                len(_kea(web)) == 1 and _lagen(_kea(web)[0]) == FUND_LAGEN + KLIM_LAGEN, str(_kea(web)))
+    ok &= check("beide bronnen ok", uit[gid]["fundering"]["status"] == "ok" == uit[gid]["klimaat"]["status"])
+    ok &= check("nep-web geeft de vorm van de samengestelde fixture",
+                [str(f.get("id")).split(".")[0] for f in fx["features"]]
+                == [str(f.get("id")).split(".")[0] for f in json.loads(web(_kea(web)[0])[1])["features"]])
+    # De cache is dezelfde als met twee losse verzoeken (bestaande caches blijven warm).
+    _, c_f, w_f = run(ws, klimaat=False)
+    _, c_k, w_k = run(ws, fundering=False)
+    ok &= check("één bron uit: alleen de lagen van de andere",
+                [_lagen(u) for u in _kea(w_f)] == [FUND_LAGEN] and [_lagen(u) for u in _kea(w_k)] == [KLIM_LAGEN],
+                str(_kea(w_f) + _kea(w_k)))
+    ok &= check("cachesecties en elementen gelijk aan die van de losse verzoeken",
+                cache["fundering"] == c_f["fundering"] and cache["klimaat"] == c_k["klimaat"]
+                and "klimaat" not in c_f and "fundering" not in c_k)
+    ok &= check("elementen in de bestaande vorm",
+                all(set(e) == {"fetched", "data"} and set(e["data"]) == set(v.VELDEN[s])
+                    for s in ("fundering", "klimaat") for e in cache[s].values()))
+    # Eén van de twee al in de cache: alleen de andere lagen.
+    uit2, _, w2 = run(ws, cache=c_f)
+    ok &= check("fundering in de cache: alleen de klimaatlagen", [_lagen(u) for u in _kea(w2)] == [KLIM_LAGEN]
+                and uit2[gid]["fundering"]["uit_cache"] and uit2[gid]["klimaat"]["status"] == "ok")
+    uit3, _, w3 = run(ws, cache=c_k)
+    ok &= check("klimaat in de cache: alleen de funderingslagen", [_lagen(u) for u in _kea(w3)] == [FUND_LAGEN]
+                and uit3[gid]["klimaat"]["uit_cache"] and uit3[gid]["fundering"]["status"] == "ok")
+    _, _, w4 = run(ws, cache=cache)
+    ok &= check("beide in de cache: geen verzoek", len(_kea(w4)) == 0)
+    # Fundering niet nodig (pand van na de drempel): alleen klimaat.
+    nieuw = _eigen_punt(1, construction_year=1995)
+    uit5, _, w5 = run(nieuw)
+    ok &= check("nieuw pand: fundering niet nodig, alleen de klimaatlagen",
+                [_lagen(u) for u in _kea(w5)] == [KLIM_LAGEN] and uit5[gid]["fundering"]["status"] == "niet_nodig"
+                and uit5[gid]["klimaat"]["status"] == "ok")
+    _, _, w6 = run(ws, fundering=False, klimaat=False)
+    ok &= check("beide uit: geen verzoek", len(_kea(w6)) == 0)
+
+    # Een fout in de ene bron neemt de andere niet mee; de kapotte gaat één keer los.
+    for soort, kapot, heel in (("klimaat_kapot", "klimaat", "fundering"), ("zonder_klimaat", "klimaat", "fundering"),
+                               ("zonder_fundering", "fundering", "klimaat")):
+        web = NepWeb(ws)
+        web.kea_combi = soort
+        logs: list[str] = []
+        uit, cache, _ = run(ws, web=web, logs=logs)
+        los = FUND_LAGEN if kapot == "fundering" else KLIM_LAGEN
+        ok &= check(f"{soort}: {heel} uit het gecombineerde antwoord, {kapot} één keer los",
+                    [_lagen(u) for u in _kea(web)] == [FUND_LAGEN + KLIM_LAGEN, los]
+                    and uit[gid][heel]["status"] == "ok" == uit[gid][kapot]["status"], str(uit[gid][kapot]))
+        ok &= check(f"{soort}: de terugval staat als aantal in de log",
+                    any(f"los opgehaald: {kapot} 1" in r for r in logs), str(logs))
+        ok &= check(f"{soort}: geen interne fout", not any("interne fout" in str(x.get("reden")) for x in uit[gid].values()))
+    # Geen kaartwaarde voor de fundering op dit punt: ook los niet. Klimaat blijft ok, de fout is een dag geldig.
+    web = NepWeb(ws)
+    web.kea_fund_leeg.add(gid)
+    uit, cache, _ = run(ws, web=web)
+    ok &= check("fundering zonder kaartwaarde: onbekend, klimaat ok, twee verzoeken",
+                uit[gid]["fundering"]["status"] == "onbekend" and uit[gid]["klimaat"]["status"] == "ok"
+                and len(_kea(web)) == 2
+                and bool(cache["fundering"][v.punt_sleutel(ws[0]["latitude"], ws[0]["longitude"])].get("fout")))
+    web = NepWeb(ws)
+    web.kea_fund_leeg.add(gid)
+    run(ws, cache=cache, web=web)
+    ok &= check("zelfde dag opnieuw: geen verzoek (één terugval, niet meer)", len(_kea(web)) == 0)
+
+    # De dienst weigert de combinatie als geheel: beide los, en de rest van de run niet meer gecombineerd.
+    twee = _eigen_punt(2)
+    for soort in ("400", "xml"):
+        web = NepWeb(twee)
+        web.kea_combi = soort
+        logs = []
+        uit, cache, _ = run(twee, web=web, logs=logs)
+        ok &= check(f"combinatie geweigerd ({soort}): drie verzoeken voor de eerste woning, twee voor de tweede",
+                    [len(_lagen(u)) for u in _kea(web)] == [5, 2, 3, 2, 3], str([len(_lagen(u)) for u in _kea(web)]))
+        ok &= check(f"combinatie geweigerd ({soort}): alles toch ok",
+                    all(x[b]["status"] == "ok" for x in uit.values() for b in ("fundering", "klimaat")))
+        ok &= check(f"combinatie geweigerd ({soort}): gemeld in de log", any("de rest van de run los" in r for r in logs), str(logs))
+        ok &= check(f"combinatie geweigerd ({soort}): geen fout in de cache",
+                    not any(e.get("fout") for s in ("fundering", "klimaat") for e in cache[s].values()))
+    # Geen antwoord, een serverfout of een weigering: geen terugval, de host stopt zoals altijd.
+    for status in (500, 403):
+        web = NepWeb(twee)
+        web.status["cas.cloud.sogelink.com"] = status
+        uit, cache, _ = run(twee, web=web)
+        ok &= check(f"status {status}: één verzoek, geen terugval, beide onbekend, niets als fout bewaard",
+                    len(_kea(web)) == 1 and all(x[b]["status"] == "onbekend" for x in uit.values() for b in ("fundering", "klimaat"))
+                    and not cache.get("fundering") and not cache.get("klimaat"), str(len(_kea(web))))
+    web = NepWeb(ws)
+    orig = web.__call__
+
+    def traag(url, timeout=None, headers=None):
+        if "cas.cloud.sogelink.com" in url and "robots.txt" not in url:
+            web.calls.append(url)
+            raise TimeoutError("nep")
+        return orig(url, timeout=timeout, headers=headers)
+    uit = v.verrijk(ws, {}, cfg(), VANDAAG, http=traag, ua=UA, log=STIL)
+    ok &= check("time-out: één verzoek, geen terugval, de rest van de woning ok",
+                len(_kea(web)) == 1 and uit[gid]["fundering"]["status"] == "onbekend" == uit[gid]["klimaat"]["status"]
+                and uit[gid]["geluid"]["status"] == "ok" and uit[gid]["erfgoed"]["status"] == "ok", str(len(_kea(web))))
+    return ok
+
+
+def test_budget_per_woning() -> bool:
+    print("Budget per woning: alleen beginnen als de hele woning past")
+    ok = check("kosten in SECTIES: fundering en klimaat elk 1, samen één verzoek",
+               v.SECTIES["fundering"][1] == 1 == v.SECTIES["klimaat"][1] and v.KEA_BRONNEN == ("fundering", "klimaat"))
+
+    def run(ws, budget, cache=None):
+        web = NepWeb(ws)
+        cache = {} if cache is None else cache
+        logs: list[str] = []
+        uit = v.verrijk(ws, cache, cfg(max_calls_per_run=budget), VANDAAG, http=web, ua=UA, log=logs.append)
+        return uit, cache, web, logs
+
+    def st(x):
+        return {x[b]["status"] for b in v.BRONNEN}
+
+    # Eén nieuwe woning in een nieuwe buurt en gemeente: 8 + 3 + 2, plus robots.txt van vijf hosts.
+    een = _eigen_punt(1)
+    uit, cache, web, _ = run(een, 200)
+    echt = len(web.calls)
+    ok &= check("nieuwe woning: 13 verzoeken plus 5 keer robots.txt", echt == 18 and web.aantal(pad="/robots.txt") == 5, str(echt))
+    ok &= check("de telling vooraf is gelijk aan wat de woning echt kostte",
+                v.kosten(een[0], v.Sessie({}, VANDAAG), {}, *v.instellingen(cfg())) == 18)
+    ok &= check("de telling is nul als alles in de cache staat",
+                v.kosten(een[0], v.Sessie(cache, VANDAAG), cache, *v.instellingen(cfg())) == 0)
+    uit, _, web, _ = run(een, 18)
+    ok &= check("budget precies genoeg: de woning is heel", st(uit[str(een[0]["global_id"])]) == {"ok"} and len(web.calls) == 18)
+
+    # Twee woningen op een eigen punt. Na de eerste (18) telt de tweede als 13 (buurt nog onbekend).
+    twee = _eigen_punt(2)
+    a, b = (str(w["global_id"]) for w in twee)
+    uit, _, web, _ = run(twee, 31)
+    ok &= check("net wel: 18 + 13 past, beide heel", st(uit[a]) == {"ok"} == st(uit[b]), str(st(uit[b])))
+    uit, cache, web, logs = run(twee, 30)
+    ok &= check("net niet: de tweede krijgt overal 'budget', geen enkel verzoek voor hem",
+                st(uit[a]) == {"ok"} and st(uit[b]) == {"budget"} and len(web.calls) == 18, f"{st(uit[b])} {len(web.calls)}")
+    ok &= check("net niet: niets van de tweede woning als fout in de cache",
+                not any(e.get("fout") for s in v.SECTIES if s != "robots" for e in (cache.get(s) or {}).values()))
+    ok &= check("net niet: als aantal in de log", any("1 woningen pasten niet in het budget" in r for r in logs), str(logs))
+    uit, _, web, _ = run(twee, 30, cache)
+    ok &= check("volgende run: de tweede is aan de beurt en wordt heel", st(uit[b]) == {"ok"} and 0 < len(web.calls) <= 13)
+
+    # Het budget gaat naar de volgende woning die wel past: de derde staat op het punt van de eerste en
+    # vraagt alleen nog de BAG (2 verzoeken).
+    drie = _eigen_punt(2) + _eigen_punt(1, global_id=8_100_009, house_number="99")
+    c = str(drie[2]["global_id"])
+    uit, _, web, _ = run(drie, 30)
+    ok &= check("de tweede past niet, de derde wel: 18 + 2 verzoeken",
+                st(uit[a]) == {"ok"} and st(uit[b]) == {"budget"} and st(uit[c]) == {"ok"} and len(web.calls) == 20,
+                f"{st(uit[b])} {st(uit[c])} {len(web.calls)}")
+    ok &= check("uitvoer in de volgorde van de invoer", list(uit) == [a, b, c])
+
+    # Past en Krap eerst: het budget voor één woning gaat naar de Past-woning, ook als die achteraan staat.
+    twee[0]["_beoordeling"] = {"poort": "PAST NIET", "score": 9.0}
+    twee[1]["_beoordeling"] = {"poort": "PAST", "score": 5.0}
+    uit, _, _, _ = run(twee, 20)
+    ok &= check("Past eerst", st(uit[b]) == {"ok"} and st(uit[a]) == {"budget"}, f"{st(uit[a])} {st(uit[b])}")
+    twee[0]["_beoordeling"] = {"poort": "KRAP", "score": 1.0}
+    twee[1]["_beoordeling"] = {"poort": "PAST NIET", "score": 9.0}
+    uit, _, _, _ = run(twee, 20)
+    ok &= check("Krap voor Past niet", st(uit[a]) == {"ok"} and st(uit[b]) == {"budget"})
+
+    # Een woning die meer kost dan het hele budget, wacht niet eeuwig: hij begint met een vol budget
+    # en gaat de volgende run verder met wat er al staat.
+    cache: dict = {}
+    per_run = []
+    for _ in range(4):
+        uit, cache, web, _ = run(een, 10, cache)
+        per_run.append(len(web.calls))
+    ok &= check("te duur voor het budget (18 > 10): toch begonnen, na twee runs heel",
+                per_run[0] == 10 and per_run[1] == 8 and per_run[2:] == [0, 0]
+                and st(uit[str(een[0]["global_id"])]) == {"ok"}, str(per_run))
+    # Maar alleen met een onaangeroerd budget: achter een andere woning wacht hij op de volgende run.
+    uit, _, web, _ = run(twee, 20)
+    ok &= check("een te dure woning begint niet met een aangebroken budget", len(web.calls) == 18)
+
+    # Veel woningen: nooit een halve.
+    veel = _eigen_punt(12)
+    uit, cache, web, _ = run(veel, 60)
+    ok &= check("12 woningen, budget 60: geen halve woning, een deel wacht",
+                all(_heel(x) for x in uit.values()) and any(st(x) == {"budget"} for x in uit.values())
+                and len(web.calls) <= 60, str(len(web.calls)))
+    n = 0
+    while any(st(x) != {"ok"} for x in uit.values()) and n < 6:
+        uit, cache, web, _ = run(veel, 60, cache)
+        ok &= all(_heel(x) for x in uit.values()) and len(web.calls) <= 60
+        n += 1
+    ok &= check("na een paar runs is alles heel", all(st(x) == {"ok"} for x in uit.values()) and n <= 3, str(n))
+    # Een gestopte host telt niet mee in de kosten: zijn bronnen houden de woning niet tegen.
+    web = NepWeb(een)
+    web.status["api.pdok.nl"] = 403
+    cache = {}
+    v.verrijk(een, cache, cfg(), VANDAAG, http=web, ua=UA, log=STIL)
+    ok &= check("gestopte host kost niets", v.kosten(een[0], v.Sessie(cache, VANDAAG), cache, *v.instellingen(cfg())) == 0)
+    return ok
+
+
+def _vervang(web: NepWeb, doel, body: bytes):
+    """Een nep-web dat op de verzoeken waar doel(url) waar is dit antwoord geeft (status 200)."""
+    def http(url, timeout=None, headers=None):
+        if "robots.txt" not in url and doel(url):
+            web.calls.append(url)
+            return 200, body
+        return web(url, timeout=timeout, headers=headers)
+    return http
+
+
+KAPOT = (b"[]", b"[1, 2]", b"null", b'"tekst"', b"7", b"{}", b'{"features": "x"}', b'{"features": [1, "a", null]}',
+         b'{"features": [[]]}', b'{"features": [{"properties": []}]}', b'{"features": [{"properties": "x", "id": 5}]}',
+         b'{"features": [{"properties": {"id": 5, "kscore": "7"}, "geometry": []}]}',
+         b'{"features": {"a": 1}}', b'{"value": [1]}', b'{"value": "x"}', b'{"value": [{"Marges": []}]}', b"geen json")
+
+
+def test_leefbaarometer_kapot() -> bool:
+    print("Leefbaarometer met een onverwacht antwoord: alleen die bron onbekend")
+    ws = woningen()[:2]
+    ok = True
+    for body in KAPOT:
+        web = NepWeb(ws)
+        cache: dict = {}
+        uit = v.verrijk(ws, cache, cfg(), VANDAAG, http=_vervang(web, lambda u: "geo.leefbaarometer.nl" in u, body),
+                        ua=UA, log=STIL)
+        naam = body.decode()[:40]
+        goed = all(x["buurt"]["delen"]["leefbaarometer"] == "onbekend" and x["buurt"]["status"] == "ok"
+                   and x["buurt"]["data"]["kscore"] is None and x["buurt"]["data"]["tevreden_woonomgeving"] is not None
+                   and not any("interne fout" in str(x[b].get("reden")) for b in v.BRONNEN)
+                   and all(x[b]["status"] == "ok" for b in ("bag", "geluid", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed"))
+                   for x in uit.values())
+        ok &= check(f"{naam}: Leefbaarometer onbekend, de rest van de woning ok", goed,
+                    str([(x["buurt"]["status"], x["buurt"].get("reden"), x["bag"].get("reden")) for x in uit.values()]))
+        merk = [e for k, e in (cache.get("leefbaarometer") or {}).items() if k.startswith("gemeente|")]
+        ok &= check(f"{naam}: als fout bewaard (morgen opnieuw), niet als gemeente zonder buurten",
+                    len(merk) == 1 and bool(merk[0].get("fout")) and web.aantal("geo.leefbaarometer.nl", "/lbm3/") == 1,
+                    str(merk))
+    # Tekst waar een getal hoort: de waarde wordt None, de andere velden van de buurt blijven.
+    web = NepWeb(ws)
+    web.lbm_extra = {"kscore": "7", "lbm": "hoog", "onv": None, "fys": True, "soc": [1], "won": float("nan")}
+    uit = v.verrijk(ws, {}, cfg(), VANDAAG, http=web, ua=UA, log=STIL)
+    d = [x["buurt"]["data"] for x in uit.values()]
+    ok &= check("tekst waar een getal hoort: None, de andere velden blijven",
+                all(x["kscore"] is None and x["lbm"] is None and x["fys"] is None and x["soc"] is None
+                    and x["won"] is None and isinstance(x["afw"], float) for x in d), str(d[0]))
+    ok &= check("geen interne fout", not any("interne fout" in str(x[b].get("reden")) for x in uit.values() for b in v.BRONNEN))
+    ok &= check("lege gemeente blijft 'buurt niet in de Leefbaarometer'",
+                v.lbm_parse({"features": []}) == {} and _gooit(lambda: v.lbm_parse({"type": "x"}), v.BronFout))
+    ok &= check("gemeten antwoord: zelfde waarden als voorheen",
+                v.lbm_parse(fixture("leefbaarometer_buurtscore24.json"))["BU05182812"]["kscore"] == 9)
+    return ok
+
+
+def test_onverwachte_vormen() -> bool:
+    print("Onverwachte vorm bij elke bron: alleen die bron onbekend, nooit de hele woning")
+    ws = woningen()[:1]
+    gid = str(ws[0]["global_id"])
+    # doel in de URL -> bronnen die er niet van afhangen en dus ok moeten blijven
+    doelen = {
+        "/verblijfsobject/items": ("geluid", "buurt", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed"),
+        "/pand/items/": ("geluid", "buurt", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed"),
+        "/buurten/items": ("bag", "geluid", "lucht", "klimaat", "erfgoed"),
+        "/gemeenten/items": ("bag", "geluid", "buurt", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed"),
+        "rce_inspire_polygons": ("bag", "geluid", "buurt", "kerncijfers", "veiligheid", "lucht", "klimaat"),
+        "rce_inspire_points": ("bag", "geluid", "buurt", "kerncijfers", "veiligheid", "lucht", "klimaat"),
+        "cas.cloud.sogelink.com": ("bag", "geluid", "buurt", "kerncijfers", "veiligheid", "lucht", "erfgoed"),
+        "Geluid_lden": ("bag", "buurt", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed"),
+        "rivm_nsl_": ("bag", "geluid", "buurt", "kerncijfers", "veiligheid", "klimaat", "erfgoed"),
+        "/47018NED/": ("bag", "geluid", "buurt", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed"),
+        "/47024NED/": ("bag", "geluid", "buurt", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed"),
+        "/50150NED/": ("bag", "geluid", "buurt", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed"),
+    }
+    ok = True
+    for doel, blijft in doelen.items():
+        fout = []
+        for body in KAPOT:
+            web = NepWeb(ws)
+            try:
+                uit = v.verrijk(ws, {}, cfg(), VANDAAG, http=_vervang(web, lambda u, d=doel: d in u, body), ua=UA, log=STIL)
+            except Exception as exc:  # noqa: BLE001
+                fout.append(f"{body!r}: gooit {type(exc).__name__}")
+                continue
+            x = uit[gid]
+            if any("interne fout" in str(x[b].get("reden")) for b in v.BRONNEN):
+                fout.append(f"{body!r}: interne fout")
+            elif any(x[b]["status"] != "ok" for b in blijft):
+                fout.append(f"{body!r}: " + ", ".join(f"{b} {x[b]['status']}" for b in blijft if x[b]["status"] != "ok"))
+        ok &= check(f"{doel}: geen interne fout, de andere bronnen ok", not fout, "; ".join(fout[:4]))
+
+    # Tekst waar een getal of een naam hoort, binnen een verder goed antwoord.
+    def run(pas_aan):
+        web = NepWeb(ws)
+
+        def http(url, timeout=None, headers=None):
+            status, body = web(url, timeout=timeout, headers=headers)
+            if status == 200 and "robots.txt" not in url:
+                doc = json.loads(body)
+                pas_aan(url, doc)
+                body = json.dumps(doc).encode()
+            return status, body
+        return v.verrijk(ws, {}, cfg(), VANDAAG, http=http, ua=UA, log=STIL)[gid]
+
+    def geen_fout(x) -> bool:
+        return not any("interne fout" in str(x[b].get("reden")) for b in v.BRONNEN)
+
+    def pand(url, doc):
+        if "/pand/items/" in url:
+            doc["properties"].update({"gebruiksdoel": 7, "bouwjaar": "oud", "aantal_verblijfsobjecten": "veel"})
+    x = run(pand)
+    ok &= check("BAG-pand met tekst en getal door elkaar: velden None, geen interne fout",
+                geen_fout(x) and x["bag"]["status"] == "ok" and x["bag"]["data"]["gebruiksdoel_pand"] is None
+                and x["bag"]["data"]["aantal_vbo_pand"] is None and x["geluid"]["status"] == "ok", str(x["bag"]))
+
+    def vbo(url, doc):
+        if "/verblijfsobject/items" in url:
+            for f in doc["features"]:
+                f["properties"]["gebruiksdoel"] = 12
+    x = run(vbo)
+    ok &= check("gebruiksdoel van het verblijfsobject is een getal: None, geen interne fout",
+                geen_fout(x) and x["bag"]["status"] == "ok" and x["bag"]["data"]["gebruiksdoel"] is None, str(x["bag"]))
+
+    def buurt(url, doc):
+        if "/buurten/items" in url:
+            doc["features"][0]["properties"].update({"gemeentenaam": ["x"], "buurtnaam": 5})
+    x = run(buurt)
+    ok &= check("gemeentenaam en buurtnaam geen tekst: buurt zonder Leefbaarometer, geen interne fout",
+                geen_fout(x) and x["buurt"]["status"] == "ok" and x["buurt"]["data"]["buurtnaam"] is None
+                and x["buurt"]["delen"]["leefbaarometer"] == "onbekend" and x["veiligheid"]["status"] == "ok", str(x["buurt"]))
+
+    def code(url, doc):
+        if "/buurten/items" in url:
+            doc["features"][0]["properties"]["buurtcode"] = 518
+    x = run(code)
+    ok &= check("buurtcode geen tekst: buurt, kerncijfers en veiligheid onbekend, de rest ok",
+                geen_fout(x) and all(x[b]["status"] == "onbekend" for b in ("buurt", "kerncijfers", "veiligheid"))
+                and all(x[b]["status"] == "ok" for b in ("bag", "geluid", "lucht", "klimaat", "erfgoed")))
+
+    def tevreden(url, doc):
+        if "/50150NED/" in url:
+            for r in doc["value"]:
+                r["TevredenMetDeWoonomgeving_57"] = "veel"
+    x = run(tevreden)
+    ok &= check("tevredenheid als tekst: geen cijfer, geen interne fout",
+                geen_fout(x) and x["buurt"]["data"]["tevreden_woonomgeving"] is None
+                and x["buurt"]["data"]["tevreden_woonomgeving_min"] is None, str(x["buurt"]["data"]))
+    # Een element in de cache in een onverwachte vorm telt als afwezig.
+    web = NepWeb(ws)
+    cache: dict = {}
+    v.verrijk(ws, cache, cfg(), VANDAAG, http=web, ua=UA, log=STIL)
+    for sectie in ("bag", "buurtcode", "kerncijfers", "geluid"):
+        for e in cache[sectie].values():
+            e["data"] = ["kapot"]
+    cache["lucht"] = ["kapot"]
+    web2 = NepWeb(ws)
+    x = v.verrijk(ws, cache, cfg(), VANDAAG, http=web2, ua=UA, log=STIL)[gid]
+    ok &= check("kapotte cache-elementen: opnieuw opgehaald, alles ok",
+                geen_fout(x) and all(x[b]["status"] in ("ok", "niet_nodig") for b in v.BRONNEN) and len(web2.calls) > 0,
+                str({b: x[b]["status"] for b in v.BRONNEN}))
     return ok
 
 
@@ -1360,7 +1794,8 @@ def test_geocode_gedeelde_stand() -> bool:
 
 def main() -> int:
     resultaten = [test_parsers(), test_nieuwe_parsers(), test_nieuwe_bronnen_run(), test_geen_bevolkingsveld(), test_gray_index(), test_volledige_run(), test_bron_faalt(), test_weigering(),
-                  test_fout_opnieuw(), test_allowlist(), test_budget(), test_uit(), test_signalen(), test_robots(), test_robots_een_dag(),
+                  test_fout_opnieuw(), test_allowlist(), test_budget(), test_budget_per_woning(), test_kea_gecombineerd(),
+                  test_leefbaarometer_kapot(), test_onverwachte_vormen(), test_uit(), test_signalen(), test_robots(), test_robots_een_dag(),
                   test_log(), test_bag_matching(), test_vorm(), test_ua(), test_een_bron(), test_doorverwijzing(), test_geocode(), test_geocode_gedeelde_stand()]
     print()
     if all(resultaten):
