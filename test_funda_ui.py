@@ -561,11 +561,12 @@ def test_app_js() -> bool:
         check("niet meer alles gezien bij pagehide", "opslag.gezien = ids" not in JS),
         # Was: synchroon en leesbaar in localStorage. Nu elke toegang via ruw(), wisRuw() of schrijf(), in try/catch;
         # achter het slotscherm versleuteld (test_opslag_js draait het in node).
-        check("opslag: elke toegang tot localStorage in try/catch, en alleen onder de twee sleutels",
+        check("opslag: elke toegang tot localStorage in try/catch, en alleen onder de leesbare sleutel en de twee vakken",
               JS.count("localStorage.") == 5 and "function ruw(naam){ try { return localStorage.getItem(naam); } catch(e)" in JS
               and "function wisRuw(naam){ try { localStorage.removeItem(naam); } catch(e)" in JS
               and "try { localStorage.setItem(OPSLAG, JSON.stringify(opslag)); } catch(e){}" in JS
-              and "try { localStorage.setItem(OPSLAG_VEILIG, pak); localStorage.removeItem(OPSLAG); } catch(e){}" in JS),
+              and "try { localStorage.setItem(vak, pak); localStorage.removeItem(OPSLAG); } catch(e){}" in JS
+              and "var OPSLAG_VAKKEN = ['funda_rapport_v2', 'funda_rapport_v2_reserve']" in JS),
         check("opslag: leesbaar schrijven alleen zonder slotscherm", "if(!veilig){ try { localStorage.setItem(OPSLAG," in JS
               and "veilig = !!a;" in JS and JS.count("localStorage.setItem(OPSLAG,") == 1),
         check("opslag: AES-GCM met een verse IV per schrijfactie, opgevuld",
@@ -652,6 +653,37 @@ const maak = () => crypto.subtle.generateKey({name: 'AES-GCM', length: 256}, fal
   r = await o.lees();
   o.schrijf({bewaard: ['4']}); await rust();
   uit.zonder_sleutel = {staat: r.staat, melding: r.melding || '', geschreven: gezet.length, ongewijzigd: ls.get(V2) === voor};
+  // 8. een sleutel die niet past overschrijft niets: het onleesbare pakket blijft als reserve staan
+  const R = 'funda_rapport_v2_reserve', A = await maak(), B = await maak(), C = await maak();
+  const als = async (k, staat) => { window.fundaApparaat = {opslagSleutel: k}; const x = await o.lees();
+    if (staat) { o.schrijf(staat); await rust(); } return {staat: x.staat, melding: x.melding || ''}; };
+  ls.clear();
+  await als(A, {bewaard: ['a1', 'a2'], verborgen: ['a3']});
+  const pakA = ls.get(V2);
+  const w = {};
+  w.eerste_in_v2 = !!pakA && !ls.has(R);
+  w.b_opent = await als(B);                                   // nieuw wachtwoord, nog niets opgeslagen
+  w.niets_overschreven = ls.get(V2) === pakA && !ls.has(R);
+  w.a_terug_zonder_nieuw = await als(A);                      // terug naar het oude: de lijsten zijn er
+  w.b_schrijft = await als(B, {bewaard: ['b1']});             // nu wel nieuwe staat onder de nieuwe sleutel
+  w.reserve_blijft = ls.get(V2) === pakA && ls.has(R);
+  w.b_leest = await als(B);
+  w.a_terug_na_nieuw = await als(A);                          // de oude sleutel leest zijn eigen vak, niets samengevoegd
+  w.b_weer = await als(B);
+  await als(A, {bewaard: ['a1', 'a2', 'a4'], verborgen: ['a3']});   // A is nu het nieuwste
+  w.c_opent = await als(C, {bewaard: ['c1']});                // derde sleutel: het oudste vak (B) wordt vervangen
+  w.c_leest = await als(C);
+  w.a_na_c = await als(A);
+  w.b_na_c = await als(B);
+  w.vakken = [ls.has(V2), ls.has(R), ls.size];
+  // een vol of geblokkeerd localStorage tijdens een sleutel die niet past: niets kwijt
+  ls.clear(); await als(A, {bewaard: ['a1']});
+  const echt = localStorage.setItem; const pakA2 = ls.get(V2);
+  localStorage.setItem = () => { throw new Error('vol'); };
+  w.vol = await als(B, {bewaard: ['b9']});
+  localStorage.setItem = echt;
+  w.vol_niets_kwijt = ls.get(V2) === pakA2 && (await als(A)).staat.bewaard[0] === 'a1';
+  uit.wissel = w;
   console.log(JSON.stringify(uit));
 })().catch(e => { console.error(e); process.exit(1); });
 """
@@ -670,6 +702,7 @@ def test_opslag_js() -> bool:
         return check("node draait de opslag van app.js", False, r.stderr[-400:])
     v2 = u["migratie"]["v2"] or ""
     pak = json.loads(v2) if v2.startswith("{") else {}
+    w, staat_a = u["wissel"], {"bewaard": ["a1", "a2"], "verborgen": ["a3"]}
     leeg_met_melding = [k for k in u["kapot"] + [u["andere_sleutel"]] if k["staat"] == {} and "niet meer te lezen" in k["melding"]]
     return all([
         check("zonder slotscherm: leesbare opslag zoals het was (lokaal rapport)", u["lokaal"]["staat"] == {"bewaard": ["1"]}
@@ -677,9 +710,10 @@ def test_opslag_js() -> bool:
         check("migratie: de leesbare staat ingelezen, zonder melding", u["migratie"]["staat"] == {"bewaard": ["1", "2"]}
               and not u["migratie"]["melding"] and u["migratie"]["v1_voor"]),
         check("migratie: versleuteld opgeslagen en de leesbare versie gewist", not u["migratie"]["v1_na"]
-              and set(pak) == {"v", "iv", "ct"} and "bewaard" not in v2, v2[:60]),
+              and set(pak) == {"v", "n", "iv", "ct"} and "bewaard" not in v2, v2[:60]),
         check("IV van 12 bytes; de inhoud opgevuld tot een veelvoud van 512 tekens (plus de tag van 16 bytes)",
-              len(base64.b64decode(pak.get("iv", ""))) == 12 and len(base64.b64decode(pak.get("ct", ""))) == 512 + 16),
+              len(base64.b64decode(pak.get("iv", ""))) == 12 and len(base64.b64decode(pak.get("ct", ""))) == 512 + 16
+              and isinstance(pak.get("n"), int)),
         check("terug uit de versleutelde opslag", u["terug"] == {"staat": {"bewaard": ["1", "2"]}, "melding": ""}, str(u["terug"])),
         check("20 schrijfacties snel na elkaar: de laatste stand wint, in 2 schrijfacties na elkaar",
               u["snel"]["n"] == 19 and u["snel"]["schrijfacties"] == 2, str(u["snel"])),
@@ -690,6 +724,21 @@ def test_opslag_js() -> bool:
         check("daarna schrijft de app gewoon weer, zonder melding", u["na_kapot"] == {"staat": {"bewaard": ["3"]}, "melding": ""}),
         check("slotscherm zonder sleutel: niets geschreven, wel een melding",
               u["zonder_sleutel"]["geschreven"] == 0 and u["zonder_sleutel"]["ongewijzigd"] and "lukt nu niet" in u["zonder_sleutel"]["melding"]),
+        check("sleutel die niet past: lege staat met melding, het oude pakket onaangeroerd",
+              w["eerste_in_v2"] and w["b_opent"]["staat"] == {} and "niet meer te lezen" in w["b_opent"]["melding"]
+              and w["niets_overschreven"], str(w["b_opent"])),
+        check("terug naar de oude sleutel zonder nieuwe staat: de lijsten zijn terug, zonder melding",
+              w["a_terug_zonder_nieuw"] == {"staat": staat_a, "melding": ""}, str(w["a_terug_zonder_nieuw"])),
+        check("nieuwe staat onder de nieuwe sleutel gaat in het andere vak; de reserve blijft staan",
+              w["reserve_blijft"] and w["b_leest"] == {"staat": {"bewaard": ["b1"]}, "melding": ""}, str(w["b_leest"])),
+        check("daarna terug naar de oude sleutel: zijn eigen staat, niets samengevoegd; de nieuwe blijft ook",
+              w["a_terug_na_nieuw"] == {"staat": staat_a, "melding": ""} and w["b_weer"]["staat"] == {"bewaard": ["b1"]},
+              str(w["a_terug_na_nieuw"])),
+        check("derde sleutel: één reserve, de nieuwste blijft (A), de oudste (B) wordt vervangen",
+              w["c_opent"]["staat"] == {} and w["c_leest"]["staat"] == {"bewaard": ["c1"]}
+              and w["a_na_c"]["staat"]["bewaard"] == ["a1", "a2", "a4"] and w["b_na_c"]["staat"] == {}
+              and "niet meer te lezen" in w["b_na_c"]["melding"] and w["vakken"] == [True, True, 2], str(w["vakken"])),
+        check("vol of geblokkeerd localStorage bij een sleutel die niet past: niets kwijt", w["vol_niets_kwijt"]),
     ])
 
 
@@ -794,7 +843,8 @@ def test_groottes() -> bool:
         # 40 en 23 kB plus de audit van nov 2026: labels bij de iconknoppen, vervaging van de snelfilters, sluitknop op de toast
         check("ui/app.css <= 42 kB", len(CSS.encode()) <= 42_000, f"{len(CSS.encode())} bytes"),
         # Was 24 kB. Erbij (nov 2026): de versleutelde opslag op het apparaat met migratie, en het vlak "Toon kaart".
-        check("ui/app.js <= 30 kB", len(JS.encode()) <= 30_000, f"{len(JS.encode())} bytes"),
+        # Was 30 kB. Erbij (19 nov 2026, 1 kB): het tweede vak, zodat een sleutel die niet past niets overschrijft.
+        check("ui/app.js <= 31 kB", len(JS.encode()) <= 31_000, f"{len(JS.encode())} bytes"),
         check("body <= 14 kB per woning", per_woning <= 14_000, f"{per_woning:.0f} bytes per woning"),
     ])
 

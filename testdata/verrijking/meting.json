@@ -64,5 +64,16 @@
   "lucht": "data.rivm.nl/geo/alo/wms GetFeatureInfo op rivm_nsl_20260401_gm_NO22024, rivm_nsl_20260401_gm_PM252024 en groenkaart_cjp_2022_500m: drie features met GRAY_INDEX (18,33; 8,66; 16). Legenda NO2: 'NO2 conc. (microgram/m3)'. Legenda groen: 'Gemiddeld oppervlak groen (%) binnen 500 meter'.",
   "klimaat": "KEA_WMS GetFeatureInfo op vijf lagen. wateroverlast: pandvlak met waterdiepte_klasse (tekst; legenda geeft de klassenaam), overstromingskans: GRAY_INDEX 0 op het meetpunt (legenda kent 1 tot 5; 0 = geen klasse), grondwater: gridcode 1 tot 5. hitteeiland (GRAY_INDEX 2,325) en gevoelstemperatuur_2022 (RED_BAND 46): eenheid niet uit de legenda af te leiden, niet opgenomen.",
   "erfgoed": "api.pdok.nl/rce/beschermde-gebieden-cultuurhistorie: rce_inspire_polygons gaf op het punt het beschermde gezicht (namespace nlps-stadsendorpsgezichten, text = naam, legalfoundationdate); rijksmonumenten staan alleen in rce_inspire_points (namespace nlps-rijksmonumenten). De WFS data.geo.cultureelerfgoed.nl/openbaar/wfs gaf met een bbox op het Plein 0 features voor rijksmonumentpunten en -contouren; niet verder uitgezocht en niet gebruikt."
+ },
+ "meting_2026_11_19": {
+  "_doc": "Derde meting, 19 nov 2026, zelfde werkwijze (Sessie van de verrijking: robots.txt eerst, eerlijke user-agent, 1,5 s pauze, stoppen bij een weigering). Vraag: geeft één GetFeatureInfo met de vijf lagen van fundering en klimaat hetzelfde als de twee losse verzoeken? Meetpunten: vijf openbare plekken in Den Haag (het Plein, het Spuiplein, de Grote Markt, het Zuiderpark en het Westbroekpark). Nooit een woonadres.",
+  "robots": {
+   "cas.cloud.sogelink.com": "404 (geen robots.txt)"
+  },
+  "verzoeken": "16: robots.txt en per punt drie (gecombineerd, fundering los, klimaat los); alle 15 met status 200",
+  "punten": 5,
+  "fundering_gelijk": 5,
+  "klimaat_gelijk": 5,
+  "fundering_klimaat": "KEA_WMS GetFeatureInfo op risicoverschilzetting_2050hoog, risicopaalrot_2050hoog, de wateroverlastlaag, de overstromingskans en kans_grondwateroverlast_2050hoog in één verzoek, feature_count 50. Op alle vijf punten las elke parser uit het gecombineerde antwoord hetzelfde als uit het losse. De features staan achter elkaar in de volgorde van de lagen in het verzoek: twee buurtvlakken (fundering), dan nul tot twee pandvlakken (wateroverlast; op een punt een, op een punt twee, op de twee parken en een plein geen), dan het raster zonder id (GRAY_INDEX) en het grondwatervlak. Hooguit zes features in een antwoord. Een punt zonder pand geeft in beide vormen geen wateroverlast; een overstromingskans van 0 (geen klasse) ook in beide. Niet gemeten: een punt zonder kaartwaarde voor de fundering, en feature_count 10 bij vijf lagen."
  }
 }

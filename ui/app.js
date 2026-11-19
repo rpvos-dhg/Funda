@@ -11,25 +11,31 @@ var POORT_IC = {'PAST':'check','KRAP':'warn','PAST NIET':'x','PRIJS ONBEKEND':'i
 var STANDAARD = {sort:'aanbevolen', snel:'alles', poort:[], stad:[], maxLasten:'', minM2:'', zonderTwijfel:false, toonVerborgen:false};
 
 
-/* Opslag op het apparaat. Achter het slotscherm (window.fundaApparaat) staat de staat versleuteld onder
-   OPSLAG_VEILIG: AES-256-GCM met de sleutel die ui/slot.js uit de hoofdsleutel afleidt, een verse IV per
-   schrijfactie, opgevuld tot een veelvoud van OPSLAG_BLOK tekens. Zonder wachtwoord of onthouden sleutel
-   is hij niet te lezen. Een oude leesbare staat (OPSLAG) wordt één keer ingelezen en daarna gewist.
-   Het lokale rapport zonder slotscherm heeft geen sleutel en houdt de leesbare opslag. */
-var OPSLAG_VEILIG = 'funda_rapport_v2', OPSLAG_BLOK = 512;
+/* Opslag op het apparaat. Achter het slotscherm (window.fundaApparaat) versleuteld: AES-256-GCM met de
+   sleutel die ui/slot.js afleidt, een verse IV per schrijfactie, opgevuld tot een veelvoud van OPSLAG_BLOK.
+   Een oude leesbare staat (OPSLAG) wordt één keer ingelezen en dan gewist; het lokale rapport houdt hem.
+   Twee vakken: een pakket dat niet bij de sleutel past (nieuw wachtwoord) blijft als reserve staan en de
+   nieuwe staat gaat in het andere vak. Nooit samenvoegen. Past geen van beide, dan blijft het nieuwste (n). */
+var OPSLAG_VAKKEN = ['funda_rapport_v2', 'funda_rapport_v2_reserve'], OPSLAG_BLOK = 512;
 var ONLEESBAAR = 'Je bewaarde en verborgen woningen op dit apparaat zijn niet meer te lezen. Bewaar ze opnieuw.';
 var GEEN_OPSLAG = 'Opslaan op dit apparaat lukt nu niet. Wat je bewaart of verbergt, geldt tot je het rapport sluit.';
-var veilig = false, sleutel = null, schrijfBezig = false, schrijfWacht = false;
+var veilig = false, sleutel = null, schrijfBezig = false, schrijfWacht = false, vak = OPSLAG_VAKKEN[0], volgnummer = 0;
 function ruw(naam){ try { return localStorage.getItem(naam); } catch(e){ return null; } }
 function wisRuw(naam){ try { localStorage.removeItem(naam); } catch(e){} }
 function ontleed(tekst){ try { var o = JSON.parse(tekst); return o && typeof o === 'object' && !Array.isArray(o) ? o : null; } catch(e){ return null; } }
 function naarB64(a){ var t = ''; for(var i = 0; i < a.length; i++) t += String.fromCharCode(a[i]); return btoa(t); }
 function vanB64(t){ var b = atob(t), a = new Uint8Array(b.length); for(var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+/* Volgnummer van een pakket (0 zonder n), -1 als het geen pakket is. */
+function pakNummer(tekst){
+  var p = ontleed(tekst);
+  return !p || !p.iv || !p.ct ? -1 : p.n > 0 ? p.n : 0;
+}
 function versleutel(tekst){
   while(tekst.length % OPSLAG_BLOK) tekst += ' ';
   var iv = crypto.getRandomValues(new Uint8Array(12));
   return crypto.subtle.encrypt({name:'AES-GCM', iv:iv}, sleutel, new TextEncoder().encode(tekst)).then(function(ct){
-    return JSON.stringify({v:1, iv:naarB64(iv), ct:naarB64(new Uint8Array(ct))});
+    volgnummer += 1;
+    return JSON.stringify({v:1, n:volgnummer, iv:naarB64(iv), ct:naarB64(new Uint8Array(ct))});
   });
 }
 function ontsleutel(pak){
@@ -42,16 +48,28 @@ function ontsleutel(pak){
     return o;
   });
 }
-/* Eén keer, vóór de app start. Geeft {staat, melding}; faalt nooit. */
+/* Eén keer, vóór de app start. Geeft {staat, melding}; faalt nooit. Kiest het vak voor schrijf(). */
 function leesOpslag(){
   var a = window.fundaApparaat, kaal = ontleed(ruw(OPSLAG));
   veilig = !!a; sleutel = (a && a.opslagSleutel) || null;
   if(!veilig) return Promise.resolve({staat: kaal || {}});
   if(!sleutel) return Promise.resolve({staat: kaal || {}, melding: GEEN_OPSLAG});
-  var pak = ruw(OPSLAG_VEILIG);
-  if(pak == null) return Promise.resolve({staat: kaal || {}});   // eerste keer, of migratie: schrijf() wist de leesbare
-  return ontsleutel(pak).then(function(staat){ wisRuw(OPSLAG); return {staat: staat}; },
-    function(){ return kaal ? {staat: kaal} : {staat: {}, melding: ONLEESBAAR}; });
+  var vakken = OPSLAG_VAKKEN.map(function(naam){ var t = ruw(naam); return {naam: naam, tekst: t, n: t == null ? -1 : pakNummer(t)}; });
+  volgnummer = Math.max(0, vakken[0].n, vakken[1].n);
+  return Promise.all(vakken.map(function(v){
+    return v.tekst == null ? null : ontsleutel(v.tekst).catch(function(){ return null; });
+  })).then(function(staten){
+    var goed = vakken.filter(function(v, i){ v.staat = staten[i]; return v.staat; }).sort(function(x, y){ return y.n - x.n; });
+    if(goed.length){   // het vak van deze sleutel; bij twee leesbare telt het nieuwste
+      vak = goed[0].naam;
+      if(goed[1]) wisRuw(goed[1].naam);
+      wisRuw(OPSLAG);
+      return {staat: goed[0].staat};
+    }
+    /* Niets leesbaar: schrijf in een vak zonder pakket, anders over het oudste. Geen vakken: eerste keer of migratie. */
+    vak = vakken.sort(function(x, y){ return x.n - y.n; })[0].naam;
+    return kaal || (vakken[0].tekst == null && vakken[1].tekst == null) ? {staat: kaal || {}} : {staat: {}, melding: ONLEESBAAR};
+  });
 }
 /* Schrijfacties na elkaar, de laatste stand wint: tijdens het versleutelen wacht er hooguit één, en die
    neemt de staat van dat moment. De leesbare versie gaat pas weg als de versleutelde er staat. */
@@ -61,7 +79,7 @@ function schrijf(){
   if(schrijfBezig){ schrijfWacht = true; return; }
   schrijfBezig = true;
   versleutel(JSON.stringify(opslag)).then(function(pak){
-    try { localStorage.setItem(OPSLAG_VEILIG, pak); localStorage.removeItem(OPSLAG); } catch(e){}
+    try { localStorage.setItem(vak, pak); localStorage.removeItem(OPSLAG); } catch(e){}
   }, function(){}).then(function(){
     schrijfBezig = false;
     if(schrijfWacht){ schrijfWacht = false; schrijf(); }

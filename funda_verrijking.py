@@ -40,9 +40,10 @@ Regels (CLAUDE.md):
   uit SECTIES, plus robots.txt per host die deze run nog niet gelezen is). Past dat niet, dan krijgt
   de hele woning "budget" voor wat ontbreekt en gaat het budget naar de volgende woning die wel
   past. Zo blijft er geen woning half gevuld. De telling is een bovengrens (een onbekende buurt telt
-  als nieuwe buurt in een nieuwe gemeente). Kost een woning meer dan het hele budget, dan begint hij
-  toch zodra het budget nog onaangeroerd is: wat lukt staat daarna in de cache, dus hij wacht niet
-  eeuwig. Twee zeldzame extra verzoeken staan niet in de telling: de ruimere tweede BAG-poging en
+  als nieuwe buurt in een nieuwe gemeente). Kost een woning meer dan het hele budget (alleen bij een
+  lage max_calls_per_run), dan gaat de eerste zo'n woning voorop en begint hij met het onaangeroerde
+  budget: wat lukt staat daarna in de cache, dus hij wacht niet eeuwig, ook niet achter een woning die
+  elke run een paar verzoeken vraagt. Twee zeldzame extra verzoeken staan niet in de telling: de ruimere tweede BAG-poging en
   de terugval van fundering en klimaat.
 - Cache in het bestaande funda_enrichment_cache.json, als eigen secties (de tabel SECTIES).
   Een antwoord blijft `bewaar_dagen` geldig, een fout wordt na `fout_opnieuw_na_dagen`
@@ -56,13 +57,16 @@ Fundering en klimaat (19 nov 2026): beide komen van dezelfde WMS op hetzelfde pu
 in één GetFeatureInfo, zoals geluid en lucht al meerdere lagen per verzoek vragen. Alleen de lagen
 die nog nodig zijn: staat er één in de cache, is er één uit of is fundering niet nodig, dan gaat
 alleen de andere. De cachesecties `fundering` en `klimaat` en hun elementen zijn niet veranderd.
-Het gecombineerde antwoord van vijf lagen is NIET tegen de echte dienst gemeten: de fixture
-kea_gecombineerd_getfeatureinfo.json is samengesteld uit de twee gemeten antwoorden. Wel gemeten
-(18 nov 2026, de klimaatfixture) is dat deze dienst vector- en rasterlagen samen in één antwoord
-geeft. Daarom een terugval: geeft het gecombineerde antwoord voor een bron niets bruikbaars terwijl
-de dienst wel antwoordde, dan wordt die bron één keer los opgehaald. Weigert de dienst de
-combinatie als geheel (status 4xx, geen JSON), dan gaan beide los en vraagt de rest van de run niet
-meer gecombineerd. De log telt de terugvallen.
+Gemeten tegen de echte dienst op 19 nov 2026 (testdata/verrijking/meting.json): op vijf openbare
+punten in Den Haag gaf het gecombineerde antwoord voor beide bronnen hetzelfde als de twee losse
+(5 van 5), met de features achter elkaar in de volgorde van de lagen in het verzoek. De fixture
+kea_gecombineerd_getfeatureinfo.json is een ingekort echt antwoord. feature_count groeit mee met het
+aantal lagen (10 per laag), zodat een laag met meerdere vlakken de latere lagen niet verdringt.
+De terugval blijft als vangnet voor andere punten: geeft het gecombineerde antwoord voor een bron
+niets bruikbaars terwijl de dienst wel antwoordde, dan wordt die bron één keer los opgehaald. Gaf dat
+losse verzoek wel iets, dan klopte de combinatie niet; na twee keer (KEA_LOS_NA) vraagt de rest van de
+run los. Weigert de dienst de combinatie als geheel (status 4xx, geen JSON), dan gaan beide los en
+vraagt de rest van de run meteen niet meer gecombineerd. De log telt de terugvallen.
 
 Daarnaast de geocoding van postcodes (werkadressen en de zoekpostcode, `Geocoder`): de
 BAG-collectie adres op api.pdok.nl, met een eigen Sessie op dezelfde cache. De verrijking neemt de
@@ -564,6 +568,7 @@ class Sessie:
         # (bron -> aantal), en of de dienst de combinatie als geheel weigerde (dan de rest van de run los).
         self.terugval: Counter = Counter()
         self.kea_los = False
+        self.kea_mis = 0                            # terugvallen waarbij het losse verzoek wel iets gaf
 
     def host_dicht(self, host: str) -> bool:
         """Krijgt deze host deze run geen verzoek meer (gestopt, of een weigering van hooguit een dag oud)?"""
@@ -1073,13 +1078,21 @@ def _ogc_url(collectie: str, **filters) -> str:
     return collectie + "?" + "&".join(f"{k}={v}" for k, v in filters.items()) + "&f=json"
 
 
+WMS_FEATURES_PER_LAAG = 10
+
+
 def _wms_url(wms: str, lagen, lat: float, lon: float) -> str:
-    """WMS 1.3.0 GetFeatureInfo met CRS:84 (lon,lat), bbox van ~100 x 100 m, pixel in het midden."""
+    """WMS 1.3.0 GetFeatureInfo met CRS:84 (lon,lat), bbox van ~100 x 100 m, pixel in het midden.
+
+    Bij de Klimaateffectatlas groeit feature_count mee met het aantal lagen (10 per laag): telt de dienst
+    het maximum over alle lagen samen, dan vallen de laatste lagen van een gecombineerd verzoek niet weg
+    als een eerdere laag meerdere vlakken op het punt heeft. De RIVM-lagen zijn rasters met één waarde
+    per laag; daar blijft het de gemeten 10."""
     q = ",".join(lagen)
     par = {"service": "WMS", "version": "1.3.0", "request": "GetFeatureInfo", "layers": q,
            "query_layers": q, "styles": "", "crs": "CRS:84", "bbox": _bbox(lat, lon, 0.00045, 0.00073),
            "width": 101, "height": 101, "i": 50, "j": 50, "info_format": "application/json",
-           "feature_count": 10}
+           "feature_count": WMS_FEATURES_PER_LAAG * (len(tuple(lagen)) if wms == KEA_WMS else 1)}
     return wms + "?" + urllib.parse.urlencode(par, safe=",:")
 
 
@@ -1160,6 +1173,7 @@ def _punt_ophalen(naam: str, sessie: Sessie, lat: float, lon: float) -> dict:
 
 # Fundering en klimaat komen van dezelfde WMS op hetzelfde punt: samen één verzoek (zie de docstring).
 KEA_BRONNEN = ("fundering", "klimaat")
+KEA_LOS_NA = 2   # zo vaak gaf los wel iets en het gecombineerde antwoord niet: daarna de rest van de run los
 
 
 def _host(url: str) -> str:
@@ -1230,9 +1244,10 @@ def _kea_ophalen(sessie: Sessie, cache: dict, vcfg: dict, punt: tuple, namen) ->
     Wat in de cache staat, komt daaruit. Blijft er één bron over, dan het gewone losse verzoek. Blijven
     beide over, dan één verzoek met alle lagen; elke bron leest daaruit zijn eigen lagen en komt los
     van de andere in zijn eigen cachesectie. Een fout of een onverwachte vorm bij de ene bron raakt de
-    andere niet. Terugval (het gecombineerde antwoord is niet tegen de echte dienst gemeten): gaf de
+    andere niet. Terugval (gemeten op vijf punten, maar niet op elk punt te voorspellen): gaf de
     dienst wel antwoord maar is er voor een bron niets bruikbaars, dan wordt die bron één keer los
-    opgehaald, en dat losse antwoord geldt."""
+    opgehaald, en dat losse antwoord geldt. Gaf het losse verzoek KEA_LOS_NA keer wel iets waar de combinatie
+    niets gaf, dan gaat de rest van de run los (sessie.kea_los)."""
     sleutel = punt_sleutel(*punt)
 
     def los(naam: str) -> dict:
@@ -1266,6 +1281,14 @@ def _kea_ophalen(sessie: Sessie, cache: dict, vcfg: dict, punt: tuple, namen) ->
         if data is None:
             sessie.terugval[n] += 1
             uit[n] = los(n)
+            # Gaf het losse verzoek wel iets, dan klopte de combinatie niet (een punt zonder kaartwaarde
+            # geeft los ook niets, en zegt dus niets). Na KEA_LOS_NA keer vraagt de rest van de run los:
+            # anders kost elke nieuwe woning drie verzoeken in plaats van twee.
+            d = uit[n].get("data")
+            if antwoord is not None and uit[n]["status"] == "ok" and isinstance(d, dict) and any(x is not None for x in d.values()):
+                sessie.kea_mis += 1
+                if sessie.kea_mis >= KEA_LOS_NA:
+                    sessie.kea_los = True
         else:
             uit[n] = _res("ok", data)
     return uit
@@ -1835,14 +1858,27 @@ def verrijk(woningen: list[dict], cache: dict, cfg: dict | None, vandaag, http=N
                     robots_dagen=int(vcfg["bewaar_dagen"].get("robots", ROBOTS_DAGEN)), slaap=slaap)
     sessie.neem_over(vooraf)
     uit: dict[str, dict] = {}
-    for i in sorted(range(len(woningen)), key=lambda j: prioriteit(woningen[j])):
+    def kost_van(i: int) -> int:
+        try:
+            return kosten(woningen[i], sessie, cache, vcfg, dr)
+        except Exception:  # noqa: BLE001  de telling mag de woning nooit tegenhouden
+            return 0
+
+    volgorde = sorted(range(len(woningen)), key=lambda j: prioriteit(woningen[j]))
+    # Een woning die meer kost dan het hele budget (alleen bij een lage max_calls_per_run) past nooit in
+    # zijn geheel en begint daarom met een onaangeroerd budget. Stond hij achter een woning die elke run
+    # een paar verzoeken vraagt (een herpoging, een nieuw huisnummer in een bekend pand), dan was het
+    # budget nooit onaangeroerd en wachtte hij eeuwig. Daarom gaat de eerste zo'n woning voorop: wat lukt
+    # staat daarna in de cache, dus na een of twee runs past hij en geldt de gewone volgorde weer.
+    te_duur = next((i for i in volgorde if kost_van(i) > sessie.max_verzoeken), None)
+    if te_duur is not None:
+        volgorde.remove(te_duur)
+        volgorde.insert(0, te_duur)
+    for i in volgorde:
         # Budget per woning: alleen beginnen als de hele woning past. Anders leest hij alleen de cache
         # ("budget" voor wat ontbreekt) en gaat het budget naar de volgende woning die wel past. Kost
         # een woning meer dan het hele budget, dan begint hij toch zolang het budget onaangeroerd is.
-        try:
-            kost = kosten(woningen[i], sessie, cache, vcfg, dr)
-        except Exception:  # noqa: BLE001  de telling mag de woning nooit tegenhouden
-            kost = 0
+        kost = kost_van(i)
         te_groot = kost > sessie.max_verzoeken and sessie.over == sessie.max_verzoeken
         sessie.alleen_cache = kost > sessie.over and not te_groot
         sessie.overgeslagen += sessie.alleen_cache

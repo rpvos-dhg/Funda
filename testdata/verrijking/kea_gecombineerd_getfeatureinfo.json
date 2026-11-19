@@ -102,7 +102,7 @@
   },
   {
    "type": "Feature",
-   "id": "kans_grondwateroverlast_2050hoog.fid--36496a2_1a1f0e7864f_4501",
+   "id": "kans_grondwateroverlast_2050hoog.fid--36496a2_1a1f17a3dba_-3501",
    "geometry": null,
    "geometry_name": "geom",
    "properties": {
@@ -117,12 +117,12 @@
  ],
  "totalFeatures": "unknown",
  "numberReturned": 5,
- "timeStamp": "2026-11-18T23:50:42.476Z",
+ "timeStamp": "2026-11-19T02:19:31.770Z",
  "crs": {
   "type": "name",
   "properties": {
    "name": "urn:ogc:def:crs:CRS::84"
   }
  },
- "_samengesteld": "NIET gemeten tegen de echte dienst: samengevoegd uit kea_getfeatureinfo.json (7 nov 2026) en kea_klimaat_getfeatureinfo.json (18 nov 2026), de features achter elkaar in de volgorde van de lagen in het verzoek (fundering, dan klimaat), zoals de dienst dat in het gemeten klimaatantwoord met meerdere lagen doet"
+ "_ingekort": "Gemeten op 19 nov 2026 op het Plein in Den Haag (52.07945, 4.31330), een openbare plek: één GetFeatureInfo met de vijf lagen van fundering en klimaat (feature_count 50). De features staan achter elkaar in de volgorde van de lagen in het verzoek, gelijk aan de twee losse antwoorden. Ingekort: de geometrie van de buurtvlakken tot vier punten, die van de andere lagen weggelaten."
 }

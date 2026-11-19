@@ -85,7 +85,7 @@ jobs:
             funda_enrichment_cache.json
             funda_sitemap_cache.json
             funda_blacklist.json
-          key: funda-state-${{ github.run_id }}
+          key: funda-state-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             funda-state-
 
@@ -212,7 +212,10 @@ jobs:
           fi
           node scripts/send_web_push.cjs
 
-      # State bewaren voor de run van morgen (rollende cache-sleutel).
+      # State bewaren voor de run van morgen (rollende cache-sleutel). De poging zit in de sleutel:
+      # een herstart ("Re-run") houdt hetzelfde run_id, en een bestaande sleutel wordt niet overschreven.
+      # Zonder de poging bleef de state van een geslaagde herstart dus onbewaard. De padenlijst en
+      # restore-keys zijn ongewijzigd: de herstart vindt de state van de vorige poging via het voorvoegsel.
       # Niet na het vangnet "State aanwezig?": dan is er niets om te bewaren.
       - name: State bewaren (cache)
         if: always() && (steps.state.outputs.cache-matched-key != '' || github.event.inputs.lege_state == 'ja')
@@ -226,4 +229,4 @@ jobs:
             funda_enrichment_cache.json
             funda_sitemap_cache.json
             funda_blacklist.json
-          key: funda-state-${{ github.run_id }}
+          key: funda-state-${{ github.run_id }}-${{ github.run_attempt }}

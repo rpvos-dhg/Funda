@@ -56,7 +56,7 @@ import re
 from typing import Any, Callable, Iterable
 from urllib.parse import unquote
 
-from funda_sitemap_zoek import IMPERSONATE, UA, DropIn, Resultaat
+from funda_sitemap_zoek import IMPERSONATE, UA, DropIn, Resultaat, log_tekst
 
 # /detail/koop/<stad>/<type-straat-nr>/<tiny_id>/
 WONING_PAD = re.compile(
@@ -288,4 +288,6 @@ class MailBron(DropIn):
         return resultaten
 
     def _fout_regel(self, pad: str, exc: Exception) -> str:
-        return f"Detail mislukt voor {pad}: {exc}"
+        # De mailroute draait alleen lokaal, waar het pad helpt bij de diagnose. Via log_tekst(): op Actions
+        # (de publieke log) wordt een pad of woningnummer "(woning)", ook in de foutmelding van de client.
+        return log_tekst(f"Detail mislukt voor {pad}: {exc}")

@@ -814,10 +814,18 @@ FUND_LAGEN, KLIM_LAGEN = list(v.KEA_LAGEN.values()), list(v.KEA_KLIMAAT_LAGEN.va
 def test_kea_gecombineerd() -> bool:
     print("Fundering en klimaat in één verzoek, met terugval")
     fx = fixture("kea_gecombineerd_getfeatureinfo.json")
-    ok = check("samengestelde fixture: beide parsers lezen hetzelfde als uit de losse antwoorden",
+    ok = check("gemeten gecombineerd antwoord: beide parsers lezen hetzelfde als uit de losse antwoorden",
                v.kea_parse(fx) == v.kea_parse(fixture("kea_getfeatureinfo.json"))
                and v.klimaat_parse(fx) == v.klimaat_parse(fixture("kea_klimaat_getfeatureinfo.json")))
-    ok &= check("samengestelde fixture zegt dat hij niet gemeten is", "NIET gemeten" in fx.get("_samengesteld", ""))
+    ok &= check("de fixture is een ingekort echt antwoord (meting van 19 nov 2026), niet meer samengesteld",
+                "Gemeten op 19 nov 2026" in fx.get("_ingekort", "") and "_samengesteld" not in fx and len(fx["features"]) == 5)
+    meting = fixture("meting.json")["meting_2026_11_19"]
+    ok &= check("meting.json: vijf punten, beide bronnen gelijk aan los",
+                meting["punten"] == 5 and meting["fundering_gelijk"] == 5 and meting["klimaat_gelijk"] == 5)
+    url = v._wms_url(v.KEA_WMS, FUND_LAGEN + KLIM_LAGEN, 52.0, 4.3)
+    ok &= check("feature_count groeit mee bij de Klimaateffectatlas (10 per laag), bij het RIVM blijft het 10",
+                "feature_count=50" in url and "feature_count=30" in v._wms_url(v.KEA_WMS, KLIM_LAGEN, 52.0, 4.3)
+                and "feature_count=10&" in v._wms_url(v.RIVM_WMS, v.WMS_BRONNEN["geluid"][1], 52.0, 4.3) + "&")
 
     def run(ws, cache=None, web=None, logs=None, **bronnen):
         web = web or NepWeb(ws)
@@ -832,7 +840,7 @@ def test_kea_gecombineerd() -> bool:
     ok &= check("nieuwe woning: één verzoek met de vijf lagen",
                 len(_kea(web)) == 1 and _lagen(_kea(web)[0]) == FUND_LAGEN + KLIM_LAGEN, str(_kea(web)))
     ok &= check("beide bronnen ok", uit[gid]["fundering"]["status"] == "ok" == uit[gid]["klimaat"]["status"])
-    ok &= check("nep-web geeft de vorm van de samengestelde fixture",
+    ok &= check("nep-web geeft de vorm van de gemeten fixture",
                 [str(f.get("id")).split(".")[0] for f in fx["features"]]
                 == [str(f.get("id")).split(".")[0] for f in json.loads(web(_kea(web)[0])[1])["features"]])
     # De cache is dezelfde als met twee losse verzoeken (bestaande caches blijven warm).
@@ -891,6 +899,27 @@ def test_kea_gecombineerd() -> bool:
     web.kea_fund_leeg.add(gid)
     run(ws, cache=cache, web=web)
     ok &= check("zelfde dag opnieuw: geen verzoek (één terugval, niet meer)", len(_kea(web)) == 0)
+
+    # Geeft los telkens wel iets waar de combinatie niets gaf, dan klopt de combinatie niet: na twee keer
+    # de rest van de run los. Een punt zonder kaartwaarde (los ook niets) telt daarvoor niet.
+    drie = _eigen_punt(3)
+    web = NepWeb(drie)
+    web.kea_combi = "zonder_klimaat"
+    logs = []
+    uit, cache, _ = run(drie, web=web, logs=logs)
+    ok &= check("combinatie mist twee keer wat los wel geeft: de derde woning vraagt los",
+                [len(_lagen(u)) for u in _kea(web)] == [5, 3, 5, 3, 2, 3] and v.KEA_LOS_NA == 2,
+                str([len(_lagen(u)) for u in _kea(web)]))
+    ok &= check("alles toch ok, en gemeld in de log",
+                all(x[b]["status"] == "ok" for x in uit.values() for b in ("fundering", "klimaat"))
+                and any("klimaat 2" in r and "de rest van de run los" in r for r in logs), str(logs))
+    web = NepWeb(drie)
+    web.kea_fund_leeg.update(str(w["global_id"]) for w in drie)
+    logs = []
+    run(drie, web=web, logs=logs)
+    ok &= check("punten zonder kaartwaarde zetten de combinatie niet uit",
+                [len(_lagen(u)) for u in _kea(web)] == [5, 2, 5, 2, 5, 2] and not any("de rest van de run los" in r for r in logs),
+                str([len(_lagen(u)) for u in _kea(web)]))
 
     # De dienst weigert de combinatie als geheel: beide los, en de rest van de run niet meer gecombineerd.
     twee = _eigen_punt(2)
@@ -1003,6 +1032,31 @@ def test_budget_per_woning() -> bool:
     # Maar alleen met een onaangeroerd budget: achter een andere woning wacht hij op de volgende run.
     uit, _, web, _ = run(twee, 20)
     ok &= check("een te dure woning begint niet met een aangebroken budget", len(web.calls) == 18)
+
+    # Ook niet achter een woning die elke run een paar verzoeken vraagt en daarmee het budget aanbreekt:
+    # de te dure woning gaat voorop. Hier: een bekend punt met een nieuw huisnummer (alleen de BAG, 2
+    # verzoeken, Past) en daarachter een nieuwe woning die 13 kost bij een budget van 10 (Past niet).
+    _, cache, _, _ = run(een, 200)
+    goedkoop = _eigen_punt(1, global_id=8_100_050, house_number="77")
+    goedkoop[0]["_beoordeling"] = {"poort": "PAST", "score": 9.0}
+    duur = _eigen_punt(2)[1:]
+    duur[0]["_beoordeling"] = {"poort": "PAST NIET", "score": 1.0}
+    paar = goedkoop + duur
+    g, d = (str(w["global_id"]) for w in paar)
+    sessie = v.Sessie(cache, VANDAAG, max_verzoeken=10)
+    ok &= check("opzet: de goedkope kost 2, de dure meer dan het budget van 10",
+                v.kosten(goedkoop[0], sessie, cache, *v.instellingen(cfg())) == 2
+                and v.kosten(duur[0], sessie, cache, *v.instellingen(cfg())) > 10)
+    uit, cache, web, _ = run(paar, 10, cache)
+    ok &= check("lage max_calls_per_run: de te dure woning gaat voorop en begint meteen (de telling is een bovengrens)",
+                0 < len(web.calls) <= 10 and "ok" in st(uit[d]) and "budget" not in st(uit[d]) and list(uit) == [g, d],
+                f"{len(web.calls)} {st(uit[d])} {st(uit[g])}")
+    n = 1
+    while (st(uit[d]) != {"ok"} or st(uit[g]) != {"ok"}) and n < 5:
+        uit, cache, web, _ = run(paar, 10, cache)
+        n += 1
+    ok &= check("na hooguit drie runs zijn beide heel (voorheen wachtte de dure eeuwig)",
+                st(uit[d]) == {"ok"} == st(uit[g]) and n <= 3, f"{n} {st(uit[d])} {st(uit[g])}")
 
     # Veel woningen: nooit een halve.
     veel = _eigen_punt(12)

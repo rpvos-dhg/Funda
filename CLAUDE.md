@@ -313,12 +313,15 @@ aangeroepen; het besluit geldt alleen voor de detail-host.
     (`BUURT_LABEL`, `cbs_buurt()`) en de Leefbaarometer noemt de buurt in zijn
     waarde ("goed (2024) in <naam>"). De naam komt uit de CBS-indeling en kan afwijken van funda's
     buurtnaam. Alleen in het versleutelde rapport, nooit in de log.
-- **Parsers:** de VvE-bijdrage telt alleen tussen 20 en 600 euro per maand
-  (`VVE_MIN_MAAND`, `VVE_MAX_MAAND`); een genoemde periode wordt omgerekend,
-  nooit geraden uit het bedrag; daarbuiten onbekend, met de bestaande aanname.
-  De Leefbaarometer-score wordt afgerond, niet afgekapt. `lees_advertentie`
-  herkent een ontkenning vóór en na het woord. Tests: `test_vve_grens`,
-  `test_leefbaarometer_afronding`, `test_ontkenningen`.
+- **Parsers:** een VvE-bijdrage onder 20 euro per maand, of boven 600 zonder
+  genoemde periode, is onbekend (`VVE_MIN_MAAND`, `VVE_MAX_MAAND`; dan de
+  aanname). Met de periode erbij (omgerekend, nooit geraden) geldt ook een
+  bedrag boven 600: in de woonlasten, met "let op, ongewoon hoog" zonder
+  punten. De Leefbaarometer-score wordt afgerond. `lees_advertentie` herkent
+  een ontkenning vóór en na het woord; een voorbehoud ("niet onderzocht", "niet
+  uit te sluiten", "kan niet garanderen") en een dubbele ontkenning tellen als
+  signaal. Tests: `test_vve_grens`, `test_leefbaarometer_afronding`,
+  `test_ontkenningen`.
 - **Niet gemeten op echte advertenties** (reken er niet op): de waarden van
   "Soort dak", "Aantal bouwlagen", "Isolatie", "Verwarming" en "Voorzieningen"
   (de log telt ze sinds 19 nov 2026, zie 11 en 14), of "1e woonlaag" de begane
@@ -395,10 +398,14 @@ en de docstring van `funda_verrijking.py`.
 - **Budget per woning:** 90 verzoeken per run (`max_calls_per_run` gaat voor).
   `kosten()` telt vooraf wat een woning nog vraagt; wat niet in zijn geheel
   past krijgt "budget" en gaat de volgende run verder, Past en Krap eerst (geen
-  half gevulde woning). Test: `test_budget_per_woning`.
-- **Fundering en klimaat delen één verzoek** (`KEA_BRONNEN`). De combinatie is
-  niet tegen de echte dienst gemeten; daarom een terugval (de bron los ophalen)
-  die de log telt. Test: `test_kea_gecombineerd`.
+  half gevulde woning). Een woning die meer kost dan het hele budget gaat
+  voorop en begint toch. Test: `test_budget_per_woning`.
+- **Fundering en klimaat delen één verzoek** (`KEA_BRONNEN`), `feature_count`
+  10 per laag. Gemeten op 19 nov 2026 op vijf openbare punten: gelijk aan los
+  (5 van 5, `meting.json`). De terugval (de bron los ophalen) blijft als
+  vangnet en staat in de log; mist de combinatie twee keer iets wat los wel
+  geeft (`KEA_LOS_NA`), dan vraagt de rest van de run los. Test:
+  `test_kea_gecombineerd`.
 - **Een onverwacht antwoord** zet alleen die bron op "onbekend". Tests:
   `test_onverwachte_vormen`, `test_leefbaarometer_kapot`.
 - **Laagnamen en jaren met een datum** (`RIVM_LAGEN`, `RIVM_LUCHT_LAGEN`,
@@ -444,6 +451,10 @@ Volledige beschrijving (sleutelopbouw, CSP, slotscherm): notities en
 - **"Onthoud op dit apparaat"** bewaart de hoofdsleutel als niet-exporteerbare
   HKDF-sleutel in IndexedDB (30 dagen), nooit het wachtwoord. Oude bewaarde
   sleutels en wachtwoorden worden gewist, niet omgezet.
+- **Bewaard en verborgen staan versleuteld op het apparaat.** Een nieuw
+  wachtwoord maakt ze op elk apparaat onleesbaar (leeg begin, met een melding).
+  Het oude pakket blijft als enige reserve staan (`OPSLAG_VAKKEN`; nooit
+  samenvoegen): het oude wachtwoord brengt de lijsten terug. `test_opslag_js`.
 - **Wrapper zonder code, strikte CSP** (`funda_rapport.CSP`: `script-src 'self'`
   en `style-src 'self'`). `ui/slot.html` heeft alleen markup, de CSP en het
   pakket in `#slot-data`; CSS en JS staan als bestanden in `docs/`
@@ -506,8 +517,8 @@ Wat wel mag: labelnamen van funda's kenmerken met aantallen, aantallen per
 poort, verrijking per bron en status, rente met bron, statuswaarden. Ook de
 genormaliseerde waarden van een vaste lijst kenmerken (`LOG_WAARDEN_KENMERKEN`,
 `log_kenmerk_waarden`; regels "Kenmerkwaarden <naam>"): een getal wordt "#", en
-een waarde bij maar één woning telt alleen in "andere waarden N" (kan vrije
-tekst zijn). Geen kenmerk in die lijst dat een bedrag of adres kan bevatten.
+een waarde bij minder dan drie woningen of van meer dan drie woorden telt
+alleen in "andere waarden N" (kan vrije tekst zijn). Geen kenmerk in die lijst dat een bedrag of adres kan bevatten.
 Test: `test_funda_zoek.py::test_publieke_log`. `test_funda_zoek.py` zet
 `GITHUB_ACTIONS` bovenaan uit, zodat de job tests hetzelfde doet als lokaal.
 
@@ -519,6 +530,8 @@ Test: `test_funda_zoek.py::test_publieke_log`. `test_funda_zoek.py` zet
   (gebeurd op 6 nov 2026). Nieuwe state gaat in een bestaand bestand. Anders de
   migratie met `scripts/state_migratie.py` opnieuw inbouwen (oude padenlijst
   exact, zelfde volgorde; `BESTANDEN` bijwerken). Zie notities.
+- **Cachesleutel:** `funda-state-<run_id>-<run_attempt>`. Zonder de poging
+  bewaarde een herstart ("Re-run") zijn state niet: de sleutel bestond al.
 - **Vangnet "State aanwezig?":** zonder state uit de cache stopt de workflow
   vóór de run en bewaart hij geen lege state; een run zonder state meldt alles
   als nieuw en overschrijft de tracking. Alleen bij de allereerste run en na het
@@ -587,12 +600,10 @@ Tegen de echte site, alleen handmatig: de `..._validatie.py`-scripts,
 - Funda's prijshistorie bevatte geen regels zonder bedrag (0 van 553): nagaan of
   die bron van "Eerder zonder prijs" nog zin heeft.
 - Niet gemeten: de fotohost in de CSP (bij een afwijking een `::warning::`).
-- Niet gemeten: het gecombineerde verzoek voor fundering en klimaat; de log van
-  de eerste runs laat zien of de terugval afgaat.
+- Fundering en klimaat gecombineerd: niet gemeten zonder funderingswaarde.
 - Niet getest op Safari en iOS: de versleutelde opslag, de kaartknop, de versies.
 - Of cache-actie v5 de state van v4 terugvindt: blijkt bij de eerste run. Het
   vangnet stopt de run als dat niet zo is; terugzetten naar v4 herstelt het.
 - De bovengrens in `kosten()` laat soms verzoeken onbenut; een tweede BAG-poging
   en de terugval tellen niet mee en kunnen nog een halve woning geven.
 - `sessionStorage` `funda_rapport_nieuw_<run>` bevat nog leesbare woning-id's.
-- `MailBron._fout_regel` logt een pad zonder `log_tekst()` (alleen lokaal).

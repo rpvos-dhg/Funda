@@ -1,9 +1,9 @@
 // Woningrapport: service worker. Afgeleid uit de bestanden door funda_rapport.py; niet met de hand wijzigen.
-const CACHE = 'funda-shortlist-37374a263e';
+const CACHE = 'funda-shortlist-ee93407d2f';
 // Statische bestanden met hun versie: de eerste 10 hextekens van de sha256 van de inhoud.
 const VERSIES = {
   'app.css': '9ac584e38c',
-  'app.js': 'ceda2ee84b',
+  'app.js': '8a80536967',
   'leaflet/leaflet.css': 'a783710282',
   'leaflet/leaflet.js': 'db49d009c8',
   'push.js': 'e9cffc8527',
