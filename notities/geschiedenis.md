@@ -186,6 +186,17 @@ Na PR #28 is de code opgedeeld, zonder ander gedrag:
 - `funda_verrijking.py` heeft één tabel `SECTIES` (cachesectie, bewaartermijn en
   toegestane velden).
 
+## Bouwronde open punten (19 nov 2026)
+
+Op één dag zijn de meeste open punten en ideeën uit sectie 14 gebouwd, in vijf
+commits naast elkaar (workflow, model, zoeken, verrijking, PWA) en daarna
+samengevoegd. De regels staan in `CLAUDE.md`; hier alleen wat daar niet staat.
+De acties zijn bijgewerkt wegens de waarschuwing over een verouderde
+Node-versie. De fixture `kea_gecombineerd_getfeatureinfo.json` is samengesteld
+uit de twee gemeten antwoorden, niet opgehaald. De grens van `ui/app.js` ging
+van 24 naar 30 kB en die van het slotscherm van 16 naar 17 kB. De oude leesbare
+opslag `funda_rapport_v1` wordt één keer ingelezen en daarna gewist.
+
 ## Uitgebreide tekst uit CLAUDE.md (stand 19 nov 2026)
 
 Op 19 nov 2026 is `CLAUDE.md` ingekort tot de regels en besluiten. Hieronder

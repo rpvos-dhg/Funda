@@ -105,7 +105,7 @@ Elk punt is een besluit; de uitleg staat in de genoemde sectie.
 Exit 2 = stoppen vóór het rapport, via `_stop()` in `funda_zoek.py`. Rapport,
 `docs/`, seen-ids en tracking blijven onaangeroerd, niets wordt `weg`, er wordt
 niets gepubliceerd en de workflow wordt rood. De caches met wat al is opgehaald
-mogen wel bewaard worden (de stap "State bewaren (cache)" heeft `if: always()`).
+mogen wel bewaard worden (de stap "State bewaren (cache)" draait ook dan).
 Reden: "0 woningen" is niet hetzelfde als "zoeken stuk"; zonder deze checks
 schrijft een kapotte bron een leeg rapport over het gevulde heen.
 
@@ -123,13 +123,17 @@ schrijft een kapotte bron een leeg rapport over het gevulde heen.
    oorzaken en geeft een `GeenBron` terug; daarna geval 1. De sitemaproute doet
    in `auto` haar zoekwerk al in `kies_zoeker()` (`ophalen()`), zodat een 403 op
    een koop-sitemap in die ene melding staat. Test: `test_auto_keten`.
-4. **Detail-endpoint dicht** (`DetailEndpointDicht`), in de zoeker of de pool:
-   meteen bij 401, 403 of 429; bij `DICHT_NA` (5) mislukte calls op rij (een
-   nette 404 telt niet en zet de reeks op 0; de pool telt door vanaf de zoeker);
-   en als de run eindigt met mislukte calls. Er is geen terugval: elke route
-   verrijkt via dit endpoint. Tests: `test_endpoint_halverwege_dicht`,
-   `test_pool_404_beeindigt_reeks`, `test_pool_404_bovenaan`;
-   `test_funda_sitemap.py::test_detail_dicht`, `test_detail_halverwege`.
+4. **Detail-endpoint dicht** (`DetailEndpointDicht`), op elke route en in elke
+   stap die het endpoint aanroept (zoeker, `zoek_alle_banden`, pool,
+   `detailcheck`): meteen bij 401, 403 of 429, en bij `DICHT_NA` (5) mislukte
+   calls op rij (een nette 404 telt niet en zet de reeks op 0; de pool telt door
+   vanaf de zoeker), altijd vóór tracking, seen-ids en rapport. Alleen de
+   sitemapzoeker en de pool stoppen ook als de run eindigt met mislukte calls.
+   Er is geen terugval: elke route verrijkt via dit endpoint. Tests:
+   `test_endpoint_halverwege_dicht`, `test_pool_404_beeindigt_reeks`,
+   `test_pool_404_bovenaan`, `test_detailcheck_dicht`, `test_zoekroute_dicht`;
+   `test_funda_sitemap.py::test_detail_dicht`, `test_detail_halverwege`;
+   `test_funda_html.py::test_detail_dicht`.
 
 De pool draait ná de checks 1 en 2: een stukke zoekbron faalt luid, ook als de
 pool iets oplevert.
@@ -137,7 +141,8 @@ pool iets oplevert.
 **Geen exit 2:** rente, verrijking en geocoding (fail-soft: "onbekend" in het
 rapport, een `::warning::`, nooit een woning minder), een losse 404, en een deel
 van de zoek-calls dat mislukt. De workflow stopt al vóór de run als
-`FUNDA_PWA_PASSWORD` of `FUNDA_PERSONAL_JSON` ontbreekt of ongeldig is.
+`FUNDA_PWA_PASSWORD` of `FUNDA_PERSONAL_JSON` ontbreekt of ongeldig is, of als
+er geen state uit de cache terugkomt (stap "State aanwezig?", zie 12).
 
 ## 5. Funda als bron: wat dicht is en wat we niet doen
 
@@ -308,11 +313,18 @@ aangeroepen; het besluit geldt alleen voor de detail-host.
     (`BUURT_LABEL`, `cbs_buurt()`) en de Leefbaarometer noemt de buurt in zijn
     waarde ("goed (2024) in <naam>"). De naam komt uit de CBS-indeling en kan afwijken van funda's
     buurtnaam. Alleen in het versleutelde rapport, nooit in de log.
+- **Parsers:** de VvE-bijdrage telt alleen tussen 20 en 600 euro per maand
+  (`VVE_MIN_MAAND`, `VVE_MAX_MAAND`); een genoemde periode wordt omgerekend,
+  nooit geraden uit het bedrag; daarbuiten onbekend, met de bestaande aanname.
+  De Leefbaarometer-score wordt afgerond, niet afgekapt. `lees_advertentie`
+  herkent een ontkenning vóór en na het woord. Tests: `test_vve_grens`,
+  `test_leefbaarometer_afronding`, `test_ontkenningen`.
 - **Niet gemeten op echte advertenties** (reken er niet op): de waarden van
-  "Soort dak", "Aantal bouwlagen", "Isolatie", "Verwarming" en "Voorzieningen",
-  of "1e woonlaag" de begane grond is (telt daarom niet), de vocabulaire van
-  `soortwoning` en van de status (de log telt de statuswaarden), en of "onder
-  bod" in de sitemap blijft.
+  "Soort dak", "Aantal bouwlagen", "Isolatie", "Verwarming" en "Voorzieningen"
+  (de log telt ze sinds 19 nov 2026, zie 11 en 14), of "1e woonlaag" de begane
+  grond is (telt daarom niet), de vocabulaire van `soortwoning` en van de
+  status (de log telt de statuswaarden), en of "onder bod" in de sitemap
+  blijft.
 - **Jaarwissel:** `test_funda_beoordeling.py` faalt op 1 januari tot
   `data/trhk_2026_tabel1.json`, `NHG_GRENS` en `STARTERS_GRENS` van het nieuwe
   jaar zijn. Los het op, zet de test niet uit.
@@ -380,8 +392,15 @@ en de docstring van `funda_verrijking.py`.
   (`bag`, `fundering`, `geluid`, `buurt`, `tevredenheid`, `kerncijfers`,
   `veiligheid`, `lucht`, `groen`, `klimaat`, `erfgoed`). Een bron die uit staat
   of niets gaf, levert geen item.
-- **Budget:** 90 verzoeken per run (`max_calls_per_run` gaat voor). Wat niet
-  past krijgt "budget" en gaat de volgende run verder; Past en Krap eerst.
+- **Budget per woning:** 90 verzoeken per run (`max_calls_per_run` gaat voor).
+  `kosten()` telt vooraf wat een woning nog vraagt; wat niet in zijn geheel
+  past krijgt "budget" en gaat de volgende run verder, Past en Krap eerst (geen
+  half gevulde woning). Test: `test_budget_per_woning`.
+- **Fundering en klimaat delen één verzoek** (`KEA_BRONNEN`). De combinatie is
+  niet tegen de echte dienst gemeten; daarom een terugval (de bron los ophalen)
+  die de log telt. Test: `test_kea_gecombineerd`.
+- **Een onverwacht antwoord** zet alleen die bron op "onbekend". Tests:
+  `test_onverwachte_vormen`, `test_leefbaarometer_kapot`.
 - **Laagnamen en jaren met een datum** (`RIVM_LAGEN`, `RIVM_LUCHT_LAGEN`,
   `POLITIE_JAAR`): verdwijnt een jaargang, dan "onbekend" tot de constante is
   bijgewerkt. `POLITIE_JAAR` bijwerken als 2026 volledig is.
@@ -433,9 +452,17 @@ Volledige beschrijving (sleutelopbouw, CSP, slotscherm): notities en
   sha256 in de test. Externe links met `rel="noopener noreferrer"`;
   `funda_ui.funda_url` laat alleen `https://www.funda.nl/...` door;
   `#woning-data` escapet `<`, `>` en `&`.
-- **Service worker:** cache `funda-shortlist-v7`. Ophogen bij elke nieuwe
-  wrapper en bij elk gewijzigd bestand in `ASSETS`, anders blijft een
-  geïnstalleerde PWA de oude tonen.
+- **Versies en service worker: niets met de hand ophogen.** Elk statisch
+  bestand krijgt een inhoud-hash als `?v=` in de wrapper (`statisch_versies`);
+  lijst en cachenaam van de service worker volgen uit `STATISCH`
+  (`service_worker`, `cache_naam`). Na een wijziging in `ui/`: `schrijf_statisch`
+  naar `docs/` en committen (`test_versies` vergelijkt beide).
+- **De kaart laadt pas na een tik** ("Kaart" op smal, "Toon kaart" op breed):
+  eerder ziet de tegelserver het zoekgebied niet. De keuze geldt per sessie.
+- **Opslag op het apparaat is versleuteld:** de app bewaart zijn staat onder
+  `funda_rapport_v2` (AES-GCM, sleutel afgeleid uit de hoofdsleutel); alleen
+  het lokale onversleutelde rapport houdt leesbare opslag (`test_opslag_js`).
+- **Groottegrenzen:** `ui/app.js` 30 kB, slotscherm 17 kB (`test_funda_ui.py`).
 - **Slotscherm:** pauze na vier foute wachtwoorden (teller
   `funda_slot_pogingen` in `localStorage`, het enige wat het slotscherm daar
   bewaart). Ontgrendelt niet in een frame. Zonder `DecompressionStream` zegt het
@@ -476,7 +503,11 @@ het profiel. Op Actions (`publieke_log()`, `GITHUB_ACTIONS` gezet) ook:
   Nieuwe logregels met een foutmelding van een client ook.
 
 Wat wel mag: labelnamen van funda's kenmerken met aantallen, aantallen per
-poort, verrijking per bron en status, rente met bron, statuswaarden.
+poort, verrijking per bron en status, rente met bron, statuswaarden. Ook de
+genormaliseerde waarden van een vaste lijst kenmerken (`LOG_WAARDEN_KENMERKEN`,
+`log_kenmerk_waarden`; regels "Kenmerkwaarden <naam>"): een getal wordt "#", en
+een waarde bij maar één woning telt alleen in "andere waarden N" (kan vrije
+tekst zijn). Geen kenmerk in die lijst dat een bedrag of adres kan bevatten.
 Test: `test_funda_zoek.py::test_publieke_log`. `test_funda_zoek.py` zet
 `GITHUB_ACTIONS` bovenaan uit, zodat de job tests hetzelfde doet als lokaal.
 
@@ -488,6 +519,10 @@ Test: `test_funda_zoek.py::test_publieke_log`. `test_funda_zoek.py` zet
   (gebeurd op 6 nov 2026). Nieuwe state gaat in een bestaand bestand. Anders de
   migratie met `scripts/state_migratie.py` opnieuw inbouwen (oude padenlijst
   exact, zelfde volgorde; `BESTANDEN` bijwerken). Zie notities.
+- **Vangnet "State aanwezig?":** zonder state uit de cache stopt de workflow
+  vóór de run en bewaart hij geen lege state; een run zonder state meldt alles
+  als nieuw en overschrijft de tracking. Alleen bij de allereerste run en na het
+  opnieuw aanmaken van de repo: start handmatig met de input `lege_state` = `ja`.
 - **Encryptie verplicht in CI:** met `FUNDA_REQUIRE_ENCRYPTION=1` weigert
   `funda_rapport.py` een onversleuteld rapport, vóór er iets in `docs/`
   verandert.
@@ -503,8 +538,8 @@ Test: `test_funda_zoek.py::test_publieke_log`. `test_funda_zoek.py` zet
   `requirements.in` (commando bovenin dat bestand), met exacte versies en
   hashes. De workflows doen `pip install --require-hashes` (geen
   `--upgrade pip`) en `npm ci --ignore-scripts`. Acties staan op een commit-SHA
-  met de tag als commentaar. Bijwerken is een bewuste stap: opnieuw genereren of
-  de SHA opzoeken, en de diff lezen.
+  met de tag als commentaar (setup-python v6.3.0, cache v5.1.0). Bijwerken is
+  een bewuste stap: opnieuw genereren of de SHA opzoeken, en de diff lezen.
 - **pyfunda staat op 2.9.0** (PyPI, met hash). De code gebruikt de v2-API
   (`search_listing`, `r.data`); v3 is een rewrite zonder die methodes. Niet upgraden
   zonder de code mee te porten.
@@ -540,33 +575,24 @@ Tegen de echte site, alleen handmatig: de `..._validatie.py`-scripts,
 
 ## 14. Open punten en ideeën
 
-Bewust niet gebouwd (open):
-
-- `localStorage` versleutelen (bewaard, verborgen en gezien staan leesbaar op
-  het apparaat).
-- De kaart pas na een tik laden.
-- `docs/` publiceren zonder git-geschiedenis.
-- Gewichten voor de bronnen van 18 nov 2026 (eerst de spreiding kennen).
-- De fotohost in de CSP is niet gemeten; bij een afwijking staat er een
-  `::warning::` met een aantal.
-
-Ideeën uit de refactorronde van 19 nov 2026, nog niet uitgevoerd:
-
-- Een versie in de URL van `app.js` en `app.css`, en de lijst van de service
-  worker afleiden uit de bestanden.
-- Fundering en klimaat in één verzoek, en een budget per woning.
-- Een onverwacht antwoord van de Leefbaarometer opvangen.
+- `docs/` publiceren zonder git-geschiedenis: vraagt een andere Pages-instelling
+  van de eigenaar en hoort bij het opnieuw aanmaken van de repo.
+- Gewichten voor de bronnen van 18 nov 2026: keuze van de eigenaar; de cijfers
+  staan nu bij alle woningen.
 - Doelmarktwoningen alleen verversen bij een gewijzigde lastmod, en de middagrun
-  overslaan bij een ongewijzigde index.
-- De detailcheck en de HTML-route laten stoppen bij 401/403/429, in plaats van
-  de fout te slikken.
-- De VvE-bijdrage begrenzen.
-- De Leefbaarometer-score afronden.
-- Ontkenningen in `lees_advertentie`.
-- De acties bijwerken, wegens de waarschuwing over een verouderde Node-versie.
-- De waarden van funda's kenmerken Soort dak, Isolatie, Verwarming en Ligging
-  bekijken. De log van 19 nov 2026 laat zien dat ze vaak voorkomen (op 42
-  woningen: Aantal woonlagen 41, Verwarming 41, Ligging 38, Isolatie 32, Soort
-  dak 29).
+  overslaan bij een ongewijzigde index: eerst een paar weken "Meting lastmod"
+  op 0 zien (op 19 nov 2026 stond hij één keer op 1).
+- De logregels "Kenmerkwaarden" bekijken en schuin dak en binnenklimaat daarop
+  afstellen. De labelnaam "Soort dak" staat in geen fixture.
 - Funda's prijshistorie bevatte geen regels zonder bedrag (0 van 553): nagaan of
   die bron van "Eerder zonder prijs" nog zin heeft.
+- Niet gemeten: de fotohost in de CSP (bij een afwijking een `::warning::`).
+- Niet gemeten: het gecombineerde verzoek voor fundering en klimaat; de log van
+  de eerste runs laat zien of de terugval afgaat.
+- Niet getest op Safari en iOS: de versleutelde opslag, de kaartknop, de versies.
+- Of cache-actie v5 de state van v4 terugvindt: blijkt bij de eerste run. Het
+  vangnet stopt de run als dat niet zo is; terugzetten naar v4 herstelt het.
+- De bovengrens in `kosten()` laat soms verzoeken onbenut; een tweede BAG-poging
+  en de terugval tellen niet mee en kunnen nog een halve woning geven.
+- `sessionStorage` `funda_rapport_nieuw_<run>` bevat nog leesbare woning-id's.
+- `MailBron._fout_regel` logt een pad zonder `log_tekst()` (alleen lokaal).
