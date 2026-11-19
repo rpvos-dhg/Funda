@@ -678,16 +678,17 @@ def thuis_coords() -> tuple[float, float] | None:
     if "v" in _THUIS:
         return _THUIS["v"]
     resultaat = coord_paar(_PERSONAL.get("thuis_coords"))
+    # De sleutel in het bestand is een hash van de postcode; een oud bestand met de leesbare
+    # postcode wordt bij het laden omgezet en meteen zo teruggeschreven. Ook als het punt uit de
+    # config komt: anders bleef de leesbare postcode in het bestand (en in de Actions-cache) staan.
+    cache, omgezet = coords_cache_lees(THUIS_CACHE)
+    if omgezet:
+        try:
+            coords_cache_schrijf(THUIS_CACHE, cache)
+        except Exception as exc:
+            print(f"Thuiscoördinaten niet bewaard ({type(exc).__name__}).")
     if resultaat is None:
-        # De sleutel in het bestand is een hash van de postcode; een oud bestand met de leesbare
-        # postcode wordt bij het laden omgezet en meteen zo teruggeschreven.
-        cache, omgezet = coords_cache_lees(THUIS_CACHE)
         sleutel = postcode_sleutel(POSTCODE)
-        if omgezet:
-            try:
-                coords_cache_schrijf(THUIS_CACHE, cache)
-            except Exception as exc:
-                print(f"Thuiscoördinaten niet bewaard ({type(exc).__name__}).")
         resultaat = coord_paar(cache.get(sleutel)) if sleutel else None
         if resultaat is None and nafilter_straal_km() is not None:
             try:

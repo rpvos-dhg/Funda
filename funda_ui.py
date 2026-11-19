@@ -267,9 +267,11 @@ def _woning(rij: dict, meta: dict) -> dict:
         "poort": poort, "twijfel": [_zin(t) for t in (b.get("twijfel") or []) if str(t).strip()],
         "score": _getal(b.get("score")) or 0.0, "onderdelen": b.get("onderdelen") or {},
         "let_op": b.get("let_op") or [], "plus": b.get("pluspunten") or [], "onbekend": b.get("onbekend") or [],
-        # Informatieve items zonder punten die een eigen blok krijgen (open bronnen, "eerder zonder prijs",
-        # "mogelijk onder schuin dak"). De overige neutrale items staan al in de kerncijfers en kenmerken.
+        # Informatieve items zonder punten uit de open bronnen: een eigen blok. De overige neutrale items
+        # staan al in de kerncijfers en kenmerken.
         "omgeving": [x for x in (b.get("info") or []) if x.get("onderdeel") in funda_beoordeling.INFO_TONEN],
+        # "Schuin dak: mogelijk" en "Eerder zonder prijs": over de woning zelf, dus in het blok Woning.
+        "bij_woning": [x for x in (b.get("info") or []) if x.get("onderdeel") in funda_beoordeling.INFO_WONING],
         # Zomer en winter: een indicatie over de woning zelf, daarom in het blok Woning en niet bij de buurt.
         "binnenklimaat": [x for x in (b.get("info") or []) if x.get("onderdeel") == funda_beoordeling.BINNENKLIMAAT],
         "kansen": kansen, "zelf": (b.get("zelf_nagaan") or [])[:6], "fin": f, "routes": routes,
@@ -544,7 +546,11 @@ def kaart_html(w, meta: dict | None = None) -> str:
                    f'{ic("chev", "ic chev")}</summary><ul class="punten">'
                    f'{"".join(punt_html(x, False, True) for x in w["binnenklimaat"])}</ul>'
                    f'<p class="punt-tekst gesch mt-100">Telt niet mee in de score.</p></details>')
-    blokken.append(f'<section class="blok"><h4>Woning</h4><dl class="kenmerken">{kenmerken(w)}</dl>{klimaat}</section>')
+    bij_woning = ""
+    if w["bij_woning"]:
+        bij_woning = (f'<ul class="punten">{"".join(punt_html(x, False, True) for x in w["bij_woning"])}</ul>'
+                      '<p class="punt-tekst gesch mt-100">Telt niet mee in de score.</p>')
+    blokken.append(f'<section class="blok"><h4>Woning</h4><dl class="kenmerken">{kenmerken(w)}</dl>{bij_woning}{klimaat}</section>')
     if zelf:
         blokken.append(f'<section class="blok"><h4>Zelf nagaan</h4><ol class="vragen">{zelf}</ol></section>')
     if fotos:

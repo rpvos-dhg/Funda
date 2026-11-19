@@ -254,13 +254,20 @@ def test_markdown_living_area() -> bool:
     import funda_beoordeling as fb
     info = fb.omgeving_items({"lucht": {"status": "ok", "data": {"no2": 18.3, "pm25": None, "groen_pct": 16}}})
     info.append(fb._item("financiering", "neutraal", "Leenruimte", "€ 1 over", "leentoets 2026"))
+    info.append(fb._item("prijsverloop", "neutraal", "Eerder zonder prijs", "gezien, datum onbekend", "eigen waarneming"))
+    info.append(fb._item("schuin_dak", "neutraal", "Schuin dak", "mogelijk onder schuin dak", "kenmerk 'Soort dak'"))
     md2 = fr.render_markdown([{"d": {"global_id": 1, "title": "Teststraat 1", "city": "Den Haag", "price": 250000,
                                      "living_area": 60}, "beoordeling": dict(b, info=info)}], {})
     regel = next((r for r in md2.splitlines() if r.startswith("- Buurt en omgeving")), "")
     ok &= check("markdown: regel 'Buurt en omgeving' met de items uit de open bronnen, zonder de overige info",
                 "Stikstofdioxide (NO2): 18,3 µg/m³, boven WHO-advies (RIVM 2024)" in regel and "Groen binnen 500 m: 16%" in regel
-                and "Leenruimte" not in regel and "telt niet mee" in regel, regel)
-    ok &= check("markdown: zonder zulke items geen regel", "Buurt en omgeving" not in md)
+                and "Leenruimte" not in regel and "telt niet mee" in regel and "Schuin dak" not in regel
+                and "Eerder zonder prijs" not in regel, regel)
+    regel = next((r for r in md2.splitlines() if r.startswith("- Over de woning")), "")
+    ok &= check("markdown: 'Schuin dak: mogelijk' en 'Eerder zonder prijs' in de regel over de woning, net als op de kaart",
+                "Eerder zonder prijs: gezien, datum onbekend" in regel and "Schuin dak: mogelijk onder schuin dak" in regel
+                and "telt niet mee" in regel and "Stikstofdioxide" not in regel, regel)
+    ok &= check("markdown: zonder zulke items geen regel", "Buurt en omgeving" not in md and "Over de woning" not in md)
     return ok
 
 
@@ -781,6 +788,13 @@ def test_geocoding() -> bool:
             fz._PERSONAL["thuis_coords"] = [52.1, 4.2]
             ok &= check("thuis: thuis_coords in de config gaat voor", fz.thuis_coords() == (52.1, 4.2)
                         and len(calls) == n)
+            # Ook dan wordt een oud bestand omgezet: de leesbare postcode blijft niet in de cache staan.
+            fz._THUIS.clear()
+            fz.THUIS_CACHE.write_text(json.dumps({"1011 AB": [52.37, 4.9]}), encoding="utf-8")
+            ok &= check("thuis: punt uit de config, en het oude bestand is toch omgezet (geen leesbare postcode meer)",
+                        fz.thuis_coords() == (52.1, 4.2) and len(calls) == n
+                        and json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {fv.postcode_sleutel("1011AB"): [52.37, 4.9]},
+                        fz.THUIS_CACHE.read_text(encoding="utf-8"))
             del fz._PERSONAL["thuis_coords"]
             fz._THUIS.clear()
             fz.POSTCODE = "9999ZZ"

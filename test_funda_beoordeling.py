@@ -1250,7 +1250,7 @@ def test_eerder_zonder_prijs() -> bool:
     it, b = item(_minimaal(price=240000, living_area=70, _zonder_prijs_gezien="2026-10-12"))
     ok &= check("eigen waarneming: informatief item met de datum, 0 punten",
                 it is not None and it["waarde"] == "gezien op 12 okt 2026" and it["bron"] == "eigen waarneming"
-                and it["punten"] == 0 and it["onderdeel"] in fb.INFO_TONEN, str(it))
+                and it["punten"] == 0 and it["onderdeel"] in fb.INFO_WONING and it["onderdeel"] not in fb.INFO_TONEN, str(it))
     ok &= check("score en poort ongewijzigd", b["score"] == basis["score"] and b["poort"] == basis["poort"])
     hist = [{"status": "sold", "price": "€ 180.000", "timestamp": "2019-03-01T00:00:00"},
             {"status": "asking_price", "price": None, "timestamp": "2026-09-01T00:00:00"},
@@ -1274,6 +1274,15 @@ def test_eerder_zonder_prijs() -> bool:
                 it is None and b["poort"] == "PRIJS ONBEKEND" and b["financiering"]["netto"] is None)
     ok &= check("rommel als datum: geen item, geen fout",
                 item(_minimaal(price=240000, living_area=70, _zonder_prijs_gezien="gisteren"))[0] is None)
+    it, _ = item(_minimaal(price=240000, living_area=70, _zonder_prijs_gezien=fb.ZONDER_PRIJS_ONBEKEND))
+    ok &= check("dag niet bijgehouden (oud cache-element): item zonder datum, geen verzonnen datum",
+                it is not None and it["waarde"] == "gezien, datum onbekend" and it["bron"] == "eigen waarneming"
+                and not re.search(r"\d", it["waarde"]) and it["punten"] == 0, str(it))
+    it, b = item(_minimaal(price=None, living_area=70, _zonder_prijs_gezien=fb.ZONDER_PRIJS_ONBEKEND))
+    ok &= check("zonder datum en nu ook zonder prijs: geen item", it is None and b["poort"] == "PRIJS ONBEKEND")
+    kapot = {"klimaat": {"status": "ok", "data": {"wateroverlast": ["hoog"], "overstromingskans": [4], "grondwater": {"a": 1}}},
+             "erfgoed": {"status": "ok", "data": {"gezicht": None, "monumenten_dichtbij": [2]}}}
+    ok &= check("beschadigd cache-element (lijst of dict als klasse): item overgeslagen, geen fout", fb.omgeving_items(kapot) == [])
     tel = fb.log_prijshistorie([{"_enrichment": {"price_history": {"changes": hist}}},
                                 {"_enrichment": {"price_history": voor + [{"status": "WOZ", "price": 1}, {"status": "Kantstraat 5"}, "x"]}},
                                 {"_enrichment": {}}, None])
@@ -1317,6 +1326,52 @@ def test_schuin_dak() -> bool:
                 sd({"Soort dak": "Zadeldak", "Aantal bouwlagen": "3", "Aantal woonlagen": "2 woonlagen"}, "", 2)
                 == {"status": "zeker", "bron": "kenmerk 'Soort dak'", "maisonnette": True, "bovenste": True})
 
+    # Dertig zinnen uit de review van 19 nov 2026: (tekst, kenmerken, woonlaag, verwachte status).
+    review = [
+        ("Het complex heeft een schuin dak dat in 2020 is vernieuwd. Dit appartement ligt op de eerste verdieping.", {}, 1, None),
+        ("De VvE heeft de schuine daken in 2019 laten isoleren.", {}, 2, None),
+        ("Geen schuine wanden, dus overal volle stahoogte.", {}, 4, None),
+        ("Nergens last van schuine wanden.", {}, 4, None),
+        ("Eigen berging op de zolderverdieping.", {}, 2, None),
+        ("In de kelder is een berging. Op de zolderverdieping bevindt zich de gezamenlijke waszolder.", {}, 2, None),
+        ("De buren hebben een dakkapel geplaatst.", {}, 2, None),
+        ("Heerlijk dakterras op het zuiden.", {}, 3, None),
+        ("Wonen op de kop van de Laan van Meerdervoort.", {}, 2, None),
+        ("Gelegen aan de Kapelaan Meereboerweg.", {}, 2, None),
+        ("De slaapkamer heeft schuine wanden en een dakkapel.", {}, 3, "zeker"),
+        ("De cv-ketel hangt op de zolderverdieping van het pand, bereikbaar via het trappenhuis.", {}, 1, None),
+        ("Er is een vergunning voor het plaatsen van een dakkapel aan de achterzijde.", {}, 3, "zeker"),
+        ("Fietsen stalt u onder de kap van de overdekte stalling.", {}, 1, None),
+        ("De woonkamer heeft een vide; de nok is van het naastgelegen pand zichtbaar.", {}, 1, None),
+        ("Het appartement heeft geen balkon. Schuine wanden geven de slaapkamer sfeer.", {}, 3, "zeker"),
+        ("Via de vlizotrap bereikt u de bergzolder met knieschotten.", {}, 3, "zeker"),
+        ("Dit appartement op de tweede verdieping. Op de derde (zolder)verdieping wonen de bovenburen.", {}, 2, None),
+        ("De zolderetage is niet bij de woning inbegrepen.", {}, 2, None),
+        ("Het appartement is niet gelegen op de bovenste verdieping.", {"Soort dak": "Zadeldak bedekt met pannen"}, 2, "mogelijk"),
+        ("Op de bovenste verdieping van het complex is een gezamenlijk dakterras.", {"Soort dak": "Zadeldak"}, 1, "mogelijk"),
+        ("Mooi appartement.", {"Soort dak": "Plat dak bedekt met bitumineuze dakbedekking"}, 3, None),
+        ("Mooi appartement.", {"Soort dak": "Samengesteld dak bedekt met bitumineuze dakbedekking en pannen"}, 3, None),
+        ("De schuine zijde van de kavel grenst aan het water.", {}, 1, None),
+        ("Het pand heeft een fraaie mansardekap. Het appartement ligt op de eerste etage.", {}, 1, None),
+        ("Onder de kap van het complex bevinden zich de installaties.", {}, 1, None),
+        ("Appartement op de 1e verdieping; de tweede en zolderverdieping zijn van de bovenburen.", {}, 1, None),
+        ("De woning heeft een dakraam in de badkamer.", {}, 3, None),
+        ("Slaapkamer met inbouwkasten achter de knieschotten.", {}, 3, "zeker"),
+        ("Er zijn geen dakkapellen of schuine wanden.", {}, 3, None),
+    ]
+    for zin, ch, laag, verwacht in review:
+        ok &= check(f"review ({verwacht}): {zin[:60]}", sd(ch, zin, laag)["status"] == verwacht, str(sd(ch, zin, laag)))
+    ok &= check("de bovenste verdieping in een zin over iets gezamenlijks telt niet als bovenste",
+                not sd({}, "Op de bovenste verdieping van het complex is een gezamenlijk dakterras.")["bovenste"]
+                and sd({}, "Hoekappartement op de bovenste verdieping van het complex.")["bovenste"])
+    ok &= check("woonlaag aantoonbaar niet bovenin: 'onder de kap' in de tekst telt niet, schuine wanden wel",
+                sd({"Aantal bouwlagen": "4"}, "De slaapkamer ligt onder de kap.", 2)["status"] is None
+                and sd({"Aantal bouwlagen": "4"}, "De slaapkamer ligt onder de kap.", 4)["status"] == "zeker"
+                and sd({"Aantal bouwlagen": "4"}, "Slaapkamer met schuine wanden.", 2)["status"] == "zeker")
+    ok &= check("ontkenning achter het woord alleen in vaste vormen",
+                sd({}, "De dakkapel is niet aanwezig maar wel vergund.")["status"] is None
+                and sd({}, "Slaapkamer met schuine wanden, maar niet storend.")["status"] == "zeker")
+
     profiel = {"bruto_jaar": 62000, "eigen_inleg": 10000, "leeftijd": 30}
     cfg = fb.laad_config(profiel)
 
@@ -1339,7 +1394,7 @@ def test_schuin_dak() -> bool:
     it = item(mogelijk)
     ok &= check("mogelijk: informatief, 0 punten, score gelijk",
                 it is not None and it["groep"] == "info" and it["punten"] == 0 and it["waarde"] == "mogelijk onder schuin dak"
-                and mogelijk["score"] == basis["score"] and "schuin_dak" in fb.INFO_TONEN, str(it))
+                and mogelijk["score"] == basis["score"] and "schuin_dak" in fb.INFO_WONING, str(it))
     ok &= check("ontkenning: geen item", item(b("Rechte wanden, geen schuine wanden.")) is None)
     ok &= check("plat dak: geen item", item(b("Gelegen op de bovenste verdieping.", {"Soort dak": "Plat dak"})) is None)
     ok &= check("geen aanwijzing: geen item, ook geen 'onbekend'", item(basis) is None)
@@ -1435,15 +1490,16 @@ def test_binnenklimaat() -> bool:
                 and "HR-glas" not in bk(ch={"Isolatie": "Gedeeltelijk dubbel glas"})["Winter"]["uitleg"])
     winterwarm = bk(ch={"Soort appartement": "Tussenverdieping (appartement)", "Isolatie": "Dakisolatie, dubbel glas",
                         "Verwarming": "Blokverwarming"}, label="A").get("Winter")
-    ok &= check("warm in de winter: tussenverdieping, glas, isolatie, blokverwarming (kosten in de servicekosten) en label A",
-                winterwarm is not None and winterwarm["waarde"] == "eerder warm: 5 aanwijzingen"
-                and "servicekosten" in winterwarm["uitleg"] and "Kouder:" not in winterwarm["uitleg"], str(winterwarm))
+    ok &= check("warm in de winter: tussenverdieping, glas, isolatie en label A; blokverwarming alleen als opmerking over kosten",
+                winterwarm is not None and winterwarm["waarde"] == "eerder warm: 4 aanwijzingen"
+                and "Niet meegeteld: stads- of blokverwarming" in winterwarm["uitleg"] and "servicekosten" in winterwarm["uitleg"]
+                and "Kouder:" not in winterwarm["uitleg"], str(winterwarm))
     ok &= check("geen aanwijzing: geen item, ook niet bij een onbekend label of een oud bouwjaar alleen",
                 bk() == {} and bk("Licht appartement met balkon.", bouwjaar=1930) == {} and bk(label="C") == {})
     aanname = bk(ch={"Isolatie": "Geen isolatie"}, bouwjaar=1930).get("Winter")
-    ok &= check("onbekend label naast een andere aanwijzing: het rekenlabel, uitdrukkelijk als aanname",
-                aanname is not None and aanname["waarde"] == "kans op kou: 2 aanwijzingen"
-                and "energielabel onbekend, gerekend als G: een aanname, geen gegeven" in aanname["uitleg"], str(aanname))
+    ok &= check("onbekend label naast een andere aanwijzing: het rekenlabel in de uitleg als aanname, niet in de telling",
+                aanname is not None and aanname["waarde"] == "kans op kou: 1 aanwijzing"
+                and "Niet meegeteld: energielabel onbekend, gerekend als G: een aanname, geen gegeven" in aanname["uitleg"], str(aanname))
     nieuw = bk(ch={"Isolatie": "Volledig geïsoleerd"}, bouwjaar=2010).get("Winter")
     ok &= check("onbekend label, nieuw pand: gerekend als A op grond van het bouwjaar, ook een aanname",
                 nieuw is not None and "gerekend als A op grond van het bouwjaar: een aanname" in nieuw["uitleg"], str(nieuw))
@@ -1452,6 +1508,29 @@ def test_binnenklimaat() -> bool:
     ok &= check("'1e woonlaag' is geen begane grond (niet gemeten); een uitdrukkelijke begane grond wel",
                 "Winter" not in bk(ch={"Gelegen op": "1e woonlaag"})
                 and "begane grond" in bk(ch={"Gelegen op": "Begane grond"})["Winter"]["uitleg"])
+
+    # Zinnen uit de review van 19 nov 2026: ontkenning achter het woord, de buren, een onbekend label.
+    for zin in ("Het plaatsen van zonwering is door de VvE niet toegestaan.", "Airco is niet aanwezig, wel mogelijk.",
+                "Geen airco.", "Het zonnescherm van de buren.", "Serre-achtige uitbouw bij de buren.",
+                "Met de luiken van het buurpand in zicht. Screens zijn niet toegestaan.",
+                "Gelegen in het Noordeinde, om de hoek van het Noorderstrand.", "Appartement aan de Noordwal met balkon.",
+                "Om de hoek vindt u de winkels van de Fred.", "De woning is voorzien van enkele glas-in-loodramen.",
+                "Niet enkel glas maar overal HR++ glas."):
+        ok &= check(f"geen zomeritem: {zin[:50]}", "Zomer" not in bk(zin), str(bk(zin).get("Zomer")))
+    ok &= check("het hoekappartement van de buren is geen hoekligging", bk("Naast het hoekappartement van de buren.", bouwjaar=1930) == {})
+    ok &= check("een eigen hoekappartement, zonwering en serre tellen nog wel",
+                "hoekligging" in bk("Dit hoekappartement is licht.")["Winter"]["uitleg"]
+                and "zonwering" in bk("Elektrische zonwering aan de voorzijde.")["Zomer"]["uitleg"]
+                and "veel glas" in bk("Woonkamer met serre.")["Zomer"]["uitleg"])
+    alleen_iso = bk("Volledig geisoleerd in 2021.", bouwjaar=1930).get("Winter")
+    ok &= check("onbekend label maakt van 'eerder warm' geen 'warm en koud'",
+                alleen_iso is not None and alleen_iso["waarde"] == "eerder warm: 1 aanwijzing" and "Kouder:" not in alleen_iso["uitleg"]
+                and "Niet meegeteld: energielabel onbekend, gerekend als G" in alleen_iso["uitleg"], str(alleen_iso))
+    ok &= check("stadsverwarming alleen: geen item (het gaat over kosten, niet over warm of koud)",
+                bk("Vloerverwarming via stadsverwarming.", {"Verwarming": "Stadsverwarming"}) == {})
+    ok &= check("doorwerking schuin dak: een gezamenlijk dakterras op de bovenste verdieping is geen bovenste woonlaag",
+                bk("Op de bovenste verdieping van het complex is een gezamenlijk dakterras.", bouwjaar=1930) == {}
+                and bk("Het complex heeft een schuin dak dat in 2020 is vernieuwd.", bouwjaar=1930) == {})
 
     profiel = {"bruto_jaar": 62000, "eigen_inleg": 10000, "leeftijd": 30}
     cfg = fb.laad_config(profiel)

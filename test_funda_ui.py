@@ -687,19 +687,25 @@ def test_omgeving_blok() -> bool:
     kaart = _kaart(body, sleutel)
     m = re.search(r'<details class="opbouw omgeving">(.*?)</details>', kaart, re.S)
     blok = m.group(1) if m else ""
+    mw = re.search(r'<section class="blok"><h4>Woning</h4>(.*?)</section>', kaart, re.S)
+    woning = mw.group(1) if mw else ""
     n_info = len([i for i in b["info"] if i["onderdeel"] in fb.INFO_TONEN])
     andere = _kaart(body, funda_ui.woning_sleutel(rijen[1]["d"]))
     ok = [
         check("blok aanwezig met het aantal items", "Buurt en omgeving" in blok and f'<span class="waarde">{n_info}</span>' in blok, blok[:200]),
         check("items met label, waarde, bron en uitleg",
               all(t in blok for t in ("Stikstofdioxide (NO2)", "18,3 µg/m³, boven WHO-advies", "RIVM 2024", "WHO-advies 10",
-                                      "Misdrijven buurt", "498 per 1.000 (gemeente 146)", "Eerder zonder prijs", "gezien op 12 okt 2026"))),
+                                      "Misdrijven buurt", "498 per 1.000 (gemeente 146)"))),
+        check("'Eerder zonder prijs' gaat over de woning: in het blok Woning, niet onder Buurt en omgeving",
+              "<b>Eerder zonder prijs</b>: gezien op 12 okt 2026" in woning and "Eerder zonder prijs" not in blok
+              and "Telt niet mee in de score" in woning and 'class="pt ' not in woning
+              and "prijsverloop" in fb.INFO_WONING and "prijsverloop" not in fb.INFO_TONEN, woning[-600:]),
         check("geen punten in het blok, wel de zin dat het niet meetelt", 'class="pt ' not in blok and "Telt nog niet mee in de score" in blok),
-        check("uitleg wordt ge-escaped", "&lt;b&gt;uitleg&lt;/b&gt;" in blok and "<b>uitleg</b>" not in blok),
+        check("uitleg wordt ge-escaped", "&lt;b&gt;uitleg&lt;/b&gt;" in woning and "<b>uitleg</b>" not in kaart),
         check("overige neutrale items (leenruimte en dergelijke) staan niet in het blok", "Leenruimte" not in blok and "Woonoppervlak" not in blok),
         check("een 'let op' uit een open bron staat bij Let op, zonder punten", "Wateroverlast bij bui" in kaart and "Wateroverlast bij bui" not in blok),
         check("kaart zonder zulke items: geen blok", "opbouw omgeving" not in andere and "opbouw binnenklimaat" not in andere),
-        check("bron in gewone taal (audit schrijfstijl, nov 2026)", "eerder gezien door dit rapport" in blok and "eigen waarneming" not in blok
+        check("bron in gewone taal (audit schrijfstijl, nov 2026)", "eerder gezien door dit rapport" in woning and "eigen waarneming" not in kaart
               and funda_ui.bron_tekst("kenmerk 'Gelegen op'") == "advertentie, bij Gelegen op"
               and funda_ui.bron_tekst("berekening") == "zelf berekend" and funda_ui.bron_tekst("CBS 2024") == "CBS 2024"),
         check("binnenklimaat: zomer en winter in het blok Woning, als indicatie en zonder punten", (lambda k: bool(k)

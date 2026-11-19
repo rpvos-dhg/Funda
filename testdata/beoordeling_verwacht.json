@@ -1379,12 +1379,12 @@
       "groep": "info",
       "oordeel": "neutraal",
       "label": "Winter",
-      "waarde": "kans op kou: 2 aanwijzingen",
+      "waarde": "aanwijzingen voor warm en koud",
       "bron": "aanwijzingen, niet gemeten",
       "punten": 0.0,
-      "kort": "winter: kans op kou",
+      "kort": "winter: aanwijzingen voor warm en koud",
       "vraag": "Vraag bij de bezichtiging naar tocht, koude vloeren en het energieverbruik van vorig jaar.",
-      "uitleg": "Een indicatie uit de advertentie en open kaarten. De temperatuur in huis is niet gemeten. Kouder: bouwjaar 1955 en geen dak-, muur- of vloerisolatie genoemd; energielabel onbekend, gerekend als G: een aanname, geen gegeven. Warmer: dubbel of HR-glas genoemd."
+      "uitleg": "Een indicatie uit de advertentie en open kaarten. De temperatuur in huis is niet gemeten. Kouder: bouwjaar 1955 en geen dak-, muur- of vloerisolatie genoemd. Warmer: dubbel of HR-glas genoemd. Niet meegeteld: energielabel onbekend, gerekend als G: een aanname, geen gegeven."
      }
     ],
     "kansen": [
@@ -2850,12 +2850,12 @@
       "groep": "info",
       "oordeel": "neutraal",
       "label": "Winter",
-      "waarde": "aanwijzingen voor warm en koud",
+      "waarde": "kans op kou: 2 aanwijzingen",
       "bron": "aanwijzingen, niet gemeten",
       "punten": 0.0,
-      "kort": "winter: aanwijzingen voor warm en koud",
+      "kort": "winter: kans op kou",
       "vraag": "Vraag bij de bezichtiging naar tocht, koude vloeren en het energieverbruik van vorig jaar.",
-      "uitleg": "Een indicatie uit de advertentie en open kaarten. De temperatuur in huis is niet gemeten. Kouder: bouwjaar 1962 en geen dak-, muur- of vloerisolatie genoemd; energielabel E. Warmer: dubbel of HR-glas genoemd; stads- of blokverwarming: de kosten zitten dan vaak in de servicekosten."
+      "uitleg": "Een indicatie uit de advertentie en open kaarten. De temperatuur in huis is niet gemeten. Kouder: bouwjaar 1962 en geen dak-, muur- of vloerisolatie genoemd; energielabel E. Warmer: dubbel of HR-glas genoemd. Niet meegeteld: stads- of blokverwarming: de stookkosten zitten dan vaak in de servicekosten."
      }
     ],
     "kansen": [],

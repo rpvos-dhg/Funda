@@ -248,7 +248,10 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   - **In het rapport.** `funda_beoordeling.omgeving_items()` maakt de items
     (onderdeel `omgeving`); een bron die uit staat of niets gaf, levert geen item
     en geen "onbekend". `funda_ui` toont ze per kaart in het uitklapblok "Buurt
-    en omgeving" (`INFO_TONEN`), de markdown in een eigen regel.
+    en omgeving" (`INFO_TONEN`), de markdown in een eigen regel. Informatieve
+    items over de woning zelf ("Schuin dak: mogelijk", "Eerder zonder prijs";
+    `INFO_WONING`) staan in het blok Woning, in de markdown in de regel "Over
+    de woning".
 - **Geocoding en routes.** Postcodes worden punten via de BAG-collectie `adres`
   op `api.pdok.nl` (`funda_verrijking.Geocoder`, filter op postcode, het punt
   van het eerste adres): de werkpostcodes (`funda_rapport.get_werk_coords`) en
@@ -260,7 +263,8 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   bestanden is sinds 18 nov 2026 een hash van de postcode
   (`funda_verrijking.postcode_sleutel`, dezelfde hashfunctie als de andere
   cachesleutels): een oude leesbare sleutel wordt bij het laden omgezet en niet
-  meer teruggeschreven (`coords_cache_lees`). Zelfde bestandsnamen, geen nieuw
+  meer teruggeschreven (`coords_cache_lees`), ook als het punt zelf uit de
+  config komt. Zelfde bestandsnamen, geen nieuw
   pad; de config-sleutels blijven leesbaar. Een
   eigen `Sessie` met de regels van de verrijking (robots.txt eerst,
   `EERLIJKE_UA`, nooit omzeilen) en **één stand voor `api.pdok.nl` per run**
@@ -309,6 +313,9 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   woningen die de nafilter afwees; `SitemapZoeker._element`, doorgegeven als
   `d["_zonder_prijs_gezien"]`) en een vraagprijsregel zonder bedrag na de
   laatste verkoop in funda's prijshistorie (`prijshistorie()["zonder_prijs"]`).
+  Een cache-element van voor 19 nov 2026 hield geen datum bij: stond de woning
+  daarin zonder prijs te koop, dan komt het item zonder datum ("gezien, datum
+  onbekend", `ZONDER_PRIJS_ONBEKEND`); er wordt geen datum verzonnen.
   Hoe funda zo'n aanbieding in de prijshistorie zet, is **niet gemeten**: de
   logregel "[rapport] Prijshistorie" telt per run de statuswaarden en de regels
   zonder bedrag (alleen aantallen). Verder verandert er niets aan "Prijs op
@@ -953,8 +960,11 @@ hoofdlijnen; de details staan bij de tests zelf.
   bouwjaar voor 1975 zonder isolatie in het kenmerk Isolatie, glas, zonligging
   van de buitenruimte, doorzon of hoek, zonwering of airco, groen binnen 500 m,
   verwarming en energielabel. Geen nieuw verzoek. Onbekend is geen aanwijzing;
-  zonder aanwijzing geen item. Een onbekend label telt alleen naast een andere
-  aanwijzing, met het rekenlabel en het woord "aanname". `funda_ui` toont ze in
+  zonder aanwijzing geen item. Een onbekend label telt niet mee: naast een
+  andere aanwijzing staat het rekenlabel met het woord "aanname" in de uitleg
+  onder "Niet meegeteld", net als stads- of blokverwarming (dat gaat over
+  kosten). Een ontkenning telt niet, ook achter het woord ("zonwering is niet
+  toegestaan"), en een zin over de buren ook niet. `funda_ui` toont ze in
   het blok Woning ("Warmte en kou in huis"), de markdown in eigen regels; de
   vraag staat bij het item en niet in "Zelf nagaan". Niet gemeten op echte
   advertenties: 'Soort dak', 'Aantal bouwlagen', zonwering of airco in
@@ -964,12 +974,17 @@ hoofdlijnen; de details staan bij de tests zelf.
   woonruimte onder een schuin dak, dan geeft het model "let op" met -0,5 en de
   vraag naar de bruikbare oppervlakte boven 1,50 m (`funda_beoordeling.schuin_dak`,
   onderdeel `schuin_dak`; instelbaar met `drempels.schuin_dak_punten` en
-  `gewichten.schuin_dak`). Zeker: de advertentie zegt het (schuine wanden, onder
-  de kap, kapverdieping, zolderverdieping, knieschot, dakkapel, vide onder de
-  nok), of het kenmerk "Soort dak" noemt een schuin dak en de woning ligt
-  aantoonbaar bovenin. Mogelijk (schuin daktype, ligging niet aan te tonen):
+  `gewichten.schuin_dak`). Zeker: de advertentie zegt het, of het kenmerk "Soort
+  dak" noemt een schuin dak en de woning ligt aantoonbaar bovenin. In de tekst
+  twee soorten: sterk (schuine wanden, kapverdieping, knieschot, dakkapel) en
+  zwak (schuin dak, onder de kap, zolderverdieping, vide tot in de nok). Een
+  zwakke aanwijzing telt alleen met een woonruimtewoord in dezelfde zin
+  (slaapkamer, woning, werkplek), niet in een zin over het complex, de VvE, de
+  stalling of de bovenburen, en niet als de woonlaag aantoonbaar onder het
+  aantal bouwlagen ligt. Mogelijk (schuin daktype, ligging niet aan te tonen):
   informatief, 0 punten. Plat dak of geen aanwijzing: geen item. Een ontkenning
-  en een zin over de berging of een gemeenschappelijke zolder tellen niet. De
+  (ervoor, of erachter: "is niet bij de woning inbegrepen") en een zin over de
+  berging, een gemeenschappelijke zolder of de buren tellen niet. De
   waarden van "Soort dak" en een kenmerk voor het aantal bouwlagen zijn **niet
   gemeten** op echte advertenties (de labeltelling in de log laat ze zien).
   Vastgepind in `test_funda_beoordeling.py::test_schuin_dak`.

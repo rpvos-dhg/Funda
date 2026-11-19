@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from funda_sitemap_zoek import (
+    ZONDER_PRIJS_ONBEKEND,
     ZONDER_PRIJS_SLEUTEL,
     DetailEndpointDicht,
     SitemapZoeker,
@@ -349,6 +350,25 @@ def test_zonder_prijs() -> bool:
         l3 = Listing(dict(details["80024814"], detail_url="/detail/koop/den-haag/appartement-draaistraat-4/80024814/"))
         ok &= check("pool legt een woning zonder prijs vast met de datum",
                     z3.neem_op(l3) and z3._woningen["80024814"].get("zonder_prijs") == "2026-11-06")
+        # Een cache van voor deze code: de woning stond er al zonder prijs in, zonder datum. Komt er een
+        # prijs, dan toch het signaal, met "onbekend" in plaats van een verzonnen datum.
+        pad4 = tmp / "c4.json"
+        zoeker(client=StubClient(details), cache_pad=pad4).search_listing()
+        oud = json.loads(pad4.read_text(encoding="utf-8"))
+        for e in oud["woningen"].values():
+            e.pop("zonder_prijs", None)                          # zo schreef de oude code het element
+        pad4.write_text(json.dumps(oud), encoding="utf-8")
+        r4 = zoeker(web=web, client=StubClient(DETAILS), cache_pad=pad4, nu=lambda: later).search_listing()
+        c4 = json.loads(pad4.read_text(encoding="utf-8"))["woningen"]
+        draai4 = next((r.data for r in r4 if r.data.get("global_id") == 1001), {})
+        import funda_beoordeling
+        ok &= check("oud element zonder prijs en zonder datum: signaal zonder datum zodra er een prijs is",
+                    draai4.get("_zonder_prijs_gezien") == ZONDER_PRIJS_ONBEKEND == funda_beoordeling.ZONDER_PRIJS_ONBEKEND
+                    and c4["80024814"].get("zonder_prijs") == ZONDER_PRIJS_ONBEKEND and draai4.get("price") == 299500,
+                    str(c4["80024814"]))
+        ok &= check("oud element met prijs of verkocht zonder prijs: geen signaal",
+                    not any(r.data.get("_zonder_prijs_gezien") for r in r4 if r.data.get("global_id") != 1001)
+                    and "zonder_prijs" not in c4["44664520"] and "zonder_prijs" not in c4["44546400"])
         return ok
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
