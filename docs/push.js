@@ -26,12 +26,14 @@
     for(var i=0;i<raw.length;i++) out[i] = raw.charCodeAt(i);
     return out;
   }
+  /* Een fout met een eigen tekst en een vervolgstap. Elke andere fout (van de browser, vaak Engels) krijgt één vaste zin. */
+  function MeldFout(tekst){ this.tekst = tekst; }
   async function ensurePushSubscription(){
     if(!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)){
-      throw new Error('Web Push wordt niet ondersteund in deze browser.');
+      throw new MeldFout('Deze browser kan geen meldingen sturen. Zet het rapport op je beginscherm en open het daar.');
     }
     var permission = await Notification.requestPermission();
-    if(permission !== 'granted') throw new Error('Notificaties zijn niet toegestaan.');
+    if(permission !== 'granted') throw new MeldFout('Meldingen staan uit voor dit rapport. Zet ze aan in de instellingen van je apparaat en probeer het opnieuw.');
     var reg = await navigator.serviceWorker.ready;
     var sub = await reg.pushManager.getSubscription();
     if(!sub){
@@ -53,15 +55,15 @@
       btn.disabled = true;
       var blok = document.getElementById('meldingen');
       if(blok) blok.dataset.net = '1';
-      pushStatus('Abonnement maken...');
+      pushStatus('Meldingen aanzetten…');
       try {
         var sub = await ensurePushSubscription();
         output.value = JSON.stringify(sub.toJSON(), null, 2);
         output.hidden = false;
         if(copy) copy.hidden = false;
-        pushStatus('Kopieer dit abonnement naar de GitHub-secret WEB_PUSH_SUBSCRIPTION.');
+        pushStatus('Gelukt. Kopieer dit abonnement en plak het in de instelling WEB_PUSH_SUBSCRIPTION.');
       } catch(err) {
-        pushStatus(err && err.message ? err.message : String(err), true);
+        pushStatus(err instanceof MeldFout ? err.tekst : 'Meldingen aanzetten lukte niet. Controleer je verbinding en probeer het opnieuw.', true);
       } finally {
         btn.disabled = false;
       }
@@ -74,7 +76,7 @@
         } catch(err) {
           output.focus();
           output.select();
-          pushStatus('Kopieer de geselecteerde tekst zelf.', true);
+          pushStatus('Kopiëren lukte niet. Kopieer de geselecteerde tekst zelf.', true);
         }
       });
     }

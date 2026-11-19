@@ -105,7 +105,7 @@ function pauzeer(){
   clearInterval(pauzeer.t);
   const pw = $("pw"), btn = $("btn"), err = $("err");
   if(restSeconden() <= 0) return false;
-  pw.disabled = true; btn.disabled = true; btn.textContent = "Ontgrendelen";
+  pw.disabled = true; btn.disabled = true; btn.textContent = "Ontgrendel";
   const tik = () => {
     const s = restSeconden();
     if(s > 0){ err.textContent = wachtTekst(s); return; }
@@ -145,14 +145,14 @@ $("pw-toon").addEventListener("click", function(){
   this.setAttribute("aria-pressed", String(zicht)); this.setAttribute("aria-label", zicht ? "Verberg wachtwoord" : "Toon wachtwoord");
 });
 $("vergeet").addEventListener("click", async () => {
-  try { await window.fundaApparaat.vergeet(); melding("Dit apparaat is vergeten."); } catch(_){ melding("Vergeten lukte niet."); }
+  try { await window.fundaApparaat.vergeet(); melding("Dit apparaat is vergeten."); } catch(_){ melding("Vergeten lukte niet. Probeer het opnieuw, of wis de websitegegevens van dit rapport in je browser."); }
 });
 $("slot-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const pw = $("pw"), btn = $("btn"), err = $("err");
   if(pauzeer()) return;
   err.textContent = ""; pw.removeAttribute("aria-invalid");
-  btn.disabled = true; btn.innerHTML = '<span class="draai" aria-hidden="true"></span> Ontgrendelen';
+  btn.disabled = true; btn.innerHTML = '<span class="draai" aria-hidden="true"></span> Ontgrendel';
   try {
     await new Promise(r => setTimeout(r, 50));
     const hoofd = await hoofdSleutel(pw.value);
@@ -170,7 +170,7 @@ $("slot-form").addEventListener("submit", async (e) => {
       foutePoging();
       pw.setAttribute("aria-invalid", "true"); err.textContent = "Dit wachtwoord klopt niet. Probeer het opnieuw.";
     }
-    btn.disabled = false; btn.textContent = "Ontgrendelen";
+    btn.disabled = false; btn.textContent = "Ontgrendel";
     if(!pauzeer()) pw.focus();
   }
 });

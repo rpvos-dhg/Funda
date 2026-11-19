@@ -110,7 +110,7 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   verrijking. Na het rapport zet `vul_summary_aan()` per nieuwe woning
   `status_push` (alleen het poortwoord: Past, Krap, Past niet of Prijs onbekend)
   en `score` in `funda_run_summary.json`; `scripts/send_web_push.cjs` toont dan
-  "<adres>, <stad> · Past · 8,3", zonder beoordeling "<adres>, <stad> · 68 m2".
+  "<adres>, <stad> · Past · 8,3", zonder beoordeling "<adres>, <stad> · 68 m²".
   De push toont de eerste drie, en `vul_summary_aan()` zet de nieuwe woningen
   daarvoor in de volgorde van "Aanbevolen" (`funda_beoordeling.sorteer`; zonder
   beoordeling achteraan), niet die van `sort_key` in `main()` (console en
@@ -359,8 +359,9 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
     (`funda_slot_pogingen`, het enige wat het slotscherm daar bewaart) en
     overleeft herladen. Dat remt raden op het apparaat zelf, niet een aanval
     op het publieke versleutelde bestand: daar beschermt alleen het wachtwoord.
-  - **Service worker** cache `funda-shortlist-v6` (ophogen bij elke nieuwe
-    wrapper, anders blijft een geïnstalleerde PWA de oude tonen), met de
+  - **Service worker** cache `funda-shortlist-v7` (ophogen bij elke nieuwe
+    wrapper en bij elk gewijzigd bestand in `ASSETS`, anders blijft een
+    geïnstalleerde PWA de oude tonen), met de
     statische bestanden in `ASSETS`; alleen same-origin GET's komen in de cache.
   - **Verder.** `#woning-data` escapet `<`, `>` en `&` als `\u003c` enzovoort;
     `funda_ui.funda_url` laat alleen `https://www.funda.nl/...` door. Manifest
@@ -368,6 +369,16 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
     `funda_ui.THEME_COLOR` en `funda_ui.ACHTERGROND`, iconen in hetzelfde palet.
     "Nieuw" geldt per apparaat en telt pas als gezien als de kaart minstens half
     een seconde in beeld was, tussen de vaste top- en onderbalk.
+  - **Schrijfregels van de zichtbare tekst** (audit schrijfstijl en componenten,
+    nov 2026; ook `.interface-design/system.md`). De poort heet overal "Status",
+    het scenario "Financiering" (kaart, filter, vergelijken, popup, markdown).
+    Geen "run", hostnaam of bestandsnaam in de tekst van het rapport (wel in de
+    log); één uitzondering: de naam van de instelling `WEB_PUSH_SUBSCRIPTION` in
+    het meldingenblok, omdat je die nodig hebt. Knoppen in de gebiedende wijs
+    ("Ontgrendel", "Verberg"), "meldingen" en niet "notificaties", een
+    foutmelding noemt de vervolgstap. De bron onder een punt gaat door
+    `funda_ui.bron_tekst()` (gewone taal; het model houdt zijn eigen `bron`).
+    Vijf lettermaten (13, 14, 16, 18, 20 px), vet is 600.
   - **Bewust niet gebouwd (open):** localStorage versleutelen (bewaard,
     verborgen en gezien staan leesbaar op het apparaat), de kaart pas na een tik
     laden, en `docs/` publiceren zonder git-geschiedenis.
@@ -935,6 +946,20 @@ hoofdlijnen; de details staan bij de tests zelf.
   kunnen de poort en de score wel verschuiven. Het item blijft "onbekend,
   gerekend als G" met de vraag om het label op te vragen. Vastgepind in
   `test_funda_beoordeling.py::test_label_aanname`.
+- **Binnenklimaat = indicatie, geen meting** (verzoek eigenaar, 19 nov 2026).
+  `funda_beoordeling.binnenklimaat()` geeft hooguit twee informatieve items,
+  "Zomer" en "Winter" (0 punten, onderdeel `binnenklimaat`), uit aanwijzingen
+  die er al zijn: ligging onder het dak of op een tussenverdieping, schuin dak,
+  bouwjaar voor 1975 zonder isolatie in het kenmerk Isolatie, glas, zonligging
+  van de buitenruimte, doorzon of hoek, zonwering of airco, groen binnen 500 m,
+  verwarming en energielabel. Geen nieuw verzoek. Onbekend is geen aanwijzing;
+  zonder aanwijzing geen item. Een onbekend label telt alleen naast een andere
+  aanwijzing, met het rekenlabel en het woord "aanname". `funda_ui` toont ze in
+  het blok Woning ("Warmte en kou in huis"), de markdown in eigen regels; de
+  vraag staat bij het item en niet in "Zelf nagaan". Niet gemeten op echte
+  advertenties: 'Soort dak', 'Aantal bouwlagen', zonwering of airco in
+  'Voorzieningen', en of "1e woonlaag" de begane grond is (telt daarom niet).
+  Vastgepind in `test_funda_beoordeling.py::test_binnenklimaat`.
 - **Schuin dak = klein minpunt** (besluit eigenaar, 18 nov 2026). Ligt de
   woonruimte onder een schuin dak, dan geeft het model "let op" met -0,5 en de
   vraag naar de bruikbare oppervlakte boven 1,50 m (`funda_beoordeling.schuin_dak`,

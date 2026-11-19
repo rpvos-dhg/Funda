@@ -1,5 +1,5 @@
 // Woningrapport: service worker (network-first, cache als terugval)
-const CACHE = 'funda-shortlist-v6';
+const CACHE = 'funda-shortlist-v7';
 const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png',
   'app.css', 'slot.css', 'app.js', 'slot.js', 'push.js', 'leaflet/leaflet.js', 'leaflet/leaflet.css'];
 self.addEventListener('install', e => {

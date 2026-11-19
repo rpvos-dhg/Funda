@@ -76,18 +76,19 @@
   --top-h:3.5rem; --onder-h:4rem;
   /* typografie */
   --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","Noto Sans",Arial,sans-serif;
-  --heading-medium:500 1.375rem/1.75rem var(--font-sans);
-  --heading-small:600 1.0625rem/1.375rem var(--font-sans);
+  /* Vijf maten: 13, 14, 16, 18 en 20 px (audit schrijfstijl en componenten, nov 2026). Geen tussenmaten. */
+  --heading-medium:500 1.25rem/1.75rem var(--font-sans);
+  --heading-small:600 1.125rem/1.5rem var(--font-sans);
   --heading-app:600 1.125rem/1.5rem var(--font-sans);
   --paragraph-title-medium:600 1rem/1.5rem var(--font-sans);
-  --paragraph-title-compact:600 .9375rem/1.375rem var(--font-sans);
+  --paragraph-title-compact:600 1rem/1.375rem var(--font-sans);
   --paragraph-title-small:600 .875rem/1.25rem var(--font-sans);
   --paragraph-body-medium:400 1rem/1.5rem var(--font-sans);
-  --paragraph-body-status:400 .9375rem/1.375rem var(--font-sans);
+  --paragraph-body-status:400 1rem/1.375rem var(--font-sans);
   --paragraph-body-small:400 .875rem/1.25rem var(--font-sans);
   --paragraph-body-xsmall:400 .8125rem/1.125rem var(--font-sans); /* 13 px minimum */
   --label-small:600 .8125rem/1.125rem var(--font-sans);
-  --label-chip:600 .9375rem/1.25rem var(--font-sans);
+  --label-chip:600 .875rem/1.25rem var(--font-sans);
   --teken:600 .8125rem/1 var(--font-sans);
   --cijfer-groot:600 1.25rem/1.5rem var(--font-sans);
   --icoon-sluit:400 1.5rem/2.75rem var(--font-sans);
@@ -135,6 +136,7 @@ h1,h2,h3,h4,p,ul,ol,dl,dd,figure{margin:0}
 ul,ol{padding:0;list-style:none}
 a{color:var(--foreground-color-interactive-strong)}
 button{font:inherit;color:inherit}
+b,strong,th{font-weight:600}   /* vet is 600, ook waar de browser 700 zou kiezen */
 img{display:block;max-width:100%}
 .sprite{position:absolute;width:0;height:0;overflow:hidden}
 .ic{width:1.25rem;height:1.25rem;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -176,6 +178,10 @@ img{display:block;max-width:100%}
 .snel{display:flex;gap:var(--spacing-100);overflow-x:auto;scrollbar-width:none;
   margin:0 calc(var(--spacing-150) * -1);padding:var(--spacing-150) var(--spacing-150) var(--spacing-100)}
 .snel::-webkit-scrollbar{display:none}
+/* Vervaging aan de kant waar nog chips buiten beeld staan (ui/app.js, snelRand). */
+.snel.meer-rechts{mask-image:linear-gradient(to left,transparent,black 2.5rem)}
+.snel.meer-links{mask-image:linear-gradient(to right,transparent,black 2.5rem)}
+.snel.meer-links.meer-rechts{mask-image:linear-gradient(to right,transparent,black 2.5rem,black calc(100% - 2.5rem),transparent)}
 .chip{flex:none;display:inline-flex;align-items:center;gap:var(--spacing-75);min-height:var(--tap);padding:0 var(--spacing-200);
   border-radius:var(--radius-pill);border:1px solid var(--border-color-interactive-neutral);background:var(--background-color-default);
   color:var(--foreground-color-neutral);font:var(--label-chip);cursor:pointer;white-space:nowrap}
@@ -275,8 +281,12 @@ details.groep[open]>.sectie-kop .chev{transform:rotate(180deg)}
 .w-voet{position:relative;margin-top:var(--spacing-100)}
 .w-acties{position:absolute;top:0;right:0;display:flex;align-items:center;height:var(--knop);padding-right:var(--spacing-50)}
 .w-acties .icoonknop{color:var(--foreground-color-interactive-strong)}
-.w-meer>summary{display:flex;align-items:center;gap:var(--spacing-100);min-height:var(--knop);padding:0 calc(var(--tap) * 2 + var(--spacing-200)) 0 var(--spacing-150);
-  cursor:pointer;list-style:none;font:var(--paragraph-title-compact);color:var(--foreground-color-interactive-strong);
+/* Icoon met een zichtbaar label eronder: de actie is ook zonder hover of schermlezer duidelijk. */
+.icoonknop.met-label{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--spacing-25);
+  min-width:var(--actie-b);padding:0 var(--spacing-50);font:var(--label-small);white-space:nowrap}
+.w-voet{--actie-b:4.25rem}
+.w-meer>summary{display:flex;align-items:center;gap:var(--spacing-100);min-height:var(--knop);padding:0 calc(var(--actie-b) * 2 + var(--spacing-150)) 0 var(--spacing-150);
+  cursor:pointer;list-style:none;font:var(--paragraph-title-small);color:var(--foreground-color-interactive-strong);
   border-top:1px solid var(--border-color-subtle)}
 .w-meer>summary::-webkit-details-marker{display:none}
 .w-meer>summary .chev{transition:transform .15s}
@@ -316,6 +326,7 @@ details.groep[open]>.sectie-kop .chev{transform:rotate(180deg)}
 .opbouw[open]>summary .chev{transform:rotate(180deg)}
 .opbouw>summary .waarde{font-weight:400;color:var(--foreground-color-subtle)}
 .scorezin{padding:0 var(--spacing-150) var(--spacing-100);font:var(--paragraph-body-small)}
+.opbouw>.punten,.opbouw>.punt-tekst{padding:0 var(--spacing-150) var(--spacing-100)}
 .rekensom{padding:0 var(--spacing-150) var(--spacing-150);font:var(--paragraph-body-small)}
 .rekensom>div{display:grid;grid-template-columns:1fr 3.5rem 4.5rem;gap:var(--spacing-100);align-items:center;padding:var(--spacing-50) 0}
 .rekensom.geld>div{grid-template-columns:1fr auto}
@@ -478,7 +489,10 @@ legend{font:var(--paragraph-title-medium);color:var(--foreground-color-strong);m
 .vergelijk{border-collapse:separate;border-spacing:0;font:var(--paragraph-body-small);min-width:100%}
 .vergelijk th,.vergelijk td{padding:var(--spacing-100);text-align:left;vertical-align:top;border-bottom:1px solid var(--border-color-subtle);min-width:9rem}
 .vergelijk thead th{font:var(--paragraph-title-small);color:var(--foreground-color-neutral)}
-.vergelijk tbody th{position:sticky;left:0;background:var(--background-color-default);color:var(--foreground-color-subtle);font-weight:400;min-width:6.5rem;width:6.5rem}
+/* De eerste kolom blijft staan bij opzij schuiven, ook de lege kopcel; een lijn rechts scheidt hem van wat eronderdoor schuift. */
+.vergelijk tr>th:first-child{position:sticky;left:0;z-index:1;background:var(--background-color-default);min-width:6.5rem;width:6.5rem;
+  border-right:1px solid var(--border-color-subtle)}
+.vergelijk tbody th{color:var(--foreground-color-subtle);font-weight:400}
 .vergelijk .beste{font-weight:600}
 .vergelijk .beste::after{content:" (beste)";font-weight:400;color:var(--foreground-color-subtle)}
 
@@ -487,7 +501,8 @@ legend{font:var(--paragraph-title-medium);color:var(--foreground-color-strong);m
   bottom:calc(var(--onder-h) + env(safe-area-inset-bottom) + var(--spacing-150));z-index:300;
   display:flex;align-items:center;gap:var(--spacing-100);padding:var(--spacing-50) var(--spacing-50) var(--spacing-50) var(--spacing-200);
   border-radius:var(--radius-200);font:var(--paragraph-body-small)}
-.toast .linkknop{color:var(--foreground-color-on-strong);font-weight:600}
+.toast .linkknop{color:var(--foreground-color-on-strong);font-weight:600;white-space:nowrap}
+.toast .icoonknop{flex:none}
 
 /* Desktop (vanaf 64rem): kaart in een plakkende zijkolom */
 @media (min-width:64rem){
