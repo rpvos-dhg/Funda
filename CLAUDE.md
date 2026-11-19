@@ -317,10 +317,14 @@ aangeroepen; het besluit geldt alleen voor de detail-host.
   genoemde periode, is onbekend (`VVE_MIN_MAAND`, `VVE_MAX_MAAND`; dan de
   aanname). Met de periode erbij (omgerekend, nooit geraden) geldt ook een
   bedrag boven 600: in de woonlasten, met "let op, ongewoon hoog" zonder
-  punten. De Leefbaarometer-score wordt afgerond. `lees_advertentie` herkent
-  een ontkenning vóór en na het woord; een voorbehoud ("niet onderzocht", "niet
-  uit te sluiten", "kan niet garanderen") en een dubbele ontkenning tellen als
-  signaal. Tests: `test_vve_grens`, `test_leefbaarometer_afronding`,
+  punten, tot het plafond van 2.000 (`VVE_PLAFOND_MAAND`; daarboven onbekend).
+  Een periode telt alleen in dezelfde zin, zonder ander bedrag of trefwoord
+  ertussen; een bedrag bij een ander trefwoord (`_VVE_ANDER`: reservefonds,
+  koopsom, erfpacht) is geen VvE-bijdrage. De Leefbaarometer-score wordt
+  afgerond. `lees_advertentie` herkent een ontkenning vóór en na het woord. Een
+  voorbehoud bij het signaal zelf ("niet onderzocht", "niet uit te sluiten")
+  en een dubbele ontkenning geven het signaal met 0 punten en de vraag; alleen
+  een feit houdt zijn punten en telt voor de harde eis (`alleen_feiten`). Tests: `test_vve_grens`, `test_leefbaarometer_afronding`,
   `test_ontkenningen`.
 - **Niet gemeten op echte advertenties** (reken er niet op): de waarden van
   "Soort dak", "Aantal bouwlagen", "Isolatie", "Verwarming" en "Voorzieningen"
@@ -403,7 +407,7 @@ en de docstring van `funda_verrijking.py`.
 - **Fundering en klimaat delen één verzoek** (`KEA_BRONNEN`), `feature_count`
   10 per laag. Gemeten op 19 nov 2026 op vijf openbare punten: gelijk aan los
   (5 van 5, `meting.json`). De terugval (de bron los ophalen) blijft als
-  vangnet en staat in de log; mist de combinatie twee keer iets wat los wel
+  vangnet en staat in de log; mist de combinatie bij twee woningen wat los wel
   geeft (`KEA_LOS_NA`), dan vraagt de rest van de run los. Test:
   `test_kea_gecombineerd`.
 - **Een onverwacht antwoord** zet alleen die bron op "onbekend". Tests:
@@ -517,8 +521,9 @@ Wat wel mag: labelnamen van funda's kenmerken met aantallen, aantallen per
 poort, verrijking per bron en status, rente met bron, statuswaarden. Ook de
 genormaliseerde waarden van een vaste lijst kenmerken (`LOG_WAARDEN_KENMERKEN`,
 `log_kenmerk_waarden`; regels "Kenmerkwaarden <naam>"): een getal wordt "#", en
-een waarde bij minder dan drie woningen of van meer dan drie woorden telt
-alleen in "andere waarden N" (kan vrije tekst zijn). Geen kenmerk in die lijst dat een bedrag of adres kan bevatten.
+een waarde bij minder dan vijf woningen of van meer dan drie woorden (bij
+"Voorzieningen" en "Ligging" meer dan twee) telt alleen in "andere waarden N"
+(kan vrije tekst zijn). Geen kenmerk in die lijst dat een bedrag of adres kan bevatten.
 Test: `test_funda_zoek.py::test_publieke_log`. `test_funda_zoek.py` zet
 `GITHUB_ACTIONS` bovenaan uit, zodat de job tests hetzelfde doet als lokaal.
 

@@ -64,7 +64,7 @@ kea_gecombineerd_getfeatureinfo.json is een ingekort echt antwoord. feature_coun
 aantal lagen (10 per laag), zodat een laag met meerdere vlakken de latere lagen niet verdringt.
 De terugval blijft als vangnet voor andere punten: geeft het gecombineerde antwoord voor een bron
 niets bruikbaars terwijl de dienst wel antwoordde, dan wordt die bron één keer los opgehaald. Gaf dat
-losse verzoek wel iets, dan klopte de combinatie niet; na twee keer (KEA_LOS_NA) vraagt de rest van de
+losse verzoek wel iets, dan klopte de combinatie niet; na twee woningen (KEA_LOS_NA) vraagt de rest van de
 run los. Weigert de dienst de combinatie als geheel (status 4xx, geen JSON), dan gaan beide los en
 vraagt de rest van de run meteen niet meer gecombineerd. De log telt de terugvallen.
 
@@ -568,7 +568,7 @@ class Sessie:
         # (bron -> aantal), en of de dienst de combinatie als geheel weigerde (dan de rest van de run los).
         self.terugval: Counter = Counter()
         self.kea_los = False
-        self.kea_mis = 0                            # terugvallen waarbij het losse verzoek wel iets gaf
+        self.kea_mis = 0                            # woningen waarbij het losse verzoek wel iets gaf
 
     def host_dicht(self, host: str) -> bool:
         """Krijgt deze host deze run geen verzoek meer (gestopt, of een weigering van hooguit een dag oud)?"""
@@ -1173,7 +1173,7 @@ def _punt_ophalen(naam: str, sessie: Sessie, lat: float, lon: float) -> dict:
 
 # Fundering en klimaat komen van dezelfde WMS op hetzelfde punt: samen één verzoek (zie de docstring).
 KEA_BRONNEN = ("fundering", "klimaat")
-KEA_LOS_NA = 2   # zo vaak gaf los wel iets en het gecombineerde antwoord niet: daarna de rest van de run los
+KEA_LOS_NA = 2   # bij zoveel woningen gaf los wel iets en het gecombineerde antwoord niet: daarna de rest van de run los
 
 
 def _host(url: str) -> str:
@@ -1246,7 +1246,7 @@ def _kea_ophalen(sessie: Sessie, cache: dict, vcfg: dict, punt: tuple, namen) ->
     van de andere in zijn eigen cachesectie. Een fout of een onverwachte vorm bij de ene bron raakt de
     andere niet. Terugval (gemeten op vijf punten, maar niet op elk punt te voorspellen): gaf de
     dienst wel antwoord maar is er voor een bron niets bruikbaars, dan wordt die bron één keer los
-    opgehaald, en dat losse antwoord geldt. Gaf het losse verzoek KEA_LOS_NA keer wel iets waar de combinatie
+    opgehaald, en dat losse antwoord geldt. Gaf het losse verzoek bij KEA_LOS_NA woningen wel iets waar de combinatie
     niets gaf, dan gaat de rest van de run los (sessie.kea_los)."""
     sleutel = punt_sleutel(*punt)
 
@@ -1267,6 +1267,7 @@ def _kea_ophalen(sessie: Sessie, cache: dict, vcfg: dict, punt: tuple, namen) ->
     except BronFout:                                                # wel een antwoord, niet bruikbaar (4xx, geen JSON)
         sessie.kea_los = True
         antwoord = None
+    mis = False                                                     # per woning, niet per bron
     for n in open_:
         data = None
         try:
@@ -1282,15 +1283,18 @@ def _kea_ophalen(sessie: Sessie, cache: dict, vcfg: dict, punt: tuple, namen) ->
             sessie.terugval[n] += 1
             uit[n] = los(n)
             # Gaf het losse verzoek wel iets, dan klopte de combinatie niet (een punt zonder kaartwaarde
-            # geeft los ook niets, en zegt dus niets). Na KEA_LOS_NA keer vraagt de rest van de run los:
-            # anders kost elke nieuwe woning drie verzoeken in plaats van twee.
+            # geeft los ook niets, en zegt dus niets). Na KEA_LOS_NA woningen vraagt de rest van de run los:
+            # anders kost elke nieuwe woning drie verzoeken in plaats van twee. Mist de combinatie bij één
+            # woning beide bronnen, dan telt dat één keer.
             d = uit[n].get("data")
             if antwoord is not None and uit[n]["status"] == "ok" and isinstance(d, dict) and any(x is not None for x in d.values()):
-                sessie.kea_mis += 1
-                if sessie.kea_mis >= KEA_LOS_NA:
-                    sessie.kea_los = True
+                mis = True
         else:
             uit[n] = _res("ok", data)
+    if mis:
+        sessie.kea_mis += 1
+        if sessie.kea_mis >= KEA_LOS_NA:
+            sessie.kea_los = True
     return uit
 
 
