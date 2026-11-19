@@ -22,12 +22,16 @@ Met FUNDA_REQUIRE_ENCRYPTION=1 (CI) komt er nooit een onversleuteld rapport in d
 
 from __future__ import annotations
 
+import base64
+import gzip
 import json
 import math
 import os
 import re
+import struct
 import time
 import urllib.request
+import zlib
 from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
@@ -75,27 +79,16 @@ WEB_PUSH_PUBLIC_KEY = (
     or ""
 ).strip()
 
-# Tijd in Nederlandse tijdzone tonen (GitHub-runners draaien in UTC).
-try:
-    from zoneinfo import ZoneInfo
-    _TZ_NL = ZoneInfo("Europe/Amsterdam")
-except Exception:
-    _TZ_NL = None
-
-_NL_MAANDEN = [
-    "januari", "februari", "maart", "april", "mei", "juni",
-    "juli", "augustus", "september", "oktober", "november", "december",
-]
-
 
 def _nu() -> datetime:
-    return datetime.now(_TZ_NL) if _TZ_NL else datetime.now()
+    """Nu in Nederlandse tijd (de runners van GitHub draaien in UTC)."""
+    return datetime.now(funda_ui.AMS)
 
 
 def _nu_nl(dt: datetime | None = None) -> str:
     """Moment als leesbare NL-datum, bv. '9 juli 2026 om 10:34'."""
     dt = dt or _nu()
-    return f"{dt.day} {_NL_MAANDEN[dt.month - 1]} {dt.year} om {dt:%H:%M}"
+    return f"{funda_ui.datum_lang(dt)} om {dt:%H:%M}"
 
 
 def _werk_postcodes() -> list[tuple[str, str]]:
@@ -105,6 +98,10 @@ def _werk_postcodes() -> list[tuple[str, str]]:
 
 WERK_CACHE = Path(__file__).parent / "funda_werk_coords.json"
 ENRICHMENT_CACHE = Path(__file__).parent / "funda_enrichment_cache.json"
+PWA_PASSWORD_FILE = Path(__file__).parent / "funda_pwa_password.txt"
+# Map voor funda_rapport.md, funda_rapport.html en docs/. Tests zetten hier een tijdelijke map.
+UITVOER_DIR = Path(__file__).parent
+PWA_DIR_NAAM = "docs"  # GitHub Pages staat alleen / of /docs toe
 
 
 # === Geocoding en routing ===
@@ -169,19 +166,15 @@ def get_werk_coords() -> dict[str, tuple[float, float]]:
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    R = 6371.0
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
-    return 2 * R * math.asin(math.sqrt(a))
+    return 2 * 6371.0 * math.asin(math.sqrt(a))
 
 
 def osrm_route_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float | None:
-    """Roep OSRM publieke router aan. Retourneer afstand in km of None."""
-    url = (
-        f"https://router.project-osrm.org/route/v1/driving/"
-        f"{lon1},{lat1};{lon2},{lat2}?overview=false"
-    )
+    """Afstand over de weg in km via de publieke OSRM-router, of None."""
+    url = f"https://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=false"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": EERLIJKE_UA})
         with urllib.request.urlopen(req, timeout=4) as r:
@@ -189,17 +182,16 @@ def osrm_route_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float |
         if data.get("code") == "Ok" and data.get("routes"):
             return data["routes"][0]["distance"] / 1000
     except Exception:
-        return None
+        pass
     return None
 
 
 def afstand_km(lat1: float, lon1: float, lat2: float, lon2: float) -> tuple[float, str]:
-    """Bereken afstand. OSRM eerst, fallback haversine x 1.3."""
+    """(km, soort): OSRM ("weg"), anders hemelsbreed x 1,3 ("schatting")."""
     km = osrm_route_km(lat1, lon1, lat2, lon2)
     if km is not None:
-        return (km, "weg")
-    km = haversine_km(lat1, lon1, lat2, lon2) * 1.3
-    return (km, "schatting")
+        return km, "weg"
+    return haversine_km(lat1, lon1, lat2, lon2) * 1.3, "schatting"
 
 
 # === Verrijking via extra pyfunda endpoints ===
@@ -210,20 +202,32 @@ woning_sleutel = funda_ui.woning_sleutel
 funda_url = funda_ui.funda_url
 
 
+# Van funda's buurtcijfers alleen de gemiddelde vraagprijs per m². Inwoners, gezinnen met
+# kinderen en andere bevolkingskenmerken worden niet bewaard of getoond (CLAUDE.md, "Verrijking").
+MARKT_VELDEN = ("avg_asking_price_per_m2",)
+
+
+def _markt_allowlist(insights) -> dict | None:
+    if not isinstance(insights, dict):
+        return None
+    if insights.get("_error"):
+        return {"_error": str(insights["_error"])}
+    return {k: insights[k] for k in MARKT_VELDEN if k in insights}
+
+
 def _schoon_markt_cache(cache: dict) -> dict:
     """Alle buurtcijfers in de cache door de allowlist, ook die van buurten die deze run niet langskomen
     (elementen van voor de allowlist hielden inwonertal en gezinnen met kinderen). Uit de makelaars
     gaat het aanbod eruit: dat werd vroeger opgehaald en hield adressen van andere woningen."""
-    markt = cache.get("market_insights")
-    if isinstance(markt, dict):
-        for entry in markt.values():
-            if isinstance(entry, dict) and isinstance(entry.get("data"), dict):
-                entry["data"] = _markt_allowlist(entry["data"])
-    makelaars = cache.get("broker")
-    if isinstance(makelaars, dict):
-        for entry in makelaars.values():
-            if isinstance(entry, dict) and isinstance(entry.get("data"), dict):
-                entry["data"].pop("listings", None)
+    def elementen(sectie: str) -> list[dict]:
+        inhoud = cache.get(sectie)
+        return [e for e in (inhoud.values() if isinstance(inhoud, dict) else [])
+                if isinstance(e, dict) and isinstance(e.get("data"), dict)]
+
+    for entry in elementen("market_insights"):
+        entry["data"] = _markt_allowlist(entry["data"])
+    for entry in elementen("broker"):
+        entry["data"].pop("listings", None)
     return cache
 
 
@@ -243,138 +247,81 @@ def save_enrichment_cache(cache: dict) -> None:
     ENRICHMENT_CACHE.write_text(json.dumps(cache, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
 
 
-def _cache_fresh(entry: dict | None, max_age_days: int) -> bool:
-    if not isinstance(entry, dict) or not entry.get("fetched"):
-        return False
-    try:
-        fetched = datetime.strptime(entry["fetched"], "%Y-%m-%d")
-    except Exception:
-        return False
-    return (datetime.now() - fetched).days <= max_age_days
-
-
-def _cache_get(cache: dict, section: str, key: str, max_age_days: int):
-    entry = cache.setdefault(section, {}).get(key)
-    if _cache_fresh(entry, max_age_days):
-        return entry.get("data")
-    return None
-
-
-def _cache_put(cache: dict, section: str, key: str, data) -> None:
-    cache.setdefault(section, {})[key] = {
-        "fetched": datetime.now().strftime("%Y-%m-%d"),
-        "data": data,
-    }
-
-
-def _slug_key(*parts: str | None) -> str:
-    return "|".join((p or "").strip().lower() for p in parts)
-
-
-# Van funda's buurtcijfers alleen de gemiddelde vraagprijs per m². Inwoners, gezinnen met
-# kinderen en andere bevolkingskenmerken worden niet bewaard of getoond (CLAUDE.md, "Verrijking").
-MARKT_VELDEN = ("avg_asking_price_per_m2",)
-
-
-def _markt_allowlist(insights) -> dict | None:
-    if not isinstance(insights, dict):
-        return None
-    if insights.get("_error"):
-        return {"_error": str(insights["_error"])}
-    return {k: insights[k] for k in MARKT_VELDEN if k in insights}
-
-
 def fetch_with_cache(cache: dict, section: str, key: str, max_age_days: int, fetcher):
-    cached = _cache_get(cache, section, key, max_age_days)
-    if cached is not None:
-        return cached
+    """De waarde uit cache[section][key] als die hooguit max_age_days oud is, anders fetcher().
+
+    Een element is {"fetched": "JJJJ-MM-DD", "data": ...}. Een fout van de fetcher komt als
+    {"_error": tekst} in de cache: de volgende poging komt dan pas als het element verlopen is."""
+    sectie = cache.setdefault(section, {})
+    entry = sectie.get(key)
+    if isinstance(entry, dict) and entry.get("fetched") and entry.get("data") is not None:
+        try:
+            if (datetime.now() - datetime.strptime(entry["fetched"], "%Y-%m-%d")).days <= max_age_days:
+                return entry["data"]
+        except Exception:
+            pass
     try:
         data = fetcher()
     except Exception as exc:
         data = {"_error": str(exc)}
-    _cache_put(cache, section, key, data)
+    sectie[key] = {"fetched": datetime.now().strftime("%Y-%m-%d"), "data": data}
     return data
 
 
 def verrijk_woning(f, d: dict, listing_obj, cache: dict) -> dict:
-    """Haal extra data op uit pyfunda v2.9 endpoints. Alle failures zijn non-fatal."""
-    sleutel = woning_sleutel(d)
-    city = d.get("city") or ""
-    neighbourhood = d.get("neighbourhood") or ""
+    """Prijshistorie, buurtcijfer en makelaar uit pyfunda v2.9, gecacht. Een fout is nooit fataal.
+
+    Geeft alleen de ruwe velden die funda_beoordeling en funda_ui lezen; het model rekent zelf
+    (prijshistorie(), de markt en de makelaar in beoordeel())."""
     listing_data = getattr(listing_obj, "data", None)
-    if not isinstance(listing_data, dict) and isinstance(listing_obj, dict):
-        listing_data = listing_obj
-    broker_id = d.get("broker_id")
-    if isinstance(listing_data, dict):
-        broker_id = broker_id or listing_data.get("broker_id")
-
+    if not isinstance(listing_data, dict):
+        listing_data = listing_obj if isinstance(listing_obj, dict) else {}
+    city, buurt = d.get("city") or "", d.get("neighbourhood") or ""
+    broker_id = d.get("broker_id") or listing_data.get("broker_id")
     url = funda_url(d)
-    price_history_raw = []
+
+    changes = None
     if hasattr(f, "get_price_history") and (listing_obj is not None or url):
-        def fetch_price_history():
-            if listing_obj is not None:
-                # Geen terugval op de URL: pyfunda haalt de woning dan nog eens op
-                # via het detail-endpoint (een dubbele detail-call in dezelfde run)
-                # en stuurt daarna precies hetzelfde verzoek naar de prijsbron.
-                return f.get_price_history(listing_obj)
-            return f.get_price_history(url)
+        # Met een listing geen terugval op de URL: pyfunda haalt de woning dan nog eens op via het
+        # detail-endpoint (een dubbele detail-call in dezelfde run) en stuurt daarna precies hetzelfde
+        # verzoek naar de prijsbron.
+        changes = fetch_with_cache(cache, "price_history", woning_sleutel(d), 7,
+                                   lambda: f.get_price_history(listing_obj if listing_obj is not None else url))
 
-        price_history_raw = fetch_with_cache(
-            cache,
-            "price_history",
-            sleutel,
-            7,
-            fetch_price_history,
-        )
-        if isinstance(price_history_raw, dict) and price_history_raw.get("_error"):
-            price_history_raw = []
-
-    market_raw = None
-    if hasattr(f, "get_market_insights") and city and neighbourhood:
-        sleutel_markt = _slug_key(city, neighbourhood)
-        market_raw = _markt_allowlist(fetch_with_cache(
-            cache,
-            "market_insights",
-            sleutel_markt,
-            30,
-            lambda: _markt_allowlist(f.get_market_insights(city, neighbourhood)),
-        ))
-        if isinstance(market_raw, dict) and market_raw.get("_error"):
-            market_raw = None
+    markt = None
+    if hasattr(f, "get_market_insights") and city and buurt:
+        sleutel = "|".join(x.strip().lower() for x in (city, buurt))
+        markt = _markt_allowlist(fetch_with_cache(cache, "market_insights", sleutel, 30,
+                                                  lambda: _markt_allowlist(f.get_market_insights(city, buurt))))
 
     # Alleen naam en reviews van de makelaar. Zijn aanbod (get_broker_listings) wordt niet
     # opgehaald: een extra verzoek naar funda voor velden die niemand leest.
-    broker_raw = {"info": None, "reviews": None}
+    makelaar = None
     if broker_id and hasattr(f, "get_broker_info"):
         bid = str(broker_id)
 
-        def fetch_broker_bundle():
-            bundle = {"info": None, "reviews": None}
-            for name, method in (
-                ("info", "get_broker_info"),
-                ("reviews", "get_broker_reviews"),
-            ):
-                if not hasattr(f, method):
+        def haal_makelaar() -> dict:
+            bundel = {"info": None, "reviews": None}
+            for naam, methode in (("info", "get_broker_info"), ("reviews", "get_broker_reviews")):
+                if not hasattr(f, methode):
                     continue
                 try:
-                    bundle[name] = getattr(f, method)(int(bid))
+                    bundel[naam] = getattr(f, methode)(int(bid))
                     time.sleep(0.2)
                 except Exception as exc:
-                    bundle[name] = {"_error": str(exc)}
-            return bundle
+                    bundel[naam] = {"_error": str(exc)}
+            return bundel
 
-        broker_raw = fetch_with_cache(cache, "broker", bid, 30, fetch_broker_bundle)
-        if not isinstance(broker_raw, dict):
-            broker_raw = {"info": None, "reviews": None}
+        makelaar = fetch_with_cache(cache, "broker", bid, 30, haal_makelaar)
+    if not isinstance(makelaar, dict):
+        makelaar = {}
 
-    # Alleen de ruwe velden die funda_beoordeling en funda_ui lezen; het model rekent zelf
-    # (prijshistorie(), de markt en de makelaar in beoordeel()).
     info, reviews = ({} if not isinstance(x, dict) or x.get("_error") else x
-                     for x in (broker_raw.get("info"), broker_raw.get("reviews")))
-    gem_m2 = _getal((market_raw or {}).get("avg_asking_price_per_m2"))
+                     for x in (makelaar.get("info"), makelaar.get("reviews")))
+    gem_m2 = _getal((markt or {}).get("avg_asking_price_per_m2"))
     n_reviews = _getal(reviews.get("number_of_reviews"))
     return {
-        "price_history": {"changes": price_history_raw if isinstance(price_history_raw, list) else []},
+        "price_history": {"changes": changes if isinstance(changes, list) else []},
         "market": {"avg_asking_price_per_m2": int(gem_m2) if gem_m2 else None},
         "broker": {"name": info.get("name"), "review_average": _getal(reviews.get("average")),
                    "review_count": int(n_reviews) if n_reviews is not None else None},
@@ -472,6 +419,11 @@ def bouw_rij(d: dict, details: dict | None, routes: list[dict] | None = None, *,
     return rij
 
 
+def _fin(rij: dict) -> dict:
+    """De financiering uit de beoordeling van een rij, of {}."""
+    return (rij.get("beoordeling") or {}).get("financiering") or {}
+
+
 def sorteer_rijen(rijen: list[dict]) -> list[dict]:
     """(geen vraagprijs, poort, twijfel, -score), in place: zelfde sleutel als 'Aanbevolen' in de UI."""
     return funda_beoordeling.sorteer(rijen)
@@ -564,7 +516,7 @@ def rapport_meta(cfg: dict, rente: dict, nu: datetime, rijen: list[dict] | None 
         pass
     # "Jouw budget" leidt de max. koopsom per scenario af uit de rijen (met de spreiding door label
     # en erfpacht). Zonder rijen met scenario's: het overzicht zonder woning.
-    if not any(((r.get("beoordeling") or {}).get("financiering") or {}).get("scenarios") for r in rijen or []):
+    if not any(_fin(r).get("scenarios") for r in rijen or []):
         try:
             sc = funda_beoordeling.scenario_overzicht(cfg, _PERSONAL, rente, vandaag)
             if sc:
@@ -575,6 +527,42 @@ def rapport_meta(cfg: dict, rente: dict, nu: datetime, rijen: list[dict] | None 
 
 
 # === Rapport ===
+
+def _detail(f, d: dict) -> tuple[object, dict | None]:
+    """(listing, detail-dict) van één woning. Een mislukte call geeft een logregel en geen details."""
+    lid = d.get("global_id") or d.get("listing_id")
+    listing, details = None, None
+    try:
+        listing = f.get_listing(lid)
+        if isinstance(getattr(listing, "data", None), dict):
+            details = listing.data
+        if DETAIL_PAUZE_S:
+            time.sleep(DETAIL_PAUZE_S)
+    except Exception as exc:
+        # Op Actions zonder woningnummer of URL: de log van de publieke repo is voor iedereen leesbaar.
+        print(log_tekst(f"  Detail fout {'voor een woning' if publieke_log() else lid}: {exc}"))
+    return listing, details
+
+
+def _voorlopige_rij(f, d: dict, cache: dict, werk_coords: dict, cfg: dict, rente: dict, vandaag: date) -> dict:
+    """Stap 1 tot 3 voor één woning: detail-call, pyfunda-verrijking, routes, voorlopige beoordeling."""
+    listing, details = _detail(f, d)
+    d["_enrichment"] = verrijk_woning(f, d, listing, cache)
+    routes = bereken_routes(*_coords(d, details), werk_coords)
+    return bouw_rij(d, details, routes, cfg=cfg, rente=rente, vandaag=vandaag)
+
+
+def _schrijf_rapport(rijen: list[dict], meta: dict) -> Path:
+    """Markdown en HTML in UITVOER_DIR, de PWA in docs/ daaronder. Geeft het pad van de lokale HTML."""
+    UITVOER_DIR.mkdir(parents=True, exist_ok=True)
+    pad_md = UITVOER_DIR / "funda_rapport.md"
+    pad_md.write_text(render_markdown(rijen, meta), encoding="utf-8")
+    pad_html = UITVOER_DIR / "funda_rapport.html"
+    pad_html.write_text(render_html(rijen, meta), encoding="utf-8")
+    pwa_dir = schrijf_pwa_assets(rijen, meta)
+    print(f"[rapport] Geschreven: {pad_md.name}, {pad_html.name}, en {pwa_dir.name}/")
+    return pad_html
+
 
 def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None, *, http=None,
                      ua: str | None = None, vandaag: date | None = None) -> Path:
@@ -599,23 +587,8 @@ def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None,
 
     rijen = []
     for d in woningen:
-        lid = d.get("global_id") or d.get("listing_id")
-        sleutel = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url"))
-        details = None
-        listing_obj = None
-        try:
-            listing_obj = f.get_listing(lid)
-            if isinstance(getattr(listing_obj, "data", None), dict):
-                details = listing_obj.data
-            if DETAIL_PAUZE_S:
-                time.sleep(DETAIL_PAUZE_S)
-        except Exception as exc:
-            # Op Actions zonder woningnummer of URL: de log van de publieke repo is voor iedereen leesbaar.
-            print(log_tekst(f"  Detail fout {'voor een woning' if publieke_log() else lid}: {exc}"))
-        d["_enrichment"] = verrijk_woning(f, d, listing_obj, cache)
-        lat, lon = _coords(d, details)
-        rij = bouw_rij(d, details, bereken_routes(lat, lon, werk_coords), cfg=cfg, rente=rente, vandaag=vandaag)
-        rij["is_nieuw"] = sleutel in nieuw_ids
+        rij = _voorlopige_rij(f, d, cache, werk_coords, cfg, rente, vandaag)
+        rij["is_nieuw"] = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url")) in nieuw_ids
         rijen.append(rij)
 
     # Verrijking na de voorlopige beoordeling (Past en Krap eerst), daarna definitief beoordelen.
@@ -631,17 +604,7 @@ def genereer_rapport(f, woningen: list[dict], nieuw_ids: set[str] | None = None,
 
     sorteer_rijen(rijen)
     log_aantallen(rijen)
-    meta = rapport_meta(cfg, rente, nu, rijen, vandaag)
-
-    UITVOER_DIR.mkdir(parents=True, exist_ok=True)
-    pad_md = UITVOER_DIR / "funda_rapport.md"
-    pad_md.write_text(render_markdown(rijen, meta), encoding="utf-8")
-    pad_html = UITVOER_DIR / "funda_rapport.html"
-    pad_html.write_text(render_html(rijen, meta), encoding="utf-8")
-    pwa_dir = schrijf_pwa_assets(rijen, meta)
-
-    print(f"[rapport] Geschreven: {pad_md.name}, {pad_html.name}, en {pwa_dir.name}/")
-    return pad_html
+    return _schrijf_rapport(rijen, rapport_meta(cfg, rente, nu, rijen, vandaag))
 
 
 # === Markdown (lokaal, gitignored) ===
@@ -661,48 +624,72 @@ def _punten_md(items: list[dict]) -> str:
                          + (f" ({funda_ui.bron_tekst(it['bron'])})" if it.get("bron") else "")) for it in items)
 
 
-def _rente_md(r: dict) -> str:
-    pct = _getal(r.get("pct"))
-    if pct is None:
-        return ""
-    pct = pct * 100 if pct < 1 else pct
-    bron = funda_ui.RENTE_BRON.get(str(r.get("bron")), str(r.get("bron") or "onbekend"))
-    vast = f", {r['rentevast_jaren']} jaar vast" if r.get("rentevast_jaren") else ""
-    try:
-        peil = f", peildatum {funda_ui.datum_lang(date.fromisoformat(str(r.get('datum'))))}"
-    except ValueError:
-        peil = ""
-    return f"{funda_ui.komma(pct, 2)}%{vast} ({bron}{peil}{', oud' if r.get('oud') else ''})"
+def _md_budget(rijen: list[dict], meta: dict, nu: datetime) -> list[str]:
+    """"Jouw budget en aannames": dezelfde gegevens als in de voet van de HTML (funda_ui), in het kort."""
+    fins = [_fin(r) for r in rijen]
+    regels = ["## Jouw budget en aannames", ""]
+    f0 = next((f for f in fins if f.get("grens") is not None), None)
+    if f0:
+        regels.append(f"- Je grens: {funda_ui.grens_tekst(f0)}")
+    r = funda_ui.rente_gegevens(meta, [], nu)
+    if r["pct"] is not None:
+        vast = f", {r['rentevast_jaren']} jaar vast" if r.get("rentevast_jaren") else ""
+        peil = f", peildatum {funda_ui.datum_lang(r['peildatum'])}" if r["peildatum"] else ""
+        regels.append(f"- Rente: {funda_ui.komma(r['pct'], 2)}%{vast} ({r['bron_tekst']}{peil}{', oud' if r['oud'] else ''})")
+    melding = (meta.get("rente") or {}).get("melding")
+    if melding:
+        regels.append(f"- Let op de rente: {_md(melding)}")
+    sc = funda_ui.scenario_koopsommen(fins, meta.get("scenarios"), meta_eerst=False)
+    if sc:
+        regels.append("- Hoogste koopsom per scenario:")
+        regels += [f"  - {_md(label)}{' (planning)' if plan else ''}: {tekst}" for label, tekst, plan in sc]
+    return regels + ["- Woonlasten zijn netto, jaar 1. Een bedrag met ≈ is een schatting.",
+                     "- Score 0 tot 10. 5 betekent: voldoet aan je eisen. Onbekend en kansen tellen niet mee.", ""]
 
 
-def _scenarios_md(rijen: list[dict], meta: dict) -> list[str]:
-    per: dict[str, list] = {}
-    volg: list[str] = []
-    labels: dict[str, str] = {}
-    planning = None
-    bron = [((r.get("beoordeling") or {}).get("financiering") or {}) for r in rijen]
-    for f in bron:
-        planning = planning or f.get("planning")
-        for s in f.get("scenarios") or []:
-            if s.get("id") not in per:
-                volg.append(s.get("id"))
-                per[s.get("id")] = []
-                labels[s.get("id")] = s.get("label") or s.get("id")
-            per[s.get("id")].append(s.get("max_koopsom"))
-    if not volg:
-        for s in meta.get("scenarios") or []:
-            volg.append(s.get("id"))
-            per[s.get("id")] = [s.get("max_koopsom")]
-            labels[s.get("id")] = s.get("label") or s.get("id")
-    regels = []
-    for sid in volg:
-        w = [x for x in per[sid] if _getal(x)]
-        if not w:
-            continue
-        lo, hi = min(w), max(w)
-        tekst = funda_ui.eur_tekst(lo) if lo == hi else f"{funda_ui.eur_tekst(lo)} tot {funda_ui.eur_tekst(hi)}"
-        regels.append(f"  - {_md(labels[sid])}{' (planning)' if sid == planning else ''}: {tekst}")
-    return regels
+def _md_woning(i: int, rij: dict) -> list[str]:
+    d, b, fin = rij["d"], rij.get("beoordeling") or {}, _fin(rij)
+    det = rij.get("details") or {}
+    eur = funda_ui.eur_tekst
+    regels = [f"### {i}. {_md(d.get('title'))}, {_md(d.get('city'))}{' (nieuw)' if rij.get('is_nieuw') else ''}", "",
+              f"- **{_md(b.get('status_kort'))} · score {funda_ui.komma(b.get('score') or 0)}**"]
+    if b.get("uitleg_regel"):
+        regels.append(f"- {_md(b['uitleg_regel'])}")
+    if fin.get("scenario_tekst"):
+        regels.append(f"- {_md(funda_ui.scenario_regel(fin['scenario_tekst']))}")   # zelfde woord als op de kaart
+    regels += [f"- Twijfel: {_md(t)} Onderaan gezet." for t in b.get("twijfel") or []]
+    m2 = d.get("living_area") or det.get("living_area")
+    m2_getal, vraagprijs = _getal(m2), _getal(d.get("price"))   # funda geeft soms tekst ("ca. 60 m²")
+    prijs = _prijs_tekst(rij)
+    if not rij.get("prijs_onbekend") and m2_getal and m2_getal > 0 and vraagprijs:
+        prijs += f" ({eur(vraagprijs / m2_getal)} per m²)"
+    netto = fin.get("netto")
+    lasten = f"{eur(netto)} netto per maand" if netto is not None else "onbekend"
+    regels.append(f"- Vraagprijs: {prijs} · Woonlasten: {lasten}")
+    feit = [f"{_md(m2)} m²" if m2 else None, f"{d.get('rooms')} kamers" if d.get("rooms") else None,
+            f"label {d.get('energy_label') or det.get('energy_label') or 'onbekend'}",
+            _md(d.get("neighbourhood")) or None]
+    regels.append("- Woning: " + ", ".join(x for x in feit if x))
+    tr = rij.get("track") or {}
+    if tr.get("gedaald") and tr.get("eerdere_prijs"):
+        regels.append(f"- Prijs gedaald: was {eur(tr['eerdere_prijs'])}")
+    # Dezelfde indeling als op de kaart: de informatieve items staan in een eigen regel.
+    for kop, items in (("Let op", b.get("let_op")), ("Pluspunten", b.get("pluspunten")), ("Onbekend", b.get("onbekend")),
+                       ("Kansen", b.get("kansen")),
+                       ("Buurt en omgeving (telt niet mee in de score)", funda_ui.info_items(b, funda_beoordeling.INFO_TONEN)),
+                       ("Over de woning (telt niet mee in de score)", funda_ui.info_items(b, funda_beoordeling.INFO_WONING))):
+        if items:
+            regels.append(f"- {kop}: {_punten_md(items)}")
+    # Zomer en winter: een indicatie, geen meting; de aanwijzingen staan in de uitleg.
+    regels += [f"- {_md(it.get('label'))} (indicatie): {_md(it.get('waarde'))}. {_md(it.get('uitleg') or '')}"
+               for it in funda_ui.info_items(b, (funda_beoordeling.BINNENKLIMAAT,))]
+    if b.get("zelf_nagaan"):
+        regels.append("- Zelf nagaan:")
+        regels += [f"  {n}. {_md(v)}" for n, v in enumerate(b["zelf_nagaan"], 1)]
+    url = funda_url(d)
+    if url:
+        regels.append(f"- Funda: {url}")
+    return regels + ["", "---", ""]
 
 
 def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
@@ -711,89 +698,22 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
     Geen inkomen en nooit "€ 0": zonder vraagprijs staat er "prijs op aanvraag"."""
     meta = meta or {}
     nu = meta.get("tijdstip") if isinstance(meta.get("tijdstip"), datetime) else _nu()
-    k = funda_ui.komma
-    lines = [f"# Woningrapport, {_nu_nl(nu)}", "", "## Jouw budget en aannames", ""]
-    f0 = next((((r.get("beoordeling") or {}).get("financiering") or {}) for r in rijen
-               if ((r.get("beoordeling") or {}).get("financiering") or {}).get("grens") is not None), {})
-    if f0:
-        soort = "bruto per maand (norm uit de leentoets)" if f0.get("grens_soort") == "bruto norm" else "netto per maand"
-        lines.append(f"- Je grens: {funda_ui.eur_tekst(f0['grens'])} {soort}")
-    r = meta.get("rente") or {}
-    if _rente_md(r):
-        lines.append(f"- Rente: {_rente_md(r)}")
-    if r.get("melding"):
-        lines.append(f"- Let op de rente: {_md(r['melding'])}")
-    sc = _scenarios_md(rijen, meta)
-    if sc:
-        lines.append("- Hoogste koopsom per scenario:")
-        lines.extend(sc)
-    lines += ["- Woonlasten zijn netto, jaar 1. Een bedrag met ≈ is een schatting.",
-              "- Score 0 tot 10. 5 betekent: voldoet aan je eisen. Onbekend en kansen tellen niet mee.", ""]
-
+    regels = [f"# Woningrapport, {_nu_nl(nu)}", "", *_md_budget(rijen, meta, nu)]
     if not rijen:
-        lines.append("Geen woningen om te beoordelen.")
-        return "\n".join(lines)
-
-    lines += ["## Overzicht", "", "| # | Woning | Vraagprijs | Status | Score |",
-              "|---|--------|-----------:|--------|------:|"]
+        return "\n".join(regels + ["Geen woningen om te beoordelen."])
+    regels += ["## Overzicht", "", "| # | Woning | Vraagprijs | Status | Score |",
+               "|---|--------|-----------:|--------|------:|"]
     for i, rij in enumerate(rijen, 1):
         d, b = rij["d"], rij.get("beoordeling") or {}
-        lines.append(f"| {i} | {_md(d.get('title'))}, {_md(d.get('city'))} | {_prijs_tekst(rij)} "
-                     f"| {_md(b.get('status_kort'))} | {k(b.get('score') or 0)} |")
-    lines += ["", "## Per woning", ""]
-
+        regels.append(f"| {i} | {_md(d.get('title'))}, {_md(d.get('city'))} | {_prijs_tekst(rij)} "
+                      f"| {_md(b.get('status_kort'))} | {funda_ui.komma(b.get('score') or 0)} |")
+    regels += ["", "## Per woning", ""]
     for i, rij in enumerate(rijen, 1):
-        d, b = rij["d"], rij.get("beoordeling") or {}
-        fin = b.get("financiering") or {}
-        det = rij.get("details") or {}
-        lines.append(f"### {i}. {_md(d.get('title'))}, {_md(d.get('city'))}{' (nieuw)' if rij.get('is_nieuw') else ''}")
-        lines.append("")
-        lines.append(f"- **{_md(b.get('status_kort'))} · score {k(b.get('score') or 0)}**")
-        if b.get("uitleg_regel"):
-            lines.append(f"- {_md(b['uitleg_regel'])}")
-        if fin.get("scenario_tekst"):
-            lines.append(f"- {_md(funda_ui.scenario_regel(fin['scenario_tekst']))}")   # zelfde woord als op de kaart
-        for t in b.get("twijfel") or []:
-            lines.append(f"- Twijfel: {_md(t)} Onderaan gezet.")
-        m2 = d.get("living_area") or det.get("living_area")
-        m2_getal, vraagprijs = _getal(m2), _getal(d.get("price"))   # funda geeft soms tekst ("ca. 60 m²")
-        prijs = _prijs_tekst(rij)
-        if not rij.get("prijs_onbekend") and m2_getal and m2_getal > 0 and vraagprijs:
-            prijs += f" ({funda_ui.eur_tekst(vraagprijs / m2_getal)} per m²)"
-        netto = fin.get("netto")
-        lasten = f"{funda_ui.eur_tekst(netto)} netto per maand" if netto is not None else "onbekend"
-        lines.append(f"- Vraagprijs: {prijs} · Woonlasten: {lasten}")
-        feit = [f"{_md(m2)} m²" if m2 else None, f"{d.get('rooms')} kamers" if d.get("rooms") else None,
-                f"label {d.get('energy_label') or det.get('energy_label') or 'onbekend'}",
-                _md(d.get("neighbourhood")) or None]
-        lines.append("- Woning: " + ", ".join(x for x in feit if x))
-        tr = rij.get("track") or {}
-        if tr.get("gedaald") and tr.get("eerdere_prijs"):
-            lines.append(f"- Prijs gedaald: was {funda_ui.eur_tekst(tr['eerdere_prijs'])}")
-        for kop, sleutel in (("Let op", "let_op"), ("Pluspunten", "pluspunten"), ("Onbekend", "onbekend"),
-                             ("Kansen", "kansen")):
-            if b.get(sleutel):
-                lines.append(f"- {kop}: {_punten_md(b[sleutel])}")
-        omgeving = [it for it in b.get("info") or [] if it.get("onderdeel") in funda_beoordeling.INFO_TONEN]
-        if omgeving:
-            lines.append(f"- Buurt en omgeving (telt niet mee in de score): {_punten_md(omgeving)}")
-        bij_woning = [it for it in b.get("info") or [] if it.get("onderdeel") in funda_beoordeling.INFO_WONING]
-        if bij_woning:   # zelfde items als in het blok Woning op de kaart
-            lines.append(f"- Over de woning (telt niet mee in de score): {_punten_md(bij_woning)}")
-        for it in b.get("info") or []:
-            if it.get("onderdeel") == funda_beoordeling.BINNENKLIMAAT:   # indicatie, geen meting; de aanwijzingen staan in de uitleg
-                lines.append(f"- {_md(it.get('label'))} (indicatie): {_md(it.get('waarde'))}. {_md(it.get('uitleg') or '')}")
-        if b.get("zelf_nagaan"):
-            lines.append("- Zelf nagaan:")
-            lines.extend(f"  {n}. {_md(v)}" for n, v in enumerate(b["zelf_nagaan"], 1))
-        url = funda_url(d)
-        if url:
-            lines.append(f"- Funda: {url}")
-        lines += ["", "---", ""]
-    return "\n".join(lines)
+        regels += _md_woning(i, rij)
+    return "\n".join(regels)
 
 
-# === HTML (lokaal) en PWA ===
+# === HTML (lokaal) ===
 
 # Leaflet 1.9.4 (kaart), zelf gehost: ui/leaflet/ gaat mee naar docs/leaflet/ (schrijf_statisch). In de
 # <head>: scripts in de via innerHTML gezette body draaien niet.
@@ -812,42 +732,39 @@ def push_head() -> str:
     return f'<meta name="funda-push-key" content="{funda_ui.h(WEB_PUSH_PUBLIC_KEY)}">'
 
 
-def _scripts(is_pwa: bool) -> str:
-    """Inline <script>-blokken voor het onversleutelde rapport (lokaal): eerst de UI (zet
-    fundaAfterReportLoad), dan de push-JS die erop aanhaakt. De versleutelde PWA laadt dezelfde
-    bestanden uit docs/ (geen inline script, zie CSP)."""
-    return f"<script>{funda_ui.UI_JS}</script>" + (f"<script>{funda_ui.PUSH_JS}</script>" if is_pwa else "")
-
-
 def _body(rijen: list[dict], meta: dict | None, is_pwa: bool) -> str:
     m = dict(meta or {})
     m["push_beschikbaar"] = bool(is_pwa and WEB_PUSH_PUBLIC_KEY)
     return funda_ui.render_report_body(rijen, m)
 
 
-def render_html(rijen: list[dict], meta: dict | None = None, is_pwa: bool = False) -> str:
-    """Het onversleutelde rapport: lokaal funda_rapport.html, of de PWA als er geen wachtwoord is."""
-    meta = meta or {}
-    nu = meta.get("tijdstip") if isinstance(meta.get("tijdstip"), datetime) else _nu()
-    asset_prefix = "" if is_pwa else "docs/"
-    pwa_head = ""
-    pwa_script = ""
-    if is_pwa:
-        pwa_head = """
+# Alleen voor de onversleutelde PWA (lokaal, zonder wachtwoord); de versleutelde heeft ui/slot.html.
+_PWA_HEAD = """
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Woningen">
-""" + push_head() + """
 """
-        pwa_script = """
+_PWA_SCRIPT = """
 <script>
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js', {scope:'./'}).catch(()=>{}));
 }
 </script>
 """
+
+
+def render_html(rijen: list[dict], meta: dict | None = None, is_pwa: bool = False) -> str:
+    """Het onversleutelde rapport: lokaal funda_rapport.html, of de PWA als er geen wachtwoord is.
+
+    CSS en JavaScript staan inline: eerst de UI (zet fundaAfterReportLoad), dan in de PWA de push-JS
+    die erop aanhaakt. De versleutelde PWA laadt dezelfde bestanden uit docs/ (geen inline script, zie CSP)."""
+    meta = meta or {}
+    nu = meta.get("tijdstip") if isinstance(meta.get("tijdstip"), datetime) else _nu()
+    prefix = "" if is_pwa else "docs/"
+    pwa_head = _PWA_HEAD + push_head() + "\n" if is_pwa else ""
+    scripts = f"<script>{funda_ui.UI_JS}</script>" + (f"<script>{funda_ui.PUSH_JS}</script>" if is_pwa else "")
     return f"""<!doctype html>
 <html lang="nl">
 <head>
@@ -856,26 +773,23 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="{funda_ui.THEME_COLOR_DONKER}">
 <meta name="theme-color" content="{funda_ui.THEME_COLOR}">
-<title>Woningrapport, {nu.day} {_NL_MAANDEN[nu.month - 1]} {nu.year}</title>
-<link rel="icon" href="{asset_prefix}favicon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" sizes="180x180" href="{asset_prefix}apple-touch-icon.png">
+<title>Woningrapport, {funda_ui.datum_lang(nu)}</title>
+<link rel="icon" href="{prefix}favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" sizes="180x180" href="{prefix}apple-touch-icon.png">
 <meta name="referrer" content="no-referrer">
 {pwa_head}
-{map_head(asset_prefix)}
+{map_head(prefix)}
 <style>{funda_ui.UI_CSS}</style>
 </head>
 <body>
 {_body(rijen, meta, is_pwa)}
-{_scripts(is_pwa)}
-{pwa_script}
+{scripts}
+{_PWA_SCRIPT if is_pwa else ""}
 </body>
 </html>"""
 
 
-PWA_DIR_NAAM = "docs"  # GitHub Pages staat alleen / of /docs toe
-PWA_PASSWORD_FILE = Path(__file__).parent / "funda_pwa_password.txt"
-# Map voor funda_rapport.md, funda_rapport.html en docs/. Tests zetten hier een tijdelijke map.
-UITVOER_DIR = Path(__file__).parent
+# === PWA: vaste bestanden in docs/ (manifest, service worker, iconen, CSS, JavaScript, Leaflet) ===
 
 # Geen voornaam en geen merknaam: het manifest staat publiek op GitHub Pages.
 PWA_MANIFEST = json.dumps({
@@ -991,93 +905,88 @@ PWA_ICON_SVG = _icoon_svg(512, 112)
 PWA_FAVICON_SVG = _icoon_svg(64, 14)
 
 
-def _rgba(hex_kleur: str) -> tuple[int, int, int, int]:
-    h = hex_kleur.lstrip("#")
-    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255
+def _rgba(hex_kleur: str) -> bytes:
+    return bytes.fromhex(hex_kleur.lstrip("#")) + b"\xff"
 
 
 def _write_png_icon(path: Path, size: int) -> None:
     """Schrijf het icoon als PNG zonder externe dependencies (zelfde huis als PWA_ICON_SVG).
 
     Getekend op 3x (of 2x) de doelmaat en daarna verkleind, voor zachte randen."""
-    import struct
-    import zlib
+    schaal = 3 if size <= 256 else 2
+    n = size * schaal
+    f = n / 512
+    achtergrond, huis, accent = _rgba(ICOON_ACHTERGROND), _rgba(ICOON_HUIS), _rgba(ICOON_ACCENT)
+    buf = bytearray(achtergrond * (n * n))
 
-    target_size = size
-    scale = 3 if target_size <= 256 else 2
-    size = target_size * scale
-    f = size / 512
+    def rect(r: tuple[int, int, int, int], kleur: bytes) -> None:
+        x1, y1, x2, y2 = (min(n, max(0, int(round(v * f)))) for v in r)
+        for y in range(y1, y2):
+            buf[(y * n + x1) * 4:(y * n + x2) * 4] = kleur * (x2 - x1)
 
-    achtergrond = _rgba(ICOON_ACHTERGROND)
-    huis = _rgba(ICOON_HUIS)
-    accent = _rgba(ICOON_ACCENT)
-    buf = bytearray(bytes(achtergrond) * (size * size))
-
-    def put(x: int, y: int, color: tuple[int, int, int, int]) -> None:
-        if 0 <= x < size and 0 <= y < size:
-            i = (y * size + x) * 4
-            buf[i:i + 4] = bytes(color)
-
-    def rect(r: tuple[int, int, int, int], color: tuple[int, int, int, int]) -> None:
-        x1, y1, x2, y2 = (int(round(v * f)) for v in r)
-        for yy in range(max(0, y1), min(size, y2)):
-            for xx in range(max(0, x1), min(size, x2)):
-                put(xx, yy, color)
-
-    def poly(points: list[tuple[int, int]], color: tuple[int, int, int, int]) -> None:
-        pts = [(x * f, y * f) for x, y in points]
-        min_y = max(0, int(min(p[1] for p in pts)))
-        max_y = min(size - 1, int(max(p[1] for p in pts)) + 1)
-        min_x = max(0, int(min(p[0] for p in pts)))
-        max_x = min(size - 1, int(max(p[0] for p in pts)) + 1)
-        for yy in range(min_y, max_y + 1):
-            for xx in range(min_x, max_x + 1):
-                inside = False
-                j = len(pts) - 1
-                for i, (xi, yi) in enumerate(pts):
-                    xj, yj = pts[j]
-                    if ((yi > yy) != (yj > yy)) and (xx < (xj - xi) * (yy - yi) / (yj - yi) + xi):
-                        inside = not inside
-                    j = i
-                if inside:
-                    put(xx, yy, color)
+    def poly(punten: list[tuple[int, int]], kleur: bytes) -> None:
+        pts = [(x * f, y * f) for x, y in punten]
+        xs, ys = [x for x, _ in pts], [y for _, y in pts]
+        for y in range(max(0, int(min(ys))), min(n - 1, int(max(ys)) + 1) + 1):
+            for x in range(max(0, int(min(xs))), min(n - 1, int(max(xs)) + 1) + 1):
+                binnen = False
+                for (xi, yi), (xj, yj) in zip(pts, pts[-1:] + pts[:-1]):
+                    if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+                        binnen = not binnen
+                if binnen:
+                    buf[(y * n + x) * 4:(y * n + x) * 4 + 4] = kleur
 
     poly(_HUIS_DAK, huis)
     rect(_HUIS_ROMP, huis)
     rect(_HUIS_DEUR, achtergrond)
     rect(_HUIS_RAAM, accent)
 
-    if scale > 1:
-        small = bytearray(target_size * target_size * 4)
-        block = scale * scale
-        for y in range(target_size):
-            for x in range(target_size):
-                sums = [0, 0, 0, 0]
-                for yy in range(scale):
-                    for xx in range(scale):
-                        i = ((y * scale + yy) * size + (x * scale + xx)) * 4
-                        sums[0] += buf[i]
-                        sums[1] += buf[i + 1]
-                        sums[2] += buf[i + 2]
-                        sums[3] += buf[i + 3]
-                o = (y * target_size + x) * 4
-                small[o:o + 4] = bytes(int(v / block) for v in sums)
-        buf = small
-        size = target_size
-
-    stride = size * 4
-    raw = b"".join(b"\x00" + bytes(buf[y * stride:(y + 1) * stride]) for y in range(size))
+    # Verkleinen: elk doelpixel is het gemiddelde van schaal x schaal getekende pixels.
+    rijen = bytearray()
+    for y in range(size):
+        rijen.append(0)   # PNG-filter 0 per rij
+        for x in range(size):
+            som = [0, 0, 0, 0]
+            for yy in range(schaal):
+                i = ((y * schaal + yy) * n + x * schaal) * 4
+                for k, v in enumerate(buf[i:i + schaal * 4]):
+                    som[k % 4] += v
+            rijen += bytes(v // (schaal * schaal) for v in som)
 
     def chunk(tag: bytes, data: bytes) -> bytes:
         return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
 
-    png = (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress(raw, 9))
-        + chunk(b"IEND", b"")
-    )
-    path.write_bytes(png)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n"
+                     + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
+                     + chunk(b"IDAT", zlib.compress(bytes(rijen), 9))
+                     + chunk(b"IEND", b""))
+
+
+# Statische bestanden van de PWA: pad in docs/ -> bron in ui/. De service worker bewaart ze ook.
+STATISCH = {
+    "app.css": "app.css", "slot.css": "slot.css", "app.js": "app.js", "slot.js": "slot.js", "push.js": "push.js",
+    "leaflet/leaflet.js": "leaflet/leaflet.js", "leaflet/leaflet.css": "leaflet/leaflet.css",
+    "leaflet/LICENSE": "leaflet/LICENSE",
+}
+
+
+def schrijf_statisch(pwa_dir: Path) -> None:
+    """Alles in docs/ behalve index.html: manifest, service worker, iconen, CSS, JavaScript en Leaflet.
+
+    Hangt niet van de woningen of het wachtwoord af. Een oude index.html (alles inline) blijft naast
+    deze bestanden gewoon werken."""
+    pwa_dir.mkdir(parents=True, exist_ok=True)
+    (pwa_dir / "manifest.json").write_text(PWA_MANIFEST, encoding="utf-8")
+    (pwa_dir / "service-worker.js").write_text(PWA_SERVICE_WORKER, encoding="utf-8")
+    (pwa_dir / "icon.svg").write_text(PWA_ICON_SVG, encoding="utf-8")
+    (pwa_dir / "favicon.svg").write_text(PWA_FAVICON_SVG, encoding="utf-8")
+    _write_png_icon(pwa_dir / "apple-touch-icon.png", 180)
+    _write_png_icon(pwa_dir / "icon-512.png", 512)
+    for doel, bron in STATISCH.items():
+        pad = pwa_dir / doel
+        pad.parent.mkdir(parents=True, exist_ok=True)
+        pad.write_bytes((funda_ui.UI_DIR / bron).read_bytes())
+
 
 
 # === Versleuteling van de PWA ===
@@ -1128,8 +1037,6 @@ def versleutel(html: str, password: str, gz: bool = True) -> dict:
     """Het pakket voor #slot-data: alles wat de browser nodig heeft behalve het wachtwoord.
 
     ui/slot.js doet het omgekeerde; test_funda_pwa.py ook, in Python en met het echte slot.js in node."""
-    import base64
-    import gzip
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
     data = html.encode("utf-8")
@@ -1185,32 +1092,6 @@ def _pwa_wachtwoord() -> str:
     return ""
 
 
-# Statische bestanden van de PWA: pad in docs/ -> bron in ui/. De service worker bewaart ze ook.
-STATISCH = {
-    "app.css": "app.css", "slot.css": "slot.css", "app.js": "app.js", "slot.js": "slot.js", "push.js": "push.js",
-    "leaflet/leaflet.js": "leaflet/leaflet.js", "leaflet/leaflet.css": "leaflet/leaflet.css",
-    "leaflet/LICENSE": "leaflet/LICENSE",
-}
-
-
-def schrijf_statisch(pwa_dir: Path) -> None:
-    """Alles in docs/ behalve index.html: manifest, service worker, iconen, CSS, JavaScript en Leaflet.
-
-    Hangt niet van de woningen of het wachtwoord af. Een oude index.html (alles inline) blijft naast
-    deze bestanden gewoon werken."""
-    pwa_dir.mkdir(parents=True, exist_ok=True)
-    (pwa_dir / "manifest.json").write_text(PWA_MANIFEST, encoding="utf-8")
-    (pwa_dir / "service-worker.js").write_text(PWA_SERVICE_WORKER, encoding="utf-8")
-    (pwa_dir / "icon.svg").write_text(PWA_ICON_SVG, encoding="utf-8")
-    (pwa_dir / "favicon.svg").write_text(PWA_FAVICON_SVG, encoding="utf-8")
-    _write_png_icon(pwa_dir / "apple-touch-icon.png", 180)
-    _write_png_icon(pwa_dir / "icon-512.png", 512)
-    for doel, bron in STATISCH.items():
-        pad = pwa_dir / doel
-        pad.parent.mkdir(parents=True, exist_ok=True)
-        pad.write_bytes((funda_ui.UI_DIR / bron).read_bytes())
-
-
 def schrijf_pwa_assets(rijen: list[dict], meta: dict | None = None) -> Path:
     """Manifest, service worker, iconen, CSS, JavaScript en index.html in docs/ (onder UITVOER_DIR)."""
     password = _pwa_wachtwoord()
@@ -1226,11 +1107,9 @@ def schrijf_pwa_assets(rijen: list[dict], meta: dict | None = None) -> Path:
     schrijf_statisch(pwa_dir)
 
     if password:
-        beveiligd = beveilig_html(_body(rijen, meta, True), password)
-        (pwa_dir / "index.html").write_text(beveiligd, encoding="utf-8")
-        return pwa_dir
-
-    # Terugval (lokaal, zonder wachtwoord): onversleuteld.
-    print("[rapport] WAARSCHUWING: geen funda_pwa_password.txt gevonden, PWA wordt onversleuteld geschreven!")
-    (pwa_dir / "index.html").write_text(render_html(rijen, meta, is_pwa=True), encoding="utf-8")
+        index = beveilig_html(_body(rijen, meta, True), password)
+    else:   # terugval (lokaal, zonder wachtwoord): onversleuteld
+        print("[rapport] WAARSCHUWING: geen funda_pwa_password.txt gevonden, PWA wordt onversleuteld geschreven!")
+        index = render_html(rijen, meta, is_pwa=True)
+    (pwa_dir / "index.html").write_text(index, encoding="utf-8")
     return pwa_dir
