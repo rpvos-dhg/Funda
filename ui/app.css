@@ -485,13 +485,14 @@ legend{font:var(--paragraph-title-medium);color:var(--foreground-color-strong);m
 .schakel input:checked::after{transform:translateX(1.25rem);background:var(--foreground-color-interactive-on-strong)}
 
 /* Vergelijken */
-.vergelijk-wrap{overflow-x:auto;margin:0 calc(var(--spacing-200) * -1);padding:0 var(--spacing-200)}
+.vergelijk-wrap{overflow-x:auto;margin:0 calc(var(--spacing-200) * -1)}   /* geen padding: de vaste kolom sluit aan op de rand */
 .vergelijk{border-collapse:separate;border-spacing:0;font:var(--paragraph-body-small);min-width:100%}
 .vergelijk th,.vergelijk td{padding:var(--spacing-100);text-align:left;vertical-align:top;border-bottom:1px solid var(--border-color-subtle);min-width:9rem}
 .vergelijk thead th{font:var(--paragraph-title-small);color:var(--foreground-color-neutral)}
 /* De eerste kolom blijft staan bij opzij schuiven, ook de lege kopcel; een lijn rechts scheidt hem van wat eronderdoor schuift. */
-.vergelijk tr>th:first-child{position:sticky;left:0;z-index:1;background:var(--background-color-default);min-width:6.5rem;width:6.5rem;
-  border-right:1px solid var(--border-color-subtle)}
+.vergelijk tr>th:first-child{position:sticky;left:0;z-index:1;background:var(--background-color-default);min-width:7.5rem;width:7.5rem;
+  padding-left:var(--spacing-200);border-right:1px solid var(--border-color-subtle)}
+.vergelijk tr>:last-child{padding-right:var(--spacing-200)}
 .vergelijk tbody th{color:var(--foreground-color-subtle);font-weight:400}
 .vergelijk .beste{font-weight:600}
 .vergelijk .beste::after{content:" (beste)";font-weight:400;color:var(--foreground-color-subtle)}

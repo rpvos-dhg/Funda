@@ -704,7 +704,7 @@ def test_omgeving_blok() -> bool:
               and funda_ui.bron_tekst("berekening") == "zelf berekend" and funda_ui.bron_tekst("CBS 2024") == "CBS 2024"),
         check("binnenklimaat: zomer en winter in het blok Woning, als indicatie en zonder punten", (lambda k: bool(k)
               and "Warmte en kou in huis" in k.group(1) and "<b>Zomer</b>: kans op warmte: 2 aanwijzingen" in k.group(1)
-              and "<b>Winter</b>: kans op kou" in k.group(1) and "geen meting" in k.group(1) and 'class="pt ' not in k.group(1)
+              and "<b>Winter</b>: kans op kou" in k.group(1) and "niet gemeten" in k.group(1) and "Telt niet mee in de score" in k.group(1) and 'class="pt ' not in k.group(1)
               and "Zomer" not in blok)(re.search(r'<details class="opbouw binnenklimaat">(.*?)</details>', kaart, re.S))),
         check("CSS: binnenmarge voor de lijst in het uitklapblok", ".opbouw>.punten" in CSS),
     ]

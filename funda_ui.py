@@ -543,7 +543,7 @@ def kaart_html(w, meta: dict | None = None) -> str:
         klimaat = (f'<details class="opbouw binnenklimaat"><summary>Warmte en kou in huis <span class="waarde">indicatie</span>'
                    f'{ic("chev", "ic chev")}</summary><ul class="punten">'
                    f'{"".join(punt_html(x, False, True) for x in w["binnenklimaat"])}</ul>'
-                   f'<p class="punt-tekst gesch mt-100">Een indicatie uit aanwijzingen, geen meting. Telt niet mee in de score.</p></details>')
+                   f'<p class="punt-tekst gesch mt-100">Telt niet mee in de score.</p></details>')
     blokken.append(f'<section class="blok"><h4>Woning</h4><dl class="kenmerken">{kenmerken(w)}</dl>{klimaat}</section>')
     if zelf:
         blokken.append(f'<section class="blok"><h4>Zelf nagaan</h4><ol class="vragen">{zelf}</ol></section>')
