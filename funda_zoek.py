@@ -40,6 +40,8 @@ from funda_sitemap_zoek import (
     OPGEHAALD as SITEMAP_OPGEHAALD,
     OVERGESLAGEN as SITEMAP_OVERGESLAGEN,
     DetailEndpointDicht,
+    DropIn,
+    Resultaat,
     WoningNietGevonden,
     log_tekst,
     publieke_log,
@@ -145,13 +147,13 @@ class Funda(_Funda):
 
     def _vertaal_fout(self, exc: LookupError, listing_id) -> Exception:
         """pyfunda's LookupError, maar dan naar de status die het endpoint gaf."""
-        statussen = list(self._statussen)
+        statussen = self._statussen
         geweigerd = [s for s in statussen if s in GEWEIGERD]
         if geweigerd:
             return DetailEndpointDicht(
                 f"status {geweigerd[-1]} voor {listing_id}: het endpoint weigert deze client. "
                 "Bewust geen andere client of vingerafdruk geprobeerd (zie CLAUDE.md).")
-        storing = [s for s in statussen if s >= 500 or s == 0]
+        storing = any(s >= 500 or s == 0 for s in statussen)
         if any(s in NIET_GEVONDEN for s in statussen) and not storing:
             return WoningNietGevonden(f"Listing {listing_id} niet gevonden (status {statussen})")
         return exc
@@ -413,13 +415,16 @@ SITEMAP_CACHE_FILE = Path(__file__).parent / "funda_sitemap_cache.json"
 
 # === Helpers ===
 
+def _lees_state(pad: Path, soort: type):
+    """Een statebestand als set of dict; ontbreekt het of is het onleesbaar, dan leeg."""
+    try:
+        return soort(json.loads(pad.read_text(encoding="utf-8"))) if pad.exists() else soort()
+    except Exception:
+        return soort()
+
+
 def laad_state() -> set[str]:
-    if STATE_FILE.exists():
-        try:
-            return set(json.loads(STATE_FILE.read_text()))
-        except Exception:
-            return set()
-    return set()
+    return _lees_state(STATE_FILE, set)
 
 
 def bewaar_state(ids: set[str]) -> None:
@@ -435,11 +440,17 @@ def log(msg: str) -> None:
         fp.write(line + "\n")
 
 
+def _woning_id(d: dict):
+    """Waaronder een woning in seen-ids, tracking en blacklist staat (als str)."""
+    return d.get("global_id") or d.get("listing_id") or d.get("detail_url")
+
+
+def _volledige_url(url: str) -> str:
+    return f"https://www.funda.nl{url}" if url and not url.startswith("http") else url
+
+
 def _detail_url(d: dict) -> str:
-    url = d.get("detail_url") or ""
-    if url and not url.startswith("http"):
-        url = f"https://www.funda.nl{url}"
-    return url
+    return _volledige_url(d.get("detail_url") or "")
 
 
 def schrijf_run_summary(nieuw: list[dict], bekend: list[dict], afgewezen: list[tuple[dict, list[str]]]) -> None:
@@ -449,7 +460,7 @@ def schrijf_run_summary(nieuw: list[dict], bekend: list[dict], afgewezen: list[t
         prijs = None if prijs_onbekend(d) else int(d["price"])
         m2 = int(d.get("living_area") or 0)
         return {
-            "id": str(d.get("global_id") or d.get("listing_id") or d.get("detail_url") or ""),
+            "id": str(_woning_id(d) or ""),
             "title": d.get("title") or "Woning",
             "city": d.get("city") or "",
             "neighbourhood": d.get("neighbourhood") or "",
@@ -501,7 +512,7 @@ def vul_summary_aan(woningen: list[dict]) -> int:
     for d in woningen:
         b = d.get("_beoordeling")
         if isinstance(b, dict) and _poortwoord(b):
-            lid = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url") or "")
+            lid = str(_woning_id(d) or "")
             beoordeling[lid] = b
             # Zelfde rij-vorm als funda_rapport.bouw_rij, zodat de sleutel gelijk is aan die van het rapport.
             volgorde[lid] = sorteer_sleutel({"beoordeling": b, "prijs_onbekend": prijs_onbekend(d)})
@@ -547,12 +558,14 @@ def twijfel_redenen(d: dict) -> list[str]:
     return uit
 
 
+def _eerste_in(woorden: list[str], tekst: str) -> str | None:
+    """Het eerste woord uit de lijst dat in de tekst voorkomt (substring, hoofdletterongevoelig)."""
+    s = tekst.lower()
+    return next((w for w in woorden if w.lower() in s), None)
+
+
 def is_uitgesloten_buurt(buurt: str) -> str | None:
-    s = buurt.lower()
-    for u in UITSLUIT_BUURTEN:
-        if u.lower() in s:
-            return u
-    return None
+    return _eerste_in(UITSLUIT_BUURTEN, buurt)
 
 
 def is_uitgesloten_stad(stad: str) -> str | None:
@@ -561,22 +574,13 @@ def is_uitgesloten_stad(stad: str) -> str | None:
     Die voorrang is er voor gemeentenamen die een gewenste plaats bevatten,
     zoals Leidschendam-Voorburg; zie de toelichting bij WENS_STEDEN.
     """
-    s = stad.lower()
-    if any(w.lower() in s for w in WENS_STEDEN):
-        return None
-    for u in UITSLUIT_STEDEN:
-        if u.lower() in s:
-            return u
-    return None
+    return None if _eerste_in(WENS_STEDEN, stad) else _eerste_in(UITSLUIT_STEDEN, stad)
 
 
 def is_twijfelstad(stad: str) -> str | None:
     """Dubbelzinnige gemeentenaam: tonen, maar met een waarschuwing erbij."""
     s = stad.lower()
-    for patroon, reden in TWIJFEL_STEDEN_PATROON:
-        if patroon in s:
-            return reden
-    return None
+    return next((reden for patroon, reden in TWIJFEL_STEDEN_PATROON if patroon in s), None)
 
 
 def is_geen_appartement(d: dict) -> str | None:
@@ -587,13 +591,11 @@ def is_geen_appartement(d: dict) -> str | None:
     iets op, dan laten we de woning door: onbekend is geen reden om weg te
     gooien.
     """
-    soort = str(d.get("house_type") or "").lower()
-    for woord in GEEN_APPARTEMENT:
-        if woord in soort:
-            return d.get("house_type") or woord
+    woord = _eerste_in(GEEN_APPARTEMENT, str(d.get("house_type") or ""))
+    if woord:
+        return d.get("house_type") or woord
 
-    url = str(d.get("detail_url") or "")
-    delen = [deel for deel in url.split("/") if deel]
+    delen = [deel for deel in str(d.get("detail_url") or "").split("/") if deel]
     if len(delen) >= 2:
         slug_type = delen[-2].split("-")[0].lower()
         if slug_type in HUIS_SLUGS:
@@ -602,11 +604,7 @@ def is_geen_appartement(d: dict) -> str | None:
 
 
 def is_twijfelbuurt(buurt: str) -> str | None:
-    s = buurt.lower()
-    for t in TWIJFEL_BUURTEN:
-        if t.lower() in s:
-            return t
-    return None
+    return _eerste_in(TWIJFEL_BUURTEN, buurt)
 
 
 def is_belegging(tekst: str) -> list[str]:
@@ -640,10 +638,7 @@ def is_uitgesloten_straat_nr(d: dict) -> str | None:
     huisnr = d.get("house_number")
     for straat, (min_nr, max_nr, regel_stad) in STRAAT_SEGMENTEN.items():
         if straat in titel and (not regel_stad or stad == regel_stad):
-            try:
-                nr = int(huisnr) if huisnr is not None else None
-            except (TypeError, ValueError):
-                nr = None
+            nr = _als_int(huisnr)
             if nr is None:
                 return None  # geen nummer = niet kunnen beoordelen
             if min_nr is not None and nr < min_nr:
@@ -665,6 +660,13 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 _THUIS: dict[str, tuple[float, float] | None] = {}
 
 
+def _bewaar_thuis(cache: dict) -> None:
+    try:
+        coords_cache_schrijf(THUIS_CACHE, cache)
+    except Exception as exc:
+        print(f"Thuiscoördinaten niet bewaard ({type(exc).__name__}).")
+
+
 def thuis_coords() -> tuple[float, float] | None:
     """Coördinaten van de zoekpostcode, voor het afstandsfilter.
 
@@ -683,10 +685,7 @@ def thuis_coords() -> tuple[float, float] | None:
     # config komt: anders bleef de leesbare postcode in het bestand (en in de Actions-cache) staan.
     cache, omgezet = coords_cache_lees(THUIS_CACHE)
     if omgezet:
-        try:
-            coords_cache_schrijf(THUIS_CACHE, cache)
-        except Exception as exc:
-            print(f"Thuiscoördinaten niet bewaard ({type(exc).__name__}).")
+        _bewaar_thuis(cache)
     if resultaat is None:
         sleutel = postcode_sleutel(POSTCODE)
         resultaat = coord_paar(cache.get(sleutel)) if sleutel else None
@@ -697,10 +696,7 @@ def thuis_coords() -> tuple[float, float] | None:
             except Exception as exc:
                 resultaat, reden = None, f"interne fout ({type(exc).__name__})"
             if resultaat and sleutel:
-                try:
-                    coords_cache_schrijf(THUIS_CACHE, {sleutel: list(resultaat)})
-                except Exception as exc:
-                    print(f"Thuiscoördinaten niet bewaard ({type(exc).__name__}).")
+                _bewaar_thuis({sleutel: list(resultaat)})
             else:
                 # Zonder postcode in de melding: de Actions-log is publiek.
                 print(log_tekst(f"::warning::Afstandsfilter: zoekpostcode niet te geocoderen via PDOK ({reden}); "
@@ -795,8 +791,8 @@ def beschikbaarheid(d: dict) -> tuple[str, str | None]:
     return "ja", status_tekst or None
 
 
-class DetailCacheZoeker:
-    """Onthoudt detail-calls binnen één run.
+class DetailCacheZoeker(DropIn):
+    """Onthoudt detail-calls binnen één run, rond de zoeker van die run.
 
     Dezelfde woning wordt anders tot drie keer opgehaald: in de pool-controle, in
     de detail-check en in het rapport. Alles behalve get_listing gaat ongewijzigd
@@ -804,50 +800,25 @@ class DetailCacheZoeker:
     """
 
     def __init__(self, zoeker: object) -> None:
-        self._zoeker = zoeker
-        self._cache: dict[str, object] = {}
+        super().__init__(zoeker)
 
     def get_listing(self, listing_id):
         sleutel = str(listing_id)
         if sleutel in self._cache:
             return self._cache[sleutel]
-        listing = self._zoeker.get_listing(listing_id)
+        listing = self._client.get_listing(listing_id)
         self.onthoud(listing, sleutel)
         return listing
-
-    def onthoud(self, listing: object, *extra_sleutels: str) -> None:
-        data = getattr(listing, "data", None) or {}
-        for veld in ("global_id", "listing_id", "tiny_id"):
-            if data.get(veld):
-                self._cache[str(data[veld])] = listing
-        for sleutel in extra_sleutels:
-            if sleutel:
-                self._cache[sleutel] = listing
-
-    def __getattr__(self, naam: str):
-        if naam.startswith("_"):
-            raise AttributeError(naam)
-        return getattr(self._zoeker, naam)
-
-
-class PoolResultaat:
-    """Zelfde vorm als pyfunda's Listing: een `.data`-dict."""
-
-    __slots__ = ("data",)
-
-    def __init__(self, data: dict) -> None:
-        self.data = data
 
 
 def _pool_ident(sleutel: str, rec: dict):
     """Waarmee get_listing deze woning kan ophalen, of None."""
-    url = rec.get("url") or ""
-    if url:
-        return url if url.startswith("http") else f"https://www.funda.nl{url}"
+    if rec.get("url"):
+        return _volledige_url(rec["url"])
     if sleutel.isdigit():
         return int(sleutel)
     if sleutel.startswith("/detail/"):
-        return f"https://www.funda.nl{sleutel}"
+        return _volledige_url(sleutel)
     return None
 
 
@@ -865,9 +836,42 @@ def _pool_eindcheck(op_rij: int) -> None:
             f"het detail-endpoint nog werkt")
 
 
+def _pool_kandidaten(tracking: dict, al_binnen: set[str], dagen: int,
+                     sitemap: object | None) -> tuple[list[tuple], Counter]:
+    """Wat de pool deze run zelf ophaalt: [(last_seen, sleutel, record, ident, oordeel)], recentste eerst.
+
+    Niet: wat al binnen is, weg is, te lang niet gezien is of niet op te halen
+    is, en wat de sitemapzoeker deze run al probeerde of bewust oversloeg. Het
+    tweede antwoord telt de oordelen van de sitemapzoeker (pool_oordeel).
+    """
+    grens = datetime.now().timestamp() - dagen * 86400
+    oordelen: Counter[str] = Counter()
+    kandidaten = []
+    for sleutel, rec in tracking.items():
+        if sleutel in al_binnen or not isinstance(rec, dict) or rec.get("weg"):
+            continue
+        try:
+            laatst = datetime.strptime(rec.get("last_seen") or "", "%Y-%m-%d").timestamp()
+        except ValueError:
+            continue
+        if laatst < grens:
+            continue
+        ident = _pool_ident(sleutel, rec)
+        if ident is None:
+            continue
+        oordeel = sitemap.pool_oordeel(rec.get("url") or ident) if sitemap is not None else None
+        if oordeel:
+            oordelen[oordeel] += 1
+        if oordeel in (SITEMAP_MISLUKT, SITEMAP_OVERGESLAGEN):
+            continue
+        kandidaten.append((rec.get("last_seen") or "", sleutel, rec, ident, oordeel))
+    kandidaten.sort(key=lambda k: (k[0], k[1]), reverse=True)
+    return kandidaten, oordelen
+
+
 def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[str],
                     *, dagen: int, maximum: int, pauze: float = 0.4,
-                    sitemap: object | None = None) -> list[PoolResultaat]:
+                    sitemap: object | None = None) -> list[Resultaat]:
     """Eerder getoonde woningen opnieuw ophalen en teruggeven als ze nog te koop staan.
 
     Waarom: de mailroute ziet alleen wat funda de laatste dagen mailde. Zonder dit
@@ -910,41 +914,19 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
     # Bewijs dat het endpoint deze run werkt: geslaagde calls van de sitemapzoeker
     # tellen mee. Anders liep een run waarin de pool alleen een ingetrokken woning
     # (404) controleerde vast: nooit als weg gemarkeerd, elke run een call.
-    st = (getattr(sitemap, "statistiek", None) or {}) if sitemap is not None else {}
+    st = getattr(sitemap, "statistiek", None) or {}
     geslaagd = int(st.get("detail_geslaagd") or 0)
     op_rij = int(st.get("detail_op_rij_mislukt") or 0)   # loopt door vanaf de zoeker
     if dagen <= 0 or maximum <= 0:
         _pool_eindcheck(op_rij)
         return []
     vandaag = datetime.now().strftime("%Y-%m-%d")
-    grens = datetime.now().timestamp() - dagen * 86400
-
-    oordelen: Counter[str] = Counter()
-    kandidaten = []
-    for sleutel, rec in tracking.items():
-        if sleutel in al_binnen or not isinstance(rec, dict) or rec.get("weg"):
-            continue
-        try:
-            laatst = datetime.strptime(rec.get("last_seen") or "", "%Y-%m-%d").timestamp()
-        except ValueError:
-            continue
-        if laatst < grens:
-            continue
-        ident = _pool_ident(sleutel, rec)
-        if ident is None:
-            continue
-        oordeel = sitemap.pool_oordeel(rec.get("url") or ident) if sitemap is not None else None
-        if oordeel:
-            oordelen[oordeel] += 1
-        if oordeel in (SITEMAP_MISLUKT, SITEMAP_OVERGESLAGEN):
-            continue
-        kandidaten.append((rec.get("last_seen") or "", sleutel, rec, ident, oordeel))
-    kandidaten.sort(key=lambda k: (k[0], k[1]), reverse=True)
+    kandidaten, oordelen = _pool_kandidaten(tracking, al_binnen, dagen, sitemap)
     if len(kandidaten) > maximum:
         log(f"Pool: {len(kandidaten)} kandidaten, alleen de {maximum} recentste gecontroleerd.")
         kandidaten = kandidaten[:maximum]
 
-    resultaten: list[PoolResultaat] = []
+    resultaten: list[Resultaat] = []
     teller: Counter[str] = Counter()
     statussen: Counter[str] = Counter()
     controle: Counter[str] = Counter()   # uitkomst voor woningen die niet meer in de sitemap staan
@@ -1005,7 +987,7 @@ def controleer_pool(zoeker: DetailCacheZoeker, tracking: dict, al_binnen: set[st
             continue
         data.setdefault("detail_url", data.get("url") or rec.get("url") or "")
         data["_bron"] = "pool"
-        resultaten.append(PoolResultaat(data))
+        resultaten.append(Resultaat(data))
         teller["beschikbaar"] += 1
 
     _pool_eindcheck(op_rij)
@@ -1067,37 +1049,28 @@ def auto_push(folder: Path | None = None) -> None:
         log("Auto-push overgeslagen (--no-push).")
         return
     folder = folder or Path(__file__).parent
-    docs_dir = folder / "docs"
-    if not docs_dir.exists():
+    if not (folder / "docs").exists():
         log("Geen docs/ folder, push overgeslagen.")
         return
+
+    def git(*args: str, timeout: int = 10):
+        return subprocess.run(["git", "-C", str(folder), *args], capture_output=True, timeout=timeout)
+
     try:
-        subprocess.run(["git", "-C", str(folder), "add", "docs/"], capture_output=True, timeout=10)
-        diff = subprocess.run(
-            ["git", "-C", str(folder), "diff", "--cached", "--quiet", "--", "docs/"],
-            capture_output=True, timeout=10,
-        )
-        if diff.returncode == 0:
+        git("add", "docs/")
+        if git("diff", "--cached", "--quiet", "--", "docs/").returncode == 0:
             log("Geen docs-wijzigingen, push overgeslagen.")
             return
-        msg = f"auto: rapport {datetime.now():%Y-%m-%d %H:%M}"
-        commit = subprocess.run(
-            ["git", "-C", str(folder), "commit", "-m", msg, "--", "docs/"],
-            capture_output=True, timeout=10,
-        )
+        commit = git("commit", "-m", f"auto: rapport {datetime.now():%Y-%m-%d %H:%M}", "--", "docs/")
         if commit.returncode != 0:
             err = (commit.stderr or commit.stdout).decode("utf-8", errors="ignore")[:300]
             log(f"Commit fout, push overgeslagen: {err}")
             return
-        push = subprocess.run(
-            ["git", "-C", str(folder), "push"],
-            capture_output=True, timeout=60,
-        )
+        push = git("push", timeout=60)
         if push.returncode == 0:
             log("Gepusht naar GitHub.")
         else:
-            err = push.stderr.decode("utf-8", errors="ignore")[:300]
-            log(f"Push fout: {err}")
+            log(f"Push fout: {push.stderr.decode('utf-8', errors='ignore')[:300]}")
     except subprocess.TimeoutExpired:
         log("Git push timeout (>60s).")
     except FileNotFoundError:
@@ -1107,23 +1080,13 @@ def auto_push(folder: Path | None = None) -> None:
 
 
 def laad_blacklist() -> set[str]:
-    if BLACKLIST_FILE.exists():
-        try:
-            return set(json.loads(BLACKLIST_FILE.read_text()))
-        except Exception:
-            return set()
-    return set()
+    return _lees_state(BLACKLIST_FILE, set)
 
 
 # === Prijs- en looptijd-tracking ===
 
 def laad_tracking() -> dict:
-    if TRACKING_FILE.exists():
-        try:
-            return json.loads(TRACKING_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-    return {}
+    return _lees_state(TRACKING_FILE, dict)
 
 
 def bewaar_tracking(tracking: dict) -> None:
@@ -1293,7 +1256,7 @@ def _woningen_uit_mailbox() -> list[tuple[str, str]]:
     return woningen
 
 
-class GeenBron:
+class GeenBron(DropIn):
     """Zoeker voor als geen enkele bron werkt.
 
     Elke zoekaanroep faalt, zonder netwerk. main() stopt dan op de
@@ -1302,19 +1265,11 @@ class GeenBron:
     """
 
     def __init__(self, client: object, boodschap: str) -> None:
-        self._client = client
+        super().__init__(client)
         self.boodschap = boodschap
 
     def search_listing(self, *_args, **_kwargs):
         raise RuntimeError("geen enkele zoekbron werkt (oorzaken in de ::error hierboven)")
-
-    def get_listing(self, listing_id):
-        return self._client.get_listing(listing_id)
-
-    def __getattr__(self, naam: str):
-        if naam.startswith("_"):
-            raise AttributeError(naam)
-        return getattr(self._client, naam)
 
 
 def _kort(tekst: object, n: int = 160) -> str:
@@ -1372,21 +1327,23 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
 
         return MailBron(f, _woningen_uit_mailbox(), log=log)
 
-    if methode == "mail":
-        log("Zoekmethode: mail (afgedwongen via configuratie).")
-        return mail_zoeker(), "mail"
+    gedwongen = {"mail": ("mail", mail_zoeker), "sitemap": ("sitemap", sitemap_zoeker),
+                 "html": ("HTML", html_zoeker), "api": ("API", lambda: f)}
+    if methode in gedwongen:
+        naam, maak = gedwongen[methode]
+        log(f"Zoekmethode: {naam} (afgedwongen via configuratie).")
+        return maak(), methode
 
-    if methode == "sitemap":
-        log("Zoekmethode: sitemap (afgedwongen via configuratie).")
-        return sitemap_zoeker(), "sitemap"
+    def bereikbaar(zoeker: object, wat: str) -> bool:
+        try:
+            return zoeker.bereikbaar()
+        except Exception as exc:
+            log(f"{wat} niet te bereiken ({exc}).")
+            zoeker.reden = str(exc)
+            return False
 
-    if methode == "html":
-        log("Zoekmethode: HTML (afgedwongen via configuratie).")
-        return html_zoeker(), "html"
-
-    if methode == "api":
-        log("Zoekmethode: API (afgedwongen via configuratie).")
-        return f, "api"
+    def oorzaak(zoeker: object) -> str:
+        return _kort(getattr(zoeker, "reden", None) or "niet bereikbaar")
 
     redenen: list[str] = []
 
@@ -1412,16 +1369,10 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
     # 2. De zoekpagina. Eén goedkope call, want sinds 8 okt 2026 geeft die een
     # 403 vanaf Actions; dan is er geen reden om alle prijsbanden af te lopen.
     zoeker = html_zoeker()
-    try:
-        bereikbaar = zoeker.bereikbaar()
-    except Exception as exc:
-        log(f"Zoekpagina niet te bereiken ({exc}).")
-        zoeker.reden = str(exc)
-        bereikbaar = False
-    if bereikbaar:
+    if bereikbaar(zoeker, "Zoekpagina"):
         log("Zoekmethode: HTML.")
         return zoeker, "html"
-    redenen.append(f"zoekpagina: {_kort(getattr(zoeker, 'reden', None) or 'niet bereikbaar')}")
+    redenen.append(f"zoekpagina: {oorzaak(zoeker)}")
 
     # 3. De sitemaps: robots.txt en de index. Die twee verzoeken hergebruikt de
     # zoeker daarna, dus dit kost niets extra. bereikbaar() zegt alleen dat de
@@ -1429,13 +1380,7 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
     # hier al. Het resultaat wordt onthouden, dus dat kost ook niets extra, en
     # gaat het mis, dan staat de oorzaak in de ::error.
     sitemap = sitemap_zoeker()
-    try:
-        bereikbaar = sitemap.bereikbaar()
-    except Exception as exc:
-        log(f"Sitemaps niet te bereiken ({exc}).")
-        sitemap.reden = str(exc)
-        bereikbaar = False
-    if bereikbaar:
+    if bereikbaar(sitemap, "Sitemaps"):
         try:
             sitemap.ophalen()
         except DetailEndpointDicht as exc:
@@ -1450,11 +1395,10 @@ def kies_zoeker(f: "Funda") -> tuple[object, str]:
         else:
             log("Zoekmethode: sitemap (zoek-API en zoekpagina liggen eruit).")
             return sitemap, "sitemap"
-    redenen.append(f"sitemaps: {_kort(getattr(sitemap, 'reden', None) or 'niet bereikbaar')}")
+    redenen.append(f"sitemaps: {oorzaak(sitemap)}")
 
     boodschap = "Geen enkele zoekbron werkt. " + "; ".join(redenen) + "."
-    log(boodschap)
-    print(f"::error::{log_tekst(boodschap)}")
+    _meld_fout(boodschap)
     return GeenBron(f, boodschap), "geen"
 
 
@@ -1475,22 +1419,29 @@ def _log_kosten(f: object, bron: object, methode: str, start: float) -> None:
     log("Run-kosten: " + "; ".join(delen) + ".")
 
 
-def main() -> None:
-    debug_wijken = "--debug-wijken" in sys.argv
-    start = time.monotonic()
-    f = Funda()
-    seen = laad_state()
-    mode = " (debug-wijken)" if debug_wijken else ""
-    # De log van een publieke repo is voor iedereen leesbaar; de postcode is privé.
-    toon_pc = "(verborgen)" if publieke_log() else POSTCODE
-    log(f"Start{mode}. Postcode {toon_pc}, radius {RADIUS_KM}km. Reeds gezien: {len(seen)}.")
+def _meld_fout(boodschap: str) -> None:
+    """Logregel plus ::error:: (op Actions de annotatie bij de rode run)."""
+    log(boodschap)
+    print(f"::error::{log_tekst(boodschap)}")
 
-    bron, zoek_methode = kies_zoeker(f)
-    zoeker = DetailCacheZoeker(bron)
 
-    # Zoek per prijsband los, zodat we onder Funda's resultaatkap (~140) blijven
-    # en ook woningen vinden die al lang te koop staan. Dedup op id.
-    banden = maak_prijs_banden(PRIJS_MIN, PRIJS_MAX, PRIJS_BAND_STAP)
+def _stop(boodschap: str) -> None:
+    """Exit 2: stoppen vóór het rapport (CLAUDE.md, "Wanneer stopt een run met exit 2").
+
+    Geen rapport, seen-ids en tracking niet bijwerken (alleen de caches met wat
+    al is opgehaald). Zo blijft het vorige, gevulde rapport staan en kleurt de
+    Action rood, in plaats van dat het probleem doorsijpelt als "0 woningen".
+    """
+    _meld_fout(boodschap)
+    raise SystemExit(2)
+
+
+def zoek_alle_banden(zoeker: object, zoek_methode: str) -> list:
+    """Zoek per prijsband en sortering, ontdubbeld op id. Stopt met exit 2 als het zoeken stuk is.
+
+    Per prijsband los, zodat elke deel-query onder funda's resultaatkap (~140)
+    blijft en ook woningen die al lang te koop staan meekomen.
+    """
     rauwe = []
     gezien_ids: set[str] = set()
     # Onderscheid "de markt heeft niets" van "de API doet het niet": tel geslaagde
@@ -1510,7 +1461,7 @@ def main() -> None:
     def aantal(n: int) -> str:
         return "" if publiek else f" {n}"
 
-    for band_min, band_max in banden:
+    for band_min, band_max in maak_prijs_banden(PRIJS_MIN, PRIJS_MAX, PRIJS_BAND_STAP):
         band_n = 0
         band_label = f"€ {band_min:,}-{band_max:,}"
         for sort in ZOEK_SORTS:
@@ -1543,8 +1494,7 @@ def main() -> None:
                 if not results:
                     break
                 for r in results:
-                    d = r.data
-                    lid = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url"))
+                    lid = str(_woning_id(r.data))
                     if lid in gezien_ids:
                         continue
                     gezien_ids.add(lid)
@@ -1559,155 +1509,109 @@ def main() -> None:
 
     log(f"Totaal opgehaald (na dedup): {len(rauwe)} (via {zoek_methode}).")
 
-    # Geen enkele geslaagde zoek-call = de API is stuk (bijv. 401), niet de markt.
-    # Hard stoppen: geen rapport schrijven, seen-ids en tracking niet bijwerken
-    # (alleen de caches met wat al is opgehaald, zie CLAUDE.md). Zo blijft het
-    # vorige (gevulde) rapport staan en kleurt de Action rood in plaats van dat
-    # het probleem onopgemerkt doorsijpelt als "0 woningen".
+    # Geen enkele geslaagde zoek-call = de bron is stuk (bijv. 401), niet de markt.
     if zoek_ok == 0 and zoek_fout:
         top = ", ".join(reden + ("" if publiek else f" ({n}x)")
                         for reden, n in zoek_fout_redenen.most_common(3))
-        boodschap = (
-            f"Alle{aantal(zoek_fout)} zoekopdrachten mislukt, geen enkele geslaagde call. "
-            f"Meest voorkomend: {top}. Rapport NIET bijgewerkt."
-        )
-        log(boodschap)
-        print(f"::error::{log_tekst(boodschap)}")
-        raise SystemExit(2)
+        _stop(f"Alle{aantal(zoek_fout)} zoekopdrachten mislukt, geen enkele geslaagde call. "
+              f"Meest voorkomend: {top}. Rapport NIET bijgewerkt.")
 
     # Variant op hetzelfde probleem: alle calls slagen, maar er komt niets terug.
     # Zo faalt de HTML-route als funda hun markup wijzigt - de pagina geeft netjes
     # 200 en de parser vindt simpelweg nul kaarten, zonder exception. Voor deze
     # zoekopdracht (hele regio, brede prijsband) is nul woningen in de praktijk
-    # geen lege markt maar een stukke zoekmethode. Dus dezelfde behandeling:
-    # rapport, seen-ids en tracking met rust laten en de run rood laten worden.
+    # geen lege markt maar een stukke zoekmethode.
     if not rauwe:
-        boodschap = (
-            f"Nul woningen gevonden terwijl alle{aantal(zoek_ok)} zoek-calls slaagden "
-            f"(methode: {zoek_methode}). Dat wijst op een stukke zoekmethode, niet "
-            f"op een lege markt. Rapport NIET bijgewerkt."
-        )
-        log(boodschap)
-        print(f"::error::{log_tekst(boodschap)}")
-        raise SystemExit(2)
+        _stop(f"Nul woningen gevonden terwijl alle{aantal(zoek_ok)} zoek-calls slaagden "
+              f"(methode: {zoek_methode}). Dat wijst op een stukke zoekmethode, niet "
+              f"op een lege markt. Rapport NIET bijgewerkt.")
 
     if zoek_fout:
         hoeveel = ("een deel van de zoek-calls" if publiek
                    else f"{zoek_fout} van {zoek_ok + zoek_fout} zoek-calls")
         log(f"Let op: {hoeveel} mislukt; resultaat kan onvolledig zijn.")
+    return rauwe
 
-    # Eerder getoonde woningen die deze run niet binnenkwamen opnieuw controleren.
-    # Pas ná de checks hierboven: een stukke zoekmethode moet nog steeds luid
-    # falen, ook als de pool wél iets oplevert.
-    tracking = laad_tracking()
-    al_binnen: set[str] = set()
+
+def toon_wijken(rauwe: list) -> None:
+    """--debug-wijken: alle binnenkomende wijken met aantallen en wat de filters ermee doen."""
+    wijk_counts: Counter[str] = Counter()
     for r in rauwe:
-        for veld in ("global_id", "listing_id", "tiny_id", "detail_url"):
-            if r.data.get(veld):
-                al_binnen.add(str(r.data[veld]))
-    # Bij de sitemaproute weet de pool wat de zoeker al ophaalde of bewust
-    # oversloeg, zodat geen woning twee keer per run wordt opgehaald.
-    try:
-        pool = controleer_pool(zoeker, tracking, al_binnen, dagen=POOL_DAGEN, maximum=POOL_MAX,
-                               sitemap=bron if zoek_methode == "sitemap" else None)
-    except DetailEndpointDicht as exc:
-        # Het endpoint ging tijdens de run dicht. Doorgaan geeft een rapport
-        # zonder de bekende woningen, en dat blijft staan zolang de volgende
-        # runs al bij de eerste call falen. Dus net als hierboven: stoppen.
-        boodschap = f"Detail-endpoint ging tijdens de run dicht ({exc}). Rapport NIET bijgewerkt."
-        log(boodschap)
-        print(f"::error::{log_tekst(boodschap)}")
-        raise SystemExit(2)
-    rauwe.extend(pool)
+        buurt = (r.data.get("neighbourhood") or "").strip() or "(leeg)"
+        stad = (r.data.get("city") or "").strip()
+        wijk_counts[f"{stad} - {buurt}" if stad else buurt] += 1
 
-    # Debug: alle binnenkomende wijken inventariseren. Alleen lokaal: de buurtnamen
-    # met aantallen tonen het zoekgebied, en de log op Actions is publiek.
-    if debug_wijken and publieke_log():
-        log("--debug-wijken werkt alleen lokaal (de log op Actions is publiek).")
-    elif debug_wijken:
-        wijk_counts: Counter[str] = Counter()
-        for r in rauwe:
-            buurt = (r.data.get("neighbourhood") or "").strip() or "(leeg)"
-            stad = (r.data.get("city") or "").strip()
-            sleutel = f"{stad} - {buurt}" if stad else buurt
-            wijk_counts[sleutel] += 1
+    print("\n--- DEBUG: alle wijken in resultaten ---")
+    for naam, n in wijk_counts.most_common():
+        buurt = naam.split(" - ")[-1]
+        stad = naam.split(" - ")[0] if " - " in naam else ""
+        if is_uitgesloten_stad(stad):
+            tag = "STAD-UIT"
+        elif is_uitgesloten_buurt(buurt):
+            tag = "UIT     "
+        elif is_twijfelbuurt(buurt) or is_twijfelstad(stad):
+            tag = "TWIJFEL "
+        else:
+            tag = "OK      "
+        print(f"  [{tag}] {n:>2}x  {naam}")
+    print()
 
-        print("\n--- DEBUG: alle wijken in resultaten ---")
-        for naam, n in wijk_counts.most_common():
-            buurt = naam.split(" - ")[-1]
-            stad = naam.split(" - ")[0] if " - " in naam else ""
-            if is_uitgesloten_stad(stad):
-                tag = "STAD-UIT"
-            elif is_uitgesloten_buurt(buurt):
-                tag = "UIT     "
-            elif is_twijfelbuurt(buurt) or is_twijfelstad(stad):
-                tag = "TWIJFEL "
-            else:
-                tag = "OK      "
-            print(f"  [{tag}] {n:>2}x  {naam}")
-        print()
 
-    # Filter op stad, buurt en straat-segment.
+# De nafilters, in de volgorde waarin ze gelden; de naam staat in de logregel
+# "Na filter". Elke route filtert na het ophalen (CLAUDE.md, "Nafilters"), en
+# onbekend = doorlaten. "Niet beschikbaar": de oude zoekopdracht vroeg alleen
+# beschikbare woningen op, en een mail van tien dagen terug kan inmiddels onder
+# bod staan.
+NAFILTER_CRITERIA = "buiten prijs/m2/straal"
+NAFILTERS = (
+    ("woningtype", lambda d, thuis, straal: is_geen_appartement(d)),
+    ("niet beschikbaar", lambda d, thuis, straal: beschikbaarheid(d)[0] != "ja"),
+    (NAFILTER_CRITERIA, lambda d, thuis, straal: buiten_zoekcriteria(d, thuis, straal)),
+    ("stad", lambda d, thuis, straal: is_uitgesloten_stad((d.get("city") or "").strip())),
+    ("buurt", lambda d, thuis, straal: is_uitgesloten_buurt((d.get("neighbourhood") or "").strip())),
+    ("straat-segment", lambda d, thuis, straal: is_uitgesloten_straat_nr(d)),
+)
+
+
+def nafilter(rauwe: list, thuis: tuple[float, float] | None, straal: float | None) -> tuple[list, Counter]:
+    """Wat door de nafilters komt, en hoeveel er per filter afviel."""
     voor: list = []
-    weg_stad = weg_buurt = weg_straat = weg_type = weg_status = weg_criteria = 0
-    thuis = thuis_coords()
-    straal = nafilter_straal_km()
-    if straal and not thuis:
-        log("Afstandsfilter: zoekpostcode niet te geocoderen; deze run zonder afstandsfilter.")
+    weg: Counter[str] = Counter()
     status_mail: Counter[str] = Counter()
     for r in rauwe:
         d = r.data
-        stad = (d.get("city") or "").strip()
-        buurt = (d.get("neighbourhood") or "").strip()
-        geen_app = is_geen_appartement(d)
-        if geen_app:
-            weg_type += 1
-            continue
-        # De oude zoekopdracht vroeg alleen beschikbare woningen op. Een mail van
-        # tien dagen terug kan inmiddels onder bod staan.
-        oordeel, status_tekst = beschikbaarheid(d)
-        if d.get("_bron") == "mail":
-            status_mail[status_tekst or "(geen)"] += 1
-        if oordeel != "ja":
-            weg_status += 1
-            continue
-        if buiten_zoekcriteria(d, thuis, straal):
-            weg_criteria += 1
-            continue
-        if is_uitgesloten_stad(stad):
-            weg_stad += 1
-            continue
-        if is_uitgesloten_buurt(buurt):
-            weg_buurt += 1
-            continue
-        straat_reden = is_uitgesloten_straat_nr(d)
-        if straat_reden:
-            weg_straat += 1
-            continue
-        voor.append(r)
-
-    log(f"Na filter: {len(voor)} (weg: {weg_type} woningtype, {weg_status} niet beschikbaar, "
-        f"{weg_criteria} buiten prijs/m2/straal, {weg_stad} stad, {weg_buurt} buurt, "
-        f"{weg_straat} straat-segment).")
+        reden = next((naam for naam, wijst_af in NAFILTERS if wijst_af(d, thuis, straal)), None)
+        if d.get("_bron") == "mail" and reden != "woningtype":
+            status_mail[beschikbaarheid(d)[1] or "(geen)"] += 1
+        if reden:
+            weg[reden] += 1
+        else:
+            voor.append(r)
+    log(f"Na filter: {len(voor)} (weg: " + ", ".join(f"{weg[naam]} {naam}" for naam, _ in NAFILTERS) + ").")
     if status_mail:
         log("Mailbron: statuswaarden: "
             + ", ".join(f"{s} ({n}x)" for s, n in status_mail.most_common()))
+    return voor, weg
 
-    # Detail-check op beleggingsobject, begane grond en blacklist.
+
+def detailcheck(zoeker: object, voor: list, thuis: tuple[float, float] | None, straal: float | None,
+                weg: Counter) -> tuple[list[dict], list[tuple[dict, list[str]]], dict[str, str | None]]:
+    """Detail-check op blacklist, beleggingsobject en begane grond.
+
+    Geeft (goed, afgewezen met redenen, publicatiedatum per woning). Mislukt de
+    detail-call, dan blijft de woning staan: tonen is de standaard.
+    """
     blacklist = laad_blacklist()
     goed: list[dict] = []
     afgewezen: list[tuple[dict, list[str]]] = []
-    pub_data: dict[str, str | None] = {}  # publicatiedatum per woning (indien gevonden)
+    pub_data: dict[str, str | None] = {}
     for r in voor:
         d = r.data
         lid = d.get("global_id") or d.get("listing_id")
-        sleutel = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url"))
-
-        # Blacklist-check eerst (geen detail-call nodig).
-        if sleutel in blacklist:
+        sleutel = str(_woning_id(d))
+        if sleutel in blacklist:   # geen detail-call nodig
             afgewezen.append((d, ["blacklist"]))
             continue
-
         try:
             details = zoeker.get_listing(lid)
             details_data = details.data if hasattr(details, "data") else None
@@ -1715,23 +1619,14 @@ def main() -> None:
             # Bij de API-route heeft het zoekresultaat geen coördinaten; die komen
             # pas uit de detail-call. Dus hier nog een keer, met alles erbij.
             if details_data and buiten_zoekcriteria({**d, **details_data}, thuis, straal):
-                weg_criteria += 1
+                weg[NAFILTER_CRITERIA] += 1
                 continue
-            tekst = ""
-            if details_data:
-                tekst = str(details_data.get("description", ""))
-                tekst += " " + str(details_data.get("title", ""))
-
-            redenen: list[str] = []
-
-            woorden = is_belegging(tekst)
-            if woorden:
-                redenen.extend(woorden)
-
+            tekst = (f'{details_data.get("description", "")} {details_data.get("title", "")}'
+                     if details_data else "")
+            redenen = is_belegging(tekst)
             bg = is_begane_grond(tekst, details_data)
             if bg:
                 redenen.append(f"begane grond ({bg[0]})")
-
             if redenen:
                 afgewezen.append((d, redenen))
             else:
@@ -1741,15 +1636,17 @@ def main() -> None:
         except Exception as exc:
             log(f"Detail fout {'voor een woning' if publieke_log() else lid}: {exc} - tonen by default.")
             goed.append(d)
-    if weg_criteria:
-        log(f"Buiten prijs/m2/straal in totaal (incl. na detail-call): {weg_criteria}.")
+    if weg[NAFILTER_CRITERIA]:
+        log(f"Buiten prijs/m2/straal in totaal (incl. na detail-call): {weg[NAFILTER_CRITERIA]}.")
+    return goed, afgewezen, pub_data
 
-    # Werk prijs-/looptijd-tracking bij en hang afgeleide flags aan elke woning.
+
+def werk_tracking_bij(goed: list[dict], tracking: dict, pub_data: dict[str, str | None]) -> None:
+    """Prijs- en looptijd-tracking bijwerken en de afgeleide flags aan elke woning hangen."""
     n_gedaald = n_lang = 0
     for d in goed:
-        sleutel = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url"))
-        prijs = int(d.get("price") or 0)
-        flags = update_tracking(tracking, sleutel, prijs, pub_data.get(sleutel))
+        sleutel = str(_woning_id(d))
+        flags = update_tracking(tracking, sleutel, int(d.get("price") or 0), pub_data.get(sleutel))
         # De URL bewaren, zodat de pool deze woning later zelf kan ophalen. En een
         # woning die weer opduikt, is niet meer weg.
         rec = tracking.get(sleutel)
@@ -1761,86 +1658,122 @@ def main() -> None:
         d["_track"] = flags
         # Twijfel zichtbaar in het rapport, onderaan in de groep (nooit een filter).
         d["_twijfel"] = twijfel_redenen(d)
-        if flags["gedaald"]:
-            n_gedaald += 1
-        if flags["dagen"] >= LANG_OP_FUNDA_DAGEN:
-            n_lang += 1
+        n_gedaald += bool(flags["gedaald"])
+        n_lang += flags["dagen"] >= LANG_OP_FUNDA_DAGEN
     bewaar_tracking(tracking)
     log(f"Prijsdaling: {n_gedaald}. Lang op funda (>={LANG_OP_FUNDA_DAGEN}d): {n_lang}.")
 
-    # Splits in nieuw vs eerder gezien.
-    nieuw, bekend = [], []
-    for d in goed:
-        lid = str(d.get("global_id") or d.get("listing_id") or d.get("detail_url"))
-        (nieuw if lid not in seen else bekend).append(d)
 
-    # Sorteer: prijsdalers eerst, dan lang-op-funda (onderhandelkansen),
-    # twijfelbuurten en woningen zonder vraagprijs naar onderen, daarna op prijs.
-    # Dit is de volgorde van de console en de voorlopige samenvatting; na het rapport
-    # zet vul_summary_aan() de push in de volgorde van "Aanbevolen" (funda_beoordeling.sorteer).
-    def sort_key(d: dict):
-        buurt = (d.get("neighbourhood") or "")
-        twijfel = (is_twijfelbuurt(buurt) is not None
-                   or is_twijfelstad(d.get("city", "") or "") is not None)
-        tr = d.get("_track") or {}
-        gedaald = bool(tr.get("gedaald"))
-        lang = tr.get("dagen", 0) >= LANG_OP_FUNDA_DAGEN
-        # `or 0`: een woning zonder vraagprijs ("prijs op aanvraag") heeft
-        # price=None. De sitemap- en mailroute laten die bewust door (onbekend =
-        # doorlaten), en None naast een getal laat sort() crashen.
-        return (not gedaald, not lang, twijfel or prijs_onbekend(d), d.get("price") or 0)
+def _console_volgorde(d: dict) -> tuple:
+    """Prijsdalers eerst, dan lang-op-funda (onderhandelkansen), twijfel en geen vraagprijs onderaan, dan op prijs.
 
-    nieuw.sort(key=sort_key)
-    bekend.sort(key=sort_key)
+    De volgorde van de console en de voorlopige samenvatting; na het rapport zet
+    vul_summary_aan() de push in de volgorde van "Aanbevolen" (funda_beoordeling.sorteer).
+    """
+    twijfel = (is_twijfelbuurt(d.get("neighbourhood") or "") is not None
+               or is_twijfelstad(d.get("city", "") or "") is not None)
+    tr = d.get("_track") or {}
+    # `or 0`: een woning zonder vraagprijs ("prijs op aanvraag") heeft price=None,
+    # en None naast een getal laat sort() crashen.
+    return (not tr.get("gedaald"), not tr.get("dagen", 0) >= LANG_OP_FUNDA_DAGEN,
+            twijfel or prijs_onbekend(d), d.get("price") or 0)
+
+
+def maak_rapport(zoeker: object, goed: list[dict], nieuw: list[dict]) -> None:
+    """Rapport over alle goedgekeurde woningen, met markering nieuw of eerder gezien.
+
+    Altijd genereren (ook bij 0 matches), zodat de "Gegenereerd"-datum in het
+    rapport nooit blijft hangen op de laatste run met resultaten.
+    """
+    if not genereer_rapport:
+        return
+    try:
+        pad = genereer_rapport(zoeker, goed, {str(_woning_id(d)) for d in nieuw})
+        log(f"Rapport: {pad.name}")
+        if nieuw:
+            n = vul_summary_aan(nieuw)
+            log(f"Pushsamenvatting: {n} van {len(nieuw)} nieuwe woningen met poortwoord en score.")
+
+        # Open het HTML-rapport in de browser bij een interactieve run.
+        # Niet bij Task Scheduler (sys.stdout.isatty() is dan False).
+        if "--open" in sys.argv or ("--no-open" not in sys.argv and sys.stdout.isatty()):
+            import webbrowser
+            lokaal = Path(__file__).parent / "funda_rapport.html"
+            if lokaal.exists():
+                webbrowser.open(lokaal.as_uri())
+    except Exception as exc:
+        log(f"Rapport-fout: {exc}")
+
+
+def main() -> None:
+    """Eén run: zoeken, pool, nafilters, detailcheck, tracking, uitvoer, state, rapport en push."""
+    debug_wijken = "--debug-wijken" in sys.argv
+    start = time.monotonic()
+    f = Funda()
+    seen = laad_state()
+    mode = " (debug-wijken)" if debug_wijken else ""
+    # De log van een publieke repo is voor iedereen leesbaar; de postcode is privé.
+    toon_pc = "(verborgen)" if publieke_log() else POSTCODE
+    log(f"Start{mode}. Postcode {toon_pc}, radius {RADIUS_KM}km. Reeds gezien: {len(seen)}.")
+
+    bron, zoek_methode = kies_zoeker(f)
+    zoeker = DetailCacheZoeker(bron)
+    rauwe = zoek_alle_banden(zoeker, zoek_methode)
+
+    # Eerder getoonde woningen die deze run niet binnenkwamen opnieuw controleren.
+    # Pas ná de checks van het zoeken: een stukke zoekmethode moet luid falen,
+    # ook als de pool wél iets oplevert. Bij de sitemaproute weet de pool wat de
+    # zoeker al ophaalde of bewust oversloeg, zodat geen woning twee keer per run
+    # wordt opgehaald.
+    tracking = laad_tracking()
+    al_binnen = {str(r.data[veld]) for r in rauwe
+                 for veld in ("global_id", "listing_id", "tiny_id", "detail_url") if r.data.get(veld)}
+    try:
+        rauwe.extend(controleer_pool(zoeker, tracking, al_binnen, dagen=POOL_DAGEN, maximum=POOL_MAX,
+                                     sitemap=bron if zoek_methode == "sitemap" else None))
+    except DetailEndpointDicht as exc:
+        # Het endpoint ging tijdens de run dicht. Doorgaan geeft een rapport
+        # zonder de bekende woningen, en dat blijft staan zolang de volgende
+        # runs al bij de eerste call falen.
+        _stop(f"Detail-endpoint ging tijdens de run dicht ({exc}). Rapport NIET bijgewerkt.")
+
+    # Alleen lokaal: de buurtnamen met aantallen tonen het zoekgebied, en de log
+    # op Actions is publiek.
+    if debug_wijken and publieke_log():
+        log("--debug-wijken werkt alleen lokaal (de log op Actions is publiek).")
+    elif debug_wijken:
+        toon_wijken(rauwe)
+
+    thuis = thuis_coords()
+    straal = nafilter_straal_km()
+    if straal and not thuis:
+        log("Afstandsfilter: zoekpostcode niet te geocoderen; deze run zonder afstandsfilter.")
+    voor, weg = nafilter(rauwe, thuis, straal)
+    goed, afgewezen, pub_data = detailcheck(zoeker, voor, thuis, straal, weg)
+    werk_tracking_bij(goed, tracking, pub_data)
+
+    nieuw = [d for d in goed if str(_woning_id(d)) not in seen]
+    bekend = [d for d in goed if str(_woning_id(d)) in seen]
+    nieuw.sort(key=_console_volgorde)
+    bekend.sort(key=_console_volgorde)
     schrijf_run_summary(nieuw, bekend, afgewezen)
 
-    # Output. Op Actions alleen aantallen: de log van een publieke repo is voor
-    # iedereen leesbaar, en de lijst (adres, postcode, buurt, prijs, URL) zou
-    # zoekgebied, budget en de gevolgde en afgewezen woningen laten zien. De
-    # lijst staat in het versleutelde rapport.
+    # Op Actions alleen aantallen: de log van een publieke repo is voor iedereen
+    # leesbaar, en de lijst (adres, postcode, buurt, prijs, URL) zou zoekgebied,
+    # budget en de gevolgde en afgewezen woningen laten zien. De lijst staat in
+    # het versleutelde rapport.
     print("\n" + "=" * 78)
     print(f"NIEUW: {len(nieuw)}    Eerder gezien: {len(bekend)}    Afgewezen: {len(afgewezen)}")
     print("=" * 78)
+    (toon_aantallen if publieke_log() else toon_lijsten)(nieuw, bekend, afgewezen)
 
-    if publieke_log():
-        toon_aantallen(nieuw, bekend, afgewezen)
-    else:
-        toon_lijsten(nieuw, bekend, afgewezen)
+    seen |= {str(_woning_id(d)) for d in goed}
+    bewaar_state(seen)
+    log(f"Klaar. Nieuw vandaag: {len(nieuw)}. State bevat nu {len(seen)} id's.")
 
-    # State updaten.
-    nieuwe_set = {str(d.get("global_id") or d.get("listing_id") or d.get("detail_url")) for d in goed}
-    bewaar_state(seen | nieuwe_set)
-    log(f"Klaar. Nieuw vandaag: {len(nieuw)}. State bevat nu {len(seen | nieuwe_set)} id's.")
-
-    # Rapport genereren over alle goedgekeurde woningen, met markering nieuw vs eerder.
-    # Altijd genereren (ook bij 0 matches) zodat de "Gegenereerd"-datum in het
-    # rapport nooit blijft hangen op de laatste run met resultaten.
-    if genereer_rapport:
-        try:
-            nieuw_ids = {str(d.get("global_id") or d.get("listing_id") or d.get("detail_url")) for d in nieuw}
-            pad = genereer_rapport(zoeker, goed, nieuw_ids)
-            log(f"Rapport: {pad.name}")
-            if nieuw:
-                n = vul_summary_aan(nieuw)
-                log(f"Pushsamenvatting: {n} van {len(nieuw)} nieuwe woningen met poortwoord en score.")
-
-            # Open HTML rapport in browser bij interactieve run.
-            # Niet bij Task Scheduler (sys.stdout.isatty() is dan False).
-            wil_open = "--open" in sys.argv or (
-                "--no-open" not in sys.argv and sys.stdout.isatty()
-            )
-            if wil_open:
-                import webbrowser
-                lokaal = Path(__file__).parent / "funda_rapport.html"
-                if lokaal.exists():
-                    webbrowser.open(lokaal.as_uri())
-        except Exception as exc:
-            log(f"Rapport-fout: {exc}")
-
+    maak_rapport(zoeker, goed, nieuw)
     _log_kosten(f, bron, zoek_methode, start)
-
-    # Auto-push docs/ naar GitHub (skipt zelf als er geen wijzigingen zijn).
-    auto_push()
+    auto_push()   # slaat zelf over als docs/ niet veranderd is
 
 
 def reden_soort(reden: str) -> str:
@@ -1909,19 +1842,15 @@ def toon(d: dict, prefix: str = "") -> None:
         bron = "" if tr.get("dagen_bron") == "funda" else "+"
         flag += f" /!\\ LANG OP FUNDA ({tr['dagen']}{bron}d)"
 
-    url = d.get("detail_url", "")
-    if url and not url.startswith("http"):
-        url = f"https://www.funda.nl{url}"
-    prijs_tekst = "prijs op aanvraag" if prijs_onbekend(d) else f"€ {prijs:,} | {m2} m2 (€{ppm}/m2)"
-    if prijs_onbekend(d):
-        prijs_tekst += f" | {m2} m2"
+    prijs_tekst = (f"prijs op aanvraag | {m2} m2" if prijs_onbekend(d)
+                   else f"€ {prijs:,} | {m2} m2 (€{ppm}/m2)")
     print(f"\n[{prefix}] {prijs_tekst} | label {label}{flag}")
     print(f"  {d.get('title')}, {d.get('postcode')} {d.get('city')}")
     print(f"  Wijk: {buurt}")
     print(f"  {d.get('bedrooms')} slpk | {d.get('rooms')} kamers")
     if tr.get("gedaald") and tr.get("eerdere_prijs"):
         print(f"  Was € {tr['eerdere_prijs']:,}, nu € {prijs:,} (wijziging {tr.get('laatste_wijziging')})")
-    print(f"  {url}")
+    print(f"  {_volledige_url(d.get('detail_url', ''))}")
 
 
 if __name__ == "__main__":

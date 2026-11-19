@@ -322,7 +322,7 @@ def laad_config(personal: dict | None) -> dict:
     cfg["financien"] (of None). Oude aliassen worden niet gelezen (zie oude_sleutels()).
     """
     personal = personal if isinstance(personal, dict) else {}
-    eigen = personal.get("beoordeling") if isinstance(personal.get("beoordeling"), dict) else {}
+    eigen = _blok(personal, "beoordeling")
     cfg = _merge(STANDAARD, eigen)
     if "lang_op_funda_dagen" not in eigen and personal.get("lang_op_funda_dagen") is not None:
         cfg["lang_op_funda_dagen"] = personal["lang_op_funda_dagen"]
@@ -356,12 +356,10 @@ def oude_sleutels(personal: dict | None) -> list[str]:
             blok = blok.get(deel) if isinstance(blok, dict) else None
         if isinstance(blok, dict):
             uit += [f"{pad}.{n}" for n in namen if n in blok]
-    fin = personal.get("financien") if isinstance(personal.get("financien"), dict) else {}
-    eg = fin.get("eigen_geld")
-    if isinstance(eg, dict) and any(k not in EIGEN_GELD_SLEUTELS and not str(k).startswith("_") for k in eg):
+    fin = _blok(personal, "financien")
+    if any(k not in EIGEN_GELD_SLEUTELS and not str(k).startswith("_") for k in _blok(fin, "eigen_geld")):
         uit.append("financien.eigen_geld.<scenario>")
-    sc = fin.get("scenarios")
-    if isinstance(sc, dict) and any(isinstance(v, dict) and "toetsinkomen" in v for v in sc.values()):
+    if any(isinstance(v, dict) and "toetsinkomen" in v for v in _blok(fin, "scenarios").values()):
         uit.append("financien.scenarios.<scenario>.toetsinkomen")
     return uit
 
@@ -394,6 +392,20 @@ def _kap(s: str, n: int) -> str:
 
 def _rond1(x: float) -> float:
     return math.floor(x * 10 + 0.5) / 10
+
+
+def _begrens(x: float, laag: float, hoog: float) -> float:
+    return max(laag, min(hoog, x))
+
+
+def _blok(d: dict, sleutel: str) -> dict:
+    """d[sleutel] als dat een dict is, anders een lege dict."""
+    v = d.get(sleutel)
+    return v if isinstance(v, dict) else {}
+
+
+def _is_getal(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 
 def _datum(x, standaard: date | None = None) -> date | None:
@@ -584,13 +596,11 @@ def rente_uit_config(cfg: dict, vandaag=None) -> dict:
 
     Volgorde: financien.rente.pct (met financien.rente.datum), dan STANDAARD_RENTE."""
     vandaag = _datum(vandaag, date.today())
-    fin = (cfg or {}).get("financien") or {}
-    r = fin.get("rente") if isinstance(fin.get("rente"), dict) else {}
+    r = _blok((cfg or {}).get("financien") or {}, "rente")
     if r.get("pct") is not None:
         pct, bron, datum = r["pct"], "handmatig", r.get("datum")
     else:
         pct, bron, datum = STANDAARD_RENTE["pct"], "standaard", STANDAARD_RENTE["datum"]
-    frac = _als_fractie(pct, 0.2)
     d = _datum(datum)
     max_dagen = int(r.get("max_dagen") or 30)   # zelfde grens als funda_rente
     dagen = (vandaag - d).days if d else None
@@ -599,7 +609,7 @@ def rente_uit_config(cfg: dict, vandaag=None) -> dict:
     if oud:
         melding = (f"Rente is {dagen} dagen oud: woonlasten kunnen afwijken." if dagen is not None
                    else "Rente zonder datum: woonlasten kunnen afwijken.")
-    return {"pct": round(frac * 100, 3), "bron": bron, "datum": d.isoformat() if d else None,
+    return {"pct": round(_als_fractie(pct, 0.2) * 100, 3), "bron": bron, "datum": d.isoformat() if d else None,
             "oud": oud, "melding": melding}
 
 
@@ -615,12 +625,10 @@ def _rentevast(rente: dict | None, cfg: dict) -> int:
 # ---------------------------------------------------------------------------------------
 def _scenario_datum(sid: str, vandaag: date) -> date:
     m = re.match(r"^(\d{4})[_-](\d{1,2})", str(sid))
-    if m:
-        try:
-            return date(int(m.group(1)), int(m.group(2)), 1)
-        except ValueError:
-            return vandaag
-    return vandaag
+    try:
+        return date(int(m.group(1)), int(m.group(2)), 1) if m else vandaag
+    except ValueError:
+        return vandaag
 
 
 def _scenario_label(sid: str) -> str:
@@ -657,104 +665,64 @@ def _maanden_tussen(a: date, b: date) -> int:
 
 
 def financien_invoer(cfg: dict, profiel: dict | None, vandaag=None) -> dict:
-    """Normaliseer cfg["financien"] (of het oude profiel) tot één vaste vorm."""
+    """Normaliseer cfg["financien"] tot één vaste vorm. Zonder dat blok (bron "profiel") komt alles uit
+    het oude profiel: bruto_jaar, eigen_inleg en duo_maandlast, als één scenario "profiel"."""
     vandaag = _datum(vandaag, date.today())
     profiel = profiel or {}
     f_cfg = cfg.get("financiering") or {}
-    raw = cfg.get("financien") if isinstance(cfg.get("financien"), dict) else None
-    leeftijd = profiel.get("leeftijd")
-    if raw is None:
-        return {
-            "bron": "profiel",
-            "alleenstaand": bool(f_cfg.get("alleenstaand", True)),
-            "starter_tot": _datum(f_cfg.get("starter_tot")),
-            "leeftijd": leeftijd,
-            "scenarios": [{"id": "profiel", "label": "Profiel", "bruto_jaar": float(profiel.get("bruto_jaar") or 0),
-                           "datum": vandaag, "eigen_geld": float(profiel.get("eigen_inleg") or 0),
-                           "voorwaardelijk": False}],
-            "planning": "profiel",
-            "studieschuld_maand": float(profiel.get("duo_maandlast") or 0),
-            "bkr_maand": 0.0,
-            "eigen_geld": {"nu": float(profiel.get("eigen_inleg") or 0), "datum": vandaag, "per_maand": 0.0},
-            "buffer": 0.0,
-            "kk_vast": float(KK_VAST_STANDAARD),
-            "nhg_pct": NHG_PREMIE,
-        }
+    uit_profiel = not isinstance(cfg.get("financien"), dict)
+    raw = {} if uit_profiel else cfg["financien"]
 
-    # scenario's
     sc_raw = raw.get("scenarios")
-    lijst = []
     if isinstance(sc_raw, dict):
-        items = list(sc_raw.items())
-    elif isinstance(sc_raw, list):
-        items = [(s.get("id"), s) for s in sc_raw if isinstance(s, dict) and s.get("id")]
+        paren = list(sc_raw.items())
     else:
-        items = []
-    for sid, v in items:
-        if str(sid).startswith("_"):
-            continue
+        paren = [(s.get("id"), s) for s in sc_raw if isinstance(s, dict) and s.get("id")] if isinstance(sc_raw, list) else []
+    lijst = []
+    for sid, v in paren:
         sid = str(sid)
         v = v if isinstance(v, dict) else {"bruto_jaar": v}
-        ink = v.get("bruto_jaar")
-        if ink is None:
+        if sid.startswith("_") or v.get("bruto_jaar") is None:
             continue
         datum = _datum(v.get("datum")) or _scenario_datum(sid, vandaag)
         lijst.append({"id": sid, "label": str(v.get("label") or _scenario_label(sid)),
-                      "bruto_jaar": float(ink), "datum": max(datum, vandaag),
+                      "bruto_jaar": float(v["bruto_jaar"]), "datum": max(datum, vandaag),
                       "eigen_geld": float(v["eigen_geld"]) if v.get("eigen_geld") is not None else None,
                       "voorwaardelijk": v.get("voorwaardelijk") is True})
     # Op datum; op dezelfde datum een voorwaardelijk scenario na het gewone (sort is stabiel).
     lijst.sort(key=lambda s: (s["datum"], s["voorwaardelijk"]))
     if not lijst:
-        lijst = [{"id": "profiel", "label": "Profiel", "bruto_jaar": float(profiel.get("bruto_jaar") or 0),
-                  "datum": vandaag, "eigen_geld": None, "voorwaardelijk": False}]
-    ids = [s["id"] for s in lijst]
+        lijst = [{"id": "profiel", "label": "Profiel", "bruto_jaar": float(profiel.get("bruto_jaar") or 0), "datum": vandaag,
+                  "eigen_geld": float(profiel.get("eigen_inleg") or 0) if uit_profiel else None, "voorwaardelijk": False}]
     planning = raw.get("planning")
-    if planning not in ids:
+    if planning not in [s["id"] for s in lijst]:
         planning = _standaard_planning(lijst)
 
-    # verplichtingen
     st = raw.get("studieschuld")
-    if isinstance(st, dict):
-        studie = st.get("maandlast", 0)
-    elif isinstance(st, (int, float)):
-        studie = st
-    else:
-        studie = profiel.get("duo_maandlast", 0)
+    studie = st.get("maandlast", 0) if isinstance(st, dict) else st if isinstance(st, (int, float)) else profiel.get("duo_maandlast", 0)
     bkr = raw.get("bkr")
-    bkr_maand = 0.0
     if isinstance(bkr, (int, float)):
-        bkr_maand = BKR_PCT_LIMIET * float(bkr)
-    elif isinstance(bkr, list):
-        for k in bkr:
-            if not isinstance(k, dict) or k.get("opgezegd"):
-                continue
-            if k.get("maandlast") is not None:
-                bkr_maand += float(k["maandlast"])
-            else:
-                bkr_maand += BKR_PCT_LIMIET * float(k.get("limiet") or 0)
+        bkr = [{"limiet": bkr}]
+    bkr_maand = 0.0
+    for k in bkr if isinstance(bkr, list) else []:
+        if isinstance(k, dict) and not k.get("opgezegd"):
+            bkr_maand += float(k["maandlast"]) if k.get("maandlast") is not None else BKR_PCT_LIMIET * float(k.get("limiet") or 0)
 
-    # eigen geld
     eg = raw.get("eigen_geld")
-    if isinstance(eg, (int, float)):
-        eg = {"nu": eg}
-    eg = eg if isinstance(eg, dict) else {}
-    nu = eg.get("nu", profiel.get("eigen_inleg", 0))
-    buffer = eg.get("buffer", 0)
-    kk = raw.get("kosten_koper") if isinstance(raw.get("kosten_koper"), dict) else {}
-    starter_tot = _datum(raw.get("starter_tot")) or _datum(f_cfg.get("starter_tot"))
+    eg = {"nu": eg} if isinstance(eg, (int, float)) else eg if isinstance(eg, dict) else {}
+    kk = _blok(raw, "kosten_koper")
     return {
-        "bron": "financien",
+        "bron": "profiel" if uit_profiel else "financien",
         "alleenstaand": bool(raw.get("alleenstaand", f_cfg.get("alleenstaand", True))),
-        "starter_tot": starter_tot,
-        "leeftijd": leeftijd,
+        "starter_tot": _datum(raw.get("starter_tot")) or _datum(f_cfg.get("starter_tot")),
+        "leeftijd": profiel.get("leeftijd"),
         "scenarios": lijst,
         "planning": planning,
         "studieschuld_maand": float(studie or 0),
         "bkr_maand": bkr_maand,
-        "eigen_geld": {"nu": float(nu or 0), "datum": _datum(eg.get("datum"), vandaag),
+        "eigen_geld": {"nu": float(eg.get("nu", profiel.get("eigen_inleg", 0)) or 0), "datum": _datum(eg.get("datum"), vandaag),
                        "per_maand": float(eg.get("per_maand") or 0)},
-        "buffer": float(buffer or 0),
+        "buffer": float(eg.get("buffer", 0) or 0),
         "kk_vast": float(kk.get("vast", KK_VAST_STANDAARD)),
         "nhg_pct": _als_fractie(kk.get("nhg_pct", NHG_PREMIE * 100), 0.05),
     }
@@ -771,12 +739,10 @@ def _eigen_geld_op(inv: dict, scenario: dict) -> float:
 def _is_starter(inv: dict, datum: date) -> bool:
     if inv.get("starter_tot"):
         return datum < inv["starter_tot"]
-    if inv.get("leeftijd") is not None:
-        try:
-            return int(inv["leeftijd"]) < STARTER_LEEFTIJD_TOT
-        except (TypeError, ValueError):
-            return False
-    return False
+    try:
+        return inv.get("leeftijd") is not None and int(inv["leeftijd"]) < STARTER_LEEFTIJD_TOT
+    except (TypeError, ValueError):
+        return False
 
 
 def _scenario_reken(inv: dict, s: dict, rente_frac: float, rentevast: int, label, canon_jaar) -> dict:
@@ -832,13 +798,8 @@ def poort_financieel(tekort: float, over: float, cfg: dict) -> str:
     return "PAST"
 
 
-def _geen_prijs_fin(rente: dict, rentevast: int, planning) -> dict:
-    return {"max_hypotheek": None, "marge_lenen": None, "kosten_koper": None, "kk_soort": None,
-            "tekort": None, "netto": None, "bruto": None, "grens": None, "grens_soort": None,
-            "opbouw": None, "koopsom": None, "hypotheek": None, "over": None,
-            "rente": _als_fractie(rente.get("pct"), 0.2), "rente_datum": rente.get("datum"),
-            "rente_bron": rente.get("bron"), "rentevast_jaren": rentevast,
-            "scenarios": [], "planning": planning, "scenario_tekst": None}
+_FIN_ZONDER_PRIJS = ("max_hypotheek", "marge_lenen", "kosten_koper", "kk_soort", "tekort", "netto", "bruto", "grens",
+                     "grens_soort", "opbouw", "koopsom", "hypotheek", "over", "scenario_tekst")
 
 
 def financiering(woning: dict, cfg: dict, profiel: dict | None, rente: dict | None = None, vandaag=None) -> dict:
@@ -852,12 +813,12 @@ def financiering(woning: dict, cfg: dict, profiel: dict | None, rente: dict | No
     f = cfg["financiering"]
     inv = financien_invoer(cfg, profiel, vandaag)
     met_scenarios = inv["bron"] == "financien" and inv["scenarios"][0]["id"] != "profiel"
-    planning = inv["planning"] if met_scenarios else None
+    vast = {"rente": frac, "rente_datum": rente.get("datum"), "rente_bron": rente.get("bron"), "rentevast_jaren": rentevast,
+            "planning": inv["planning"] if met_scenarios else None}
     prijs = woning.get("prijs")
     if not (isinstance(prijs, (int, float)) and prijs > 0):
-        uit = _geen_prijs_fin(rente, rentevast, planning)
-        uit["poort"], uit["redenen"] = "PRIJS ONBEKEND", ["Geen vraagprijs: geen leentoets en geen woonlasten."]
-        return uit
+        return {**dict.fromkeys(_FIN_ZONDER_PRIJS), **vast, "rente": _als_fractie(rente.get("pct"), 0.2), "scenarios": [],
+                "poort": "PRIJS ONBEKEND", "redenen": ["Geen vraagprijs: geen leentoets en geen woonlasten."]}
 
     koop = int(prijs * (1 + float(f.get("overbod_pct") or 0)))
     label, canon = woning.get("label"), woning.get("canon_jaar") or 0
@@ -906,7 +867,6 @@ def financiering(woning: dict, cfg: dict, profiel: dict | None, rente: dict | No
     if over > 0:
         redenen.append(f"Woonlasten {eur(over)} boven " + ("je grens." if grens_soort == "netto" else "de norm (bruto)."))
 
-    uit_sc = [{k: v for k, v in s.items() if not k.startswith("_")} for s in scenarios] if met_scenarios else []
     return {
         "max_hypotheek": max_hyp, "marge_lenen": max_hyp - koop, "kosten_koper": plan["_kk"],
         "kk_soort": plan["_kk_soort"], "tekort": tekort, "netto": netto, "bruto": bruto,
@@ -917,10 +877,8 @@ def financiering(woning: dict, cfg: dict, profiel: dict | None, rente: dict | No
                    "stook_in_vve": bool(woning.get("stook_in_vve")), "overig": OVERIG_MAAND,
                    "canon_maand": int(round(canon_maand)), "woz": int(round(woz)),
                    "woz_geschat": not woning.get("woz")},
-        "koopsom": koop, "hypotheek": hyp, "over": over,
-        "rente": frac, "rente_datum": rente.get("datum"), "rente_bron": rente.get("bron"),
-        "rentevast_jaren": rentevast,
-        "scenarios": uit_sc, "planning": planning,
+        "koopsom": koop, "hypotheek": hyp, "over": over, **vast,
+        "scenarios": [{k: v for k, v in s.items() if not k.startswith("_")} for s in scenarios] if met_scenarios else [],
         "scenario_tekst": _scenario_tekst(scenarios) if met_scenarios else None,
         "poort": status, "redenen": redenen,
     }
@@ -1015,20 +973,17 @@ _ERFPACHT_EIND = re.compile(r"(?:afgekocht|vooruitbetaald|afkoop)\s+tot\s+(?:en\
                             r"((?:20|21)\d{2})\b")
 
 
-def _zinsdeel_voor(t: str, i: int, venster: int = 60) -> str:
-    """De tekst vóór positie i in dezelfde zin, hooguit `venster` tekens (een punt in 1.250 telt niet)."""
-    voor = t[max(0, i - venster):i]
+def _zinsdeel_voor(t: str, i: int) -> str:
+    """De tekst vóór positie i in dezelfde zin, hooguit 60 tekens (een punt in 1.250 telt niet)."""
+    voor = t[max(0, i - 60):i]
     grens = max((m.end() for m in re.finditer(r"[.;!?](?:\s|$)", voor)), default=0)
     return voor[grens:]
 
 
 def _feitelijk(t: str, patroon: str) -> bool:
     """Komt het patroon voor zonder modale vorm ervoor of erna ("kan worden afgekocht", "is mogelijk")?"""
-    for m in re.finditer(patroon, t):
-        if _MODAAL_VOOR.search(_zinsdeel_voor(t, m.start())) or _MODAAL_NA.match(t[m.end():m.end() + 20]):
-            continue
-        return True
-    return False
+    return any(not (_MODAAL_VOOR.search(_zinsdeel_voor(t, m.start())) or _MODAAL_NA.match(t[m.end():m.end() + 20]))
+               for m in re.finditer(patroon, t))
 
 
 # Een ontkenning hoort alleen bij 'erfpacht' als hij er direct vóór staat, hooguit met een lidwoord
@@ -1041,10 +996,7 @@ _ERFPACHT_ONTKEND = re.compile(r"\b(?:geen|niet|zonder)\s+(?:(?:belast\s+met|in|
 
 def _erfpacht_genoemd(t: str) -> bool:
     """'erfpacht' in de tekst, maar niet direct ontkend ('geen erfpacht', 'niet belast met erfpacht')."""
-    for m in re.finditer(r"erfpacht", t):
-        if not _ERFPACHT_ONTKEND.search(t[max(0, m.start() - 40):m.start()]):
-            return True
-    return False
+    return any(not _ERFPACHT_ONTKEND.search(t[max(0, m.start() - 40):m.start()]) for m in re.finditer(r"erfpacht", t))
 
 
 def erfpacht(ch: dict, tekst: str) -> dict:
@@ -1093,19 +1045,20 @@ def erfpacht(ch: dict, tekst: str) -> dict:
         bedrag = _getal(canon.group(1))
         per = canon.group(2) or "jaar"
         info["canon_jaar"] = int(round(bedrag * {"jaar": 1, "maand": 12, "halfjaar": 2, "kwartaal": 4}[per])) if bedrag else None
-    if afgekocht and info["eind"]:
-        info["status"] = "afgekocht_tot"
-    elif afgekocht and eeuwig and not tot_zonder_jaar:
-        info["status"] = "eeuwig_afgekocht"
-    elif afgekocht:
-        info["status"] = "afgekocht_looptijd_onbekend"
-    elif voortdurend:
-        info["status"] = "voortdurend"
-    elif eeuwig:
-        info["status"] = "eeuwig_canon"
+    if afgekocht:
+        info["status"] = ("afgekocht_tot" if info["eind"] else "eeuwig_afgekocht" if eeuwig and not tot_zonder_jaar
+                          else "afgekocht_looptijd_onbekend")
     else:
-        info["status"] = "erfpacht_onduidelijk"
+        info["status"] = "voortdurend" if voortdurend else "eeuwig_canon" if eeuwig else "erfpacht_onduidelijk"
     return info
+
+
+_RICHTING = r"(zuid[- ]?west|zuid[- ]?oost|noord[- ]?west|noord[- ]?oost|zuid|noord|west|oost)"
+
+
+def _richting(m: re.Match | None) -> str | None:
+    """'zuid-west' -> 'Zuidwest'."""
+    return m.group(1).replace("-", "").replace(" ", "").capitalize() if m else None
 
 
 def buitenruimte(d: dict, ch: dict, tekst: str) -> dict:
@@ -1130,8 +1083,6 @@ def buitenruimte(d: dict, ch: dict, tekst: str) -> dict:
         soort = "frans balkon"
     elif d.get("has_balcony"):
         soort = "balkon"
-    elif "niet aanwezig" in kenm:
-        soort = None
     elif not kenm:
         if re.search(r"(?<!geen )\b(?:eigen\s+)?dakterras\b(?![^.]{0,25}\bniet\s+mogelijk)", t) and not re.search(r"geen\s+dakterras", t):
             soort = "dakterras"
@@ -1148,17 +1099,12 @@ def buitenruimte(d: dict, ch: dict, tekst: str) -> dict:
     richting = None
     if soort and soort != "frans balkon":
         for anker in re.finditer(r"\b(balkon|loggia|dakterras|terras|tuin)\b", t):
-            na = t[anker.end(): anker.end() + 60]
-            m = re.search(r"\b(?:op|aan)\s+(?:het\s+|de\s+)?(zuid[- ]?west|zuid[- ]?oost|noord[- ]?west|noord[- ]?oost|zuid|noord|west|oost)"
-                          r"(?:en|zijde|kant)?\b", na)
-            if m:
-                richting = m.group(1).replace("-", "").replace(" ", "").capitalize()
+            richting = _richting(re.search(r"\b(?:op|aan)\s+(?:het\s+|de\s+)?" + _RICHTING + r"(?:en|zijde|kant)?\b",
+                                           t[anker.end(): anker.end() + 60]))
+            if richting:
                 break
         if richting is None and soort == "tuin" and ch.get("Ligging tuin"):
-            m = re.search(r"(zuid[- ]?west|zuid[- ]?oost|noord[- ]?west|noord[- ]?oost|zuid|noord|west|oost)",
-                          ch["Ligging tuin"].lower())
-            if m:
-                richting = m.group(1).replace("-", "").replace(" ", "").capitalize()
+            richting = _richting(re.search(_RICHTING, ch["Ligging tuin"].lower()))
     bron = "kenmerk 'Balkon/dakterras'" if kenm else ("kenmerk 'Tuin'" if tuin_k else "advertentietekst")
     return {"soort": soort, "m2": m2, "richting": richting, "bron": bron, "zeker": zeker}
 
@@ -1188,15 +1134,18 @@ def label_aanname(label: str, bouwjaar=None) -> tuple[str, str | None]:
     liever te hoge stookkosten dan een woning die op papier past en in de winter niet."""
     if label in ENERGIE_PER_LABEL:
         return label, None
-    bj = bouwjaar if isinstance(bouwjaar, (int, float)) and not isinstance(bouwjaar, bool) else None
     for vanaf, aanname in LABEL_AANNAME_BOUWJAAR:
-        if bj and vanaf <= bj <= 2100:
-            return aanname, f"bouwjaar {int(bj)}"
+        if _is_getal(bouwjaar) and vanaf <= bouwjaar <= 2100:
+            return aanname, f"bouwjaar {int(bouwjaar)}"
     return LABEL_AANNAME_ZONDER, None
 
 
 _RANGTELWOORD = {"eerste": 1, "tweede": 2, "derde": 3, "vierde": 4, "vijfde": 5, "zesde": 6, "zevende": 7,
                  "achtste": 8, "negende": 9, "tiende": 10}
+_RANG = "|".join(_RANGTELWOORD)
+_WOONLAAG_TEKST = re.compile(r"\bop\s+de\s+(\d+)e\s+woonlaag|\bop\s+de\s+(" + _RANG + r")\s+woonlaag")
+_VERDIEPING_TEKST = re.compile(r"\b(?:op\s+de\s+)?(\d+)e\s+(?:verdieping|etage)\b|\bop\s+de\s+(" + _RANG
+                               + r")\s+(?:verdieping|etage)\b")
 
 
 def woonlaag(ch: dict, tekst: str = "") -> tuple[int | None, bool | None, str]:
@@ -1210,16 +1159,12 @@ def woonlaag(ch: dict, tekst: str = "") -> tuple[int | None, bool | None, str]:
     if m:
         laag, bron = int(m.group(1)), "kenmerk 'Gelegen op'"
     elif not ch.get("Gelegen op"):
-        m = re.search(r"\bop\s+de\s+(\d+)e\s+woonlaag|\bop\s+de\s+(" + "|".join(_RANGTELWOORD) + r")\s+woonlaag", t)
-        if m:
-            laag = int(m.group(1)) if m.group(1) else _RANGTELWOORD[m.group(2)]
-            bron = "advertentietekst"
-        else:
-            m = re.search(r"\b(?:op\s+de\s+)?(\d+)e\s+(?:verdieping|etage)\b|\bop\s+de\s+(" + "|".join(_RANGTELWOORD)
-                          + r")\s+(?:verdieping|etage)\b", t)
+        for patroon, erbij in ((_WOONLAAG_TEKST, 0), (_VERDIEPING_TEKST, 1)):
+            m = patroon.search(t)
             if m:
-                laag = (int(m.group(1)) if m.group(1) else _RANGTELWOORD[m.group(2)]) + 1
+                laag = (int(m.group(1)) if m.group(1) else _RANGTELWOORD[m.group(2)]) + erbij
                 bron = "advertentietekst"
+                break
     voorz = ch.get("Voorzieningen")
     if voorz:
         lift = "lift" in voorz.lower()
@@ -1282,6 +1227,11 @@ def _zonder_ontkenning(patroon: re.Pattern, t: str, niet: re.Pattern | None = No
     return False
 
 
+def _lagen(ch: dict) -> tuple[int, int | None]:
+    """(woonlagen van de woning, bouwlagen van het pand of None)."""
+    return _getal(ch.get("Aantal woonlagen")) or 1, _getal(ch.get("Aantal bouwlagen")) or _getal(ch.get("Bouwlagen"))
+
+
 def schuin_dak(ch: dict, tekst: str = "", laag: int | None = None) -> dict:
     """Ligt (een deel van) de woonruimte onder een schuin dak? -> {"status", "bron", "maisonnette", "bovenste"}.
 
@@ -1302,12 +1252,13 @@ def schuin_dak(ch: dict, tekst: str = "", laag: int | None = None) -> dict:
     t = (tekst or "").lower()
     dak = str(ch.get("Soort dak") or ch.get("Dak") or "").lower()
     schuin_type = bool(_DAK_SCHUIN.search(dak))
-    woonlagen = _getal(ch.get("Aantal woonlagen")) or 1
-    maisonnette = woonlagen >= 2 or bool(re.search(r"\bmaisonnette|\bdubbel(?:e)?\s+bovenhuis", t + " " + str(ch.get("Soort appartement") or "").lower()))
-    bouwlagen = _getal(ch.get("Aantal bouwlagen")) or _getal(ch.get("Bouwlagen"))
-    niet_bovenin = bool(laag and bouwlagen and laag + woonlagen - 1 < bouwlagen)
-    bovenste = (not niet_bovenin and _zonder_ontkenning(_BOVENSTE, t, niet=_KAP_NIET_WONING)) or bool(
-        laag and bouwlagen and laag + woonlagen - 1 >= bouwlagen)
+    woonlagen, bouwlagen = _lagen(ch)
+    maisonnette = woonlagen >= 2 or bool(re.search(r"\bmaisonnette|\bdubbel(?:e)?\s+bovenhuis",
+                                                   t + " " + str(ch.get("Soort appartement") or "").lower()))
+    # Bovenin of niet is alleen aan te tonen met de woonlaag en het aantal bouwlagen van het pand.
+    bovenin = laag + woonlagen - 1 >= bouwlagen if laag and bouwlagen else None
+    niet_bovenin = bovenin is False
+    bovenste = bool(bovenin) or (not niet_bovenin and _zonder_ontkenning(_BOVENSTE, t, niet=_KAP_NIET_WONING))
     uit = {"status": None, "bron": "", "maisonnette": maisonnette, "bovenste": bovenste}
     # Een knieschot staat altijd in de woonruimte onder de kap, ook in een zin over bergruimte erachter.
     if (_zonder_ontkenning(_KAP_TEKST, t, niet=_KAP_NIET_WONING) or _zonder_ontkenning(_KNIESCHOT, t)
@@ -1320,19 +1271,21 @@ def schuin_dak(ch: dict, tekst: str = "", laag: int | None = None) -> dict:
     return uit
 
 
+_VVE_KENMERKEN = ("Inschrijving KvK", "Jaarlijkse vergadering", "Reservefonds aanwezig", "Onderhoudsplan")
+
+
+def _vve_kenmerken(ch: dict) -> tuple[list[str], list[str]]:
+    """De VvE-kenmerken met 'ja' en die met 'nee'."""
+    waarde = {k: (ch.get(k) or "").lower() for k in _VVE_KENMERKEN}
+    return [k for k in waarde if waarde[k].startswith("ja")], [k for k in waarde if waarde[k].startswith("nee")]
+
+
 def vve_status(ch: dict, tekst: str) -> str:
     """'actief', 'slapend' of 'onbekend' (kenmerken KvK, ALV, reservefonds, MJOP; tekst)."""
-    t = (tekst or "").lower()
-    if re.search(r"(?:vve|vereniging)[^.]{0,40}\b(?:niet actief|slapend)|slapende\s+vve", t):
+    if re.search(r"(?:vve|vereniging)[^.]{0,40}\b(?:niet actief|slapend)|slapende\s+vve", (tekst or "").lower()):
         return "slapend"
-    sleutels = ("Inschrijving KvK", "Jaarlijkse vergadering", "Reservefonds aanwezig", "Onderhoudsplan")
-    ja = [k for k in sleutels if (ch.get(k) or "").lower().startswith("ja")]
-    nee = [k for k in sleutels if (ch.get(k) or "").lower().startswith("nee")]
-    if len(nee) >= 3:
-        return "slapend"
-    if len(ja) >= 3:
-        return "actief"
-    return "onbekend"
+    ja, nee = _vve_kenmerken(ch)
+    return "slapend" if len(nee) >= 3 else "actief" if len(ja) >= 3 else "onbekend"
 
 
 # Advertentielezer: (id, patroon, ontkenning_controleren, onderdeel, oordeel, label, waarde,
@@ -1371,15 +1324,11 @@ SIGNALEN = [
 def lees_advertentie(tekst: str) -> list[tuple]:
     """De signalen uit SIGNALEN die in de tekst staan (elk hooguit één keer)."""
     t = (tekst or "").lower()
-    gevonden = []
-    for regel in SIGNALEN:
-        patroon, ontkenning = regel[1], regel[2]
-        for m in re.finditer(patroon, t):
-            if ontkenning and re.search(r"\b(?:geen|niet|zonder)\b[^.]{0,25}$", t[max(0, m.start() - 25):m.start()]):
-                continue
-            gevonden.append(regel)
-            break
-    return gevonden
+
+    def ontkend(m):
+        return re.search(r"\b(?:geen|niet|zonder)\b[^.]{0,25}$", t[max(0, m.start() - 25):m.start()])
+
+    return [regel for regel in SIGNALEN if any(not (regel[2] and ontkend(m)) for m in re.finditer(regel[1], t))]
 
 
 def _tijd(change: dict) -> str:
@@ -1402,8 +1351,7 @@ def _prijs_van(change: dict) -> int | None:
 
 def prijswijzigingen(d: dict | None) -> list:
     """De ruwe prijshistorie uit d["_enrichment"]["price_history"]: {"changes": [...]} of een kale lijst."""
-    enr = (d or {}).get("_enrichment") if isinstance((d or {}).get("_enrichment"), dict) else {}
-    ph = enr.get("price_history")
+    ph = _blok(d or {}, "_enrichment").get("price_history")
     changes = ph.get("changes") if isinstance(ph, dict) else ph
     return changes if isinstance(changes, list) else []
 
@@ -1414,23 +1362,20 @@ def prijshistorie(changes) -> dict:
     Een piek uit een eerdere verkoopperiode telt niet als prijsdaling. De WOZ is
     {"bedrag", "jaar", "datum"} (datum ISO uit de regel, of None), of None. "zonder_prijs": de datum
     van de laatste vraagprijsregel zonder bedrag na de laatste verkoop, of None."""
-    rijen = [c for c in (changes or []) if isinstance(c, dict)]
-    rijen.sort(key=_tijd)
-    verkocht = [c for c in rijen if str(c.get("status") or "").lower() == "sold"]
-    na = _tijd(verkocht[-1]) if verkocht else ""
-    vraag = [c for c in rijen if str(c.get("status") or "").lower() == "asking_price" and _tijd(c) > na and _prijs_van(c)]
-    woz = [c for c in rijen if str(c.get("status") or "").lower() == "woz" and _prijs_van(c)]
-    w = woz[-1] if woz else None
+    rijen = sorted(((_tijd(c), str(c.get("status") or "").lower(), _prijs_van(c)) for c in (changes or []) if isinstance(c, dict)),
+                   key=lambda r: r[0])
+    na = max((t for t, status, _ in rijen if status == "sold"), default="")
+    vraag = [(t, p) for t, status, p in rijen if status == "asking_price" and t > na]
+    met = [(t, p) for t, p in vraag if p]
     # Een vraagprijsregel zonder bedrag na de laatste verkoop: de woning stond toen zonder prijs te koop.
     # Alleen de datum; er wordt nooit met een prijs 0 gerekend.
-    zonder = [_tijd(c) for c in rijen if str(c.get("status") or "").lower() == "asking_price"
-              and _tijd(c) > na and not _prijs_van(c)]
+    zonder = [t for t, p in vraag if not p]
+    woz_t, woz_p = next(((t, p) for t, status, p in reversed(rijen) if status == "woz" and p), (None, None))
     return {
         "zonder_prijs": zonder[-1] if zonder else None,
-        "vraagprijzen": [{"prijs": _prijs_van(c), "datum": _tijd(c)} for c in vraag],
-        "hoogste": max((_prijs_van(c) for c in vraag), default=None),
-        "woz": {"bedrag": _prijs_van(w), "jaar": int(_tijd(w)[:4]) if _tijd(w) else None,
-                "datum": _tijd(w) or None} if w else None,
+        "vraagprijzen": [{"prijs": p, "datum": t} for t, p in met],
+        "hoogste": max((p for _, p in met), default=None),
+        "woz": {"bedrag": woz_p, "jaar": int(woz_t[:4]) if woz_t else None, "datum": woz_t or None} if woz_p else None,
     }
 
 
@@ -1439,24 +1384,20 @@ def prijshistorie(changes) -> dict:
 # ---------------------------------------------------------------------------------------
 def _bron(verrijking: dict | None, naam: str) -> tuple[str, dict | None, str | None]:
     """(status, data, reden) voor één bron; accepteert {"status", "data"} en kale data."""
-    if not isinstance(verrijking, dict):
-        return "uit", None, None
-    e = verrijking.get(naam)
+    e = verrijking.get(naam) if isinstance(verrijking, dict) else None
     if e is None:
         return "uit", None, None
     if e == "fout":
         return "onbekend", None, "bron gaf geen antwoord"
     if e == "niet_nodig":
         return "niet_nodig", None, None
-    if isinstance(e, dict) and "status" in e:
-        st = str(e.get("status") or "onbekend")
-        data = e.get("data") if isinstance(e.get("data"), dict) else None
-        if st == "ok" and data is None:
-            st = "onbekend"
-        return st, data, e.get("reden")
-    if isinstance(e, dict):
+    if not isinstance(e, dict):
+        return "onbekend", None, None
+    if "status" not in e:
         return "ok", e, None
-    return "onbekend", None, None
+    data = e.get("data") if isinstance(e.get("data"), dict) else None
+    st = str(e.get("status") or "onbekend")
+    return ("onbekend" if st == "ok" and data is None else st), data, e.get("reden")
 
 
 # ---------------------------------------------------------------------------------------
@@ -1497,19 +1438,127 @@ _GRONDWATER = {1: "kleine toename", 2: "aanmerkelijke toename", 3: "grote toenam
 _WATEROVERLAST_LET_OP = ("hoog", "zeer hoog")
 
 
-def _is_getal(x) -> bool:
-    return isinstance(x, (int, float)) and not isinstance(x, bool)
+def _omgeving(label: str, waarde: str, bron: str, kort: str, uitleg: str, let_op: bool = False, vraag: str | None = None) -> dict:
+    return _item(OMGEVING, "let_op" if let_op else "neutraal", label, waarde, bron, kort=kort, vraag=vraag, uitleg=uitleg)
 
 
-def _lucht_duiding(v: float, who: float, eu_2030: float, eu_grens: float) -> tuple[str, bool]:
-    """(korte duiding, let op). WHO-advieswaarde, EU-grenswaarde vanaf 2030 en de huidige EU-grenswaarde."""
-    if v <= who:
-        return "binnen WHO-advies", False
-    if v <= eu_2030:
-        return "boven WHO-advies", False
-    if v <= eu_grens:
-        return "boven EU-norm 2030", True
-    return "boven EU-grenswaarde", True
+def _procenten(*paren) -> list[str]:
+    """['55% koop', '45% huur'] voor de paren (getal, naam) waarvan het getal bekend is."""
+    return [f"{nl(x, 0)}% {naam}" for x, naam in paren if _is_getal(x)]
+
+
+def _omgeving_kerncijfers(kc: dict) -> list[dict]:
+    jaar = kc.get("jaar") or 2024
+    bron, uitgave = f"CBS {jaar}", f"(CBS, uitgave {jaar})"
+    uit = []
+    if _is_getal(kc.get("woz")) and kc["woz"] > 0:
+        uit.append(_omgeving("WOZ buurt gemiddeld", eur(kc["woz"] * 1000), bron, "WOZ buurt",
+                             f"Gemiddelde WOZ-waarde van alle woningen in de buurt {uitgave}. Zegt niets over deze woning zelf."))
+    delen = _procenten((kc.get("koop_pct"), "koop"), (kc.get("huur_pct"), "huur"))
+    if delen:
+        extra = _procenten((kc.get("corporatie_pct"), "van een woningcorporatie"), (kc.get("meergezins_pct"), "appartementen"))
+        uit.append(_omgeving("Koop en huur buurt", ", ".join(delen), bron, "koop en huur",
+                             f"Aandeel van de woningen in de buurt {uitgave}" + (": " + ", ".join(extra) if extra else "") + "."))
+    afst = [(kc.get(f"{lang}_km"), kort, lang) for kort, lang in (("super", "supermarkt"), ("trein", "treinstation"), ("huisarts", "huisarts"))]
+    afst = [a for a in afst if _is_getal(a[0])]
+    if afst:
+        uit.append(_omgeving("Voorzieningen", ", ".join(f"{kort} {nl(x)} km" for x, kort, _ in afst[:2]), bron, "voorzieningen",
+                             "Gemiddelde afstand over de weg vanuit de buurt: "
+                             + ", ".join(f"{lang} {nl(x)} km" for x, _, lang in afst) + f" {uitgave}."))
+    delen = _procenten((kc.get("aardgasvrij_pct"), "aardgasvrij"), (kc.get("stadsverwarming_pct"), "warmtenet"))
+    if delen:
+        uit.append(_omgeving("Verwarming buurt", ", ".join(delen), bron, "verwarming buurt",
+                             f"Aandeel woningen in de buurt zonder aardgas en met stadsverwarming {uitgave}. "
+                             "Zegt iets over hoe ver de buurt is met van het gas af gaan."))
+    return uit
+
+
+_POLITIECIJFERS = (("misdrijven", "Misdrijven buurt", "Alle geregistreerde misdrijven"),
+                   ("woninginbraak", "Woninginbraak buurt", "Diefstal en inbraak uit woningen, ook pogingen"),
+                   ("vernieling", "Vernieling buurt", "Vernieling en zaakbeschadiging"),
+                   ("overlast", "Overlast buurt", "Alle geregistreerde meldingen van overlast"))
+
+
+def _omgeving_veiligheid(vh: dict) -> list[dict]:
+    def kort_getal(v):
+        return nl(v, 0 if v >= 20 else 1)
+
+    jaar = vh.get("jaar") or ""
+    uit = []
+    for sleutel, label, wat in _POLITIECIJFERS:
+        x, g = vh.get(f"{sleutel}_per_1000"), vh.get(f"gem_{sleutel}_per_1000")
+        if not _is_getal(x):
+            continue
+        waarde = f"{kort_getal(x)} per 1.000 woningen"
+        if _is_getal(g):
+            met = f"{kort_getal(x)} per 1.000 (gemeente {kort_getal(g)})"
+            waarde = met if len(met) <= 32 else waarde
+        uit.append(_omgeving(label, waarde, f"politie via CBS, {jaar}".rstrip(", "), label.lower(),
+                             f"{wat}, door de politie geregistreerd in {jaar}, per 1.000 woningen in de buurt"
+                             + (f"; in de hele gemeente {kort_getal(g)}" if _is_getal(g) else "")
+                             + ". Waar veel winkels, horeca of kantoren zijn, valt het cijfer hoger uit: "
+                               "de noemer is het aantal woningen."))
+    return uit
+
+
+def _omgeving_lucht(lu: dict, dr: dict) -> list[dict]:
+    """Duiding tegen het WHO-advies, de EU-grenswaarde vanaf 2030 en de huidige EU-grenswaarde."""
+    uit = []
+    for sleutel, label, naam in (("no2", "Stikstofdioxide (NO2)", "stikstofdioxide"), ("pm25", "Fijnstof (PM2,5)", "fijnstof PM2,5")):
+        x = lu.get(sleutel)
+        if not _is_getal(x):
+            continue
+        who, eu30, eu = dr[f"{sleutel}_who"], dr[f"{sleutel}_eu_2030"], dr[f"{sleutel}_eu_grens"]
+        duiding = ("binnen WHO-advies" if x <= who else "boven WHO-advies" if x <= eu30
+                   else "boven EU-norm 2030" if x <= eu else "boven EU-grenswaarde")
+        uit.append(_omgeving(label, f"{nl(x)} µg/m³, {duiding}", "RIVM 2024", f"{sleutel} {nl(x)}",
+                             f"Jaargemiddelde {naam} op dit punt in 2024, in microgram per m³. WHO-advies {who}, "
+                             f"EU-grenswaarde {eu} en vanaf 2030 {eu30}.", let_op=duiding.startswith("boven EU")))
+    if _is_getal(lu.get("groen_pct")):
+        uit.append(_omgeving("Groen binnen 500 m", f"{nl(lu['groen_pct'], 0)}%", "RIVM 2022", "groen",
+                             "Gemiddeld aandeel groen (bomen, struiken, gras) binnen 500 m van dit punt (RIVM-groenkaart 2022)."))
+    return uit
+
+
+def _omgeving_klimaat(kl: dict) -> list[dict]:
+    bron, uit = "Klimaateffectatlas", []
+    wo = kl.get("wateroverlast")
+    if isinstance(wo, str) and wo:
+        hoog = wo in _WATEROVERLAST_LET_OP
+        uit.append(_omgeving("Wateroverlast bij bui",
+                             "geen hinderlijke waterdiepte" if wo == "geen" else f"{wo}, {kl.get('waterdiepte') or ''}".rstrip(", "),
+                             bron, "wateroverlast bij bui",
+                             "Berekende waterdiepte rond het pand bij een extreme bui. Zegt vooral iets over de "
+                             "begane grond, kelder en berging, niet over een hogere verdieping.", let_op=hoog,
+                             vraag="Vraag of er water in de kelder, berging of entree heeft gestaan." if hoog else None))
+    kans = kl.get("overstromingskans")
+    if _is_getal(kans) and kans in _OVERSTROMING:      # een lijst of dict uit een beschadigde cache: overslaan
+        naam, per_jaar = _OVERSTROMING[kans]
+        uit.append(_omgeving("Overstromingskans", naam, bron, "overstromingskans",
+                             f"Kans per jaar op meer dan 20 cm water op deze plek bij een overstroming: {per_jaar} "
+                             "(huidige situatie).", let_op=kans >= 4))
+    gw = kl.get("grondwater")
+    if _is_getal(gw) and gw in _GRONDWATER:
+        uit.append(_omgeving("Grondwateroverlast 2050", _GRONDWATER[gw], bron, "grondwateroverlast",
+                             "Kleine kans op grondwateroverlast door een lage grondwaterstand." if gw == 5 else
+                             "Toename van de kans op grondwateroverlast in 2050 (klimaatscenario hoog), "
+                             "op gebiedsniveau: geen oordeel over dit pand.", let_op=gw in (3, 4)))
+    return uit
+
+
+def _omgeving_erfgoed(eg: dict, monument_funda: bool) -> list[dict]:
+    uit = []
+    if eg.get("gezicht"):
+        sinds = f", aangewezen in {eg['gezicht_sinds']}" if eg.get("gezicht_sinds") else ""
+        uit.append(_omgeving("Beschermd gezicht", str(eg["gezicht"]), "RCE", "beschermd gezicht",
+                             f"Beschermd stads- of dorpsgezicht{sinds}. Voor veranderingen aan de buitenkant is vaker "
+                             "een vergunning nodig; dat geldt ook voor onderhoud door de VvE."))
+    n = eg.get("monumenten_dichtbij")
+    if _is_getal(n) and n > 0 and not monument_funda:
+        uit.append(_omgeving("Rijksmonument dichtbij", f"{int(n)} binnen 25 m", "RCE", "rijksmonument dichtbij",
+                             "Dit pand zelf of een buurpand: controleer het adres in het monumentenregister. "
+                             "Een monument vraagt een vergunning voor verbouwen en duurder onderhoud."))
+    return uit
 
 
 def omgeving_items(verrijking: dict | None, dr: dict | None = None, monument_funda: bool = False) -> list[dict]:
@@ -1520,116 +1569,12 @@ def omgeving_items(verrijking: dict | None, dr: dict | None = None, monument_fun
     vullen met bronnen die niet meetellen); de status per bron staat in beoordeling["verrijking"]."""
     dr = dr or STANDAARD["drempels"]
     uit: list[dict] = []
-
-    st, kc, _ = _bron(verrijking, "kerncijfers")
-    if st == "ok" and kc:
-        jaar = kc.get("jaar") or 2024
-        bron = f"CBS {jaar}"
-        if _is_getal(kc.get("woz")) and kc["woz"] > 0:
-            uit.append(_item(OMGEVING, "neutraal", "WOZ buurt gemiddeld", eur(kc["woz"] * 1000), bron, kort="WOZ buurt",
-                             uitleg=f"Gemiddelde WOZ-waarde van alle woningen in de buurt (CBS, uitgave {jaar}). "
-                                    "Zegt niets over deze woning zelf."))
-        koop, huur = kc.get("koop_pct"), kc.get("huur_pct")
-        if _is_getal(koop) or _is_getal(huur):
-            delen = [f"{nl(x, 0)}% {naam}" for x, naam in ((koop, "koop"), (huur, "huur")) if _is_getal(x)]
-            extra = [f"{nl(x, 0)}% {naam}" for x, naam in ((kc.get("corporatie_pct"), "van een woningcorporatie"),
-                                                            (kc.get("meergezins_pct"), "appartementen")) if _is_getal(x)]
-            uit.append(_item(OMGEVING, "neutraal", "Koop en huur buurt", ", ".join(delen), bron, kort="koop en huur",
-                             uitleg=f"Aandeel van de woningen in de buurt (CBS, uitgave {jaar})"
-                                    + (": " + ", ".join(extra) if extra else "") + "."))
-        afst = [(kc.get("supermarkt_km"), "super", "supermarkt"), (kc.get("treinstation_km"), "trein", "treinstation"),
-                (kc.get("huisarts_km"), "huisarts", "huisarts")]
-        afst = [(x, k_, lang) for x, k_, lang in afst if _is_getal(x)]
-        if afst:
-            uit.append(_item(OMGEVING, "neutraal", "Voorzieningen", ", ".join(f"{k_} {nl(x)} km" for x, k_, _ in afst[:2]),
-                             bron, kort="voorzieningen",
-                             uitleg="Gemiddelde afstand over de weg vanuit de buurt: "
-                                    + ", ".join(f"{lang} {nl(x)} km" for x, _, lang in afst) + f" (CBS, uitgave {jaar})."))
-        agv, sv = kc.get("aardgasvrij_pct"), kc.get("stadsverwarming_pct")
-        if _is_getal(agv) or _is_getal(sv):
-            delen = [f"{nl(x, 0)}% {naam}" for x, naam in ((agv, "aardgasvrij"), (sv, "warmtenet")) if _is_getal(x)]
-            uit.append(_item(OMGEVING, "neutraal", "Verwarming buurt", ", ".join(delen), bron, kort="verwarming buurt",
-                             uitleg=f"Aandeel woningen in de buurt zonder aardgas en met stadsverwarming (CBS, uitgave {jaar}). "
-                                    "Zegt iets over hoe ver de buurt is met van het gas af gaan."))
-
-    st, vh, _ = _bron(verrijking, "veiligheid")
-    if st == "ok" and vh:
-        jaar = vh.get("jaar") or ""
-        for sleutel, label, wat in (("misdrijven", "Misdrijven buurt", "Alle geregistreerde misdrijven"),
-                                    ("woninginbraak", "Woninginbraak buurt", "Diefstal en inbraak uit woningen, ook pogingen"),
-                                    ("vernieling", "Vernieling buurt", "Vernieling en zaakbeschadiging"),
-                                    ("overlast", "Overlast buurt", "Alle geregistreerde meldingen van overlast")):
-            x, g = vh.get(f"{sleutel}_per_1000"), vh.get(f"gem_{sleutel}_per_1000")
-            if not _is_getal(x):
-                continue
-            def kort_getal(v_):
-                return nl(v_, 0 if v_ >= 20 else 1)
-            waarde = f"{kort_getal(x)} per 1.000 woningen"
-            if _is_getal(g):
-                met = f"{kort_getal(x)} per 1.000 (gemeente {kort_getal(g)})"
-                waarde = met if len(met) <= 32 else waarde
-            uit.append(_item(OMGEVING, "neutraal", label, waarde, f"politie via CBS, {jaar}".rstrip(", "), kort=label.lower(),
-                             uitleg=f"{wat}, door de politie geregistreerd in {jaar}, per 1.000 woningen in de buurt"
-                                    + (f"; in de hele gemeente {kort_getal(g)}" if _is_getal(g) else "")
-                                    + ". Waar veel winkels, horeca of kantoren zijn, valt het cijfer hoger uit: "
-                                      "de noemer is het aantal woningen."))
-
-    st, lu, _ = _bron(verrijking, "lucht")
-    if st == "ok" and lu:
-        for sleutel, label, naam in (("no2", "Stikstofdioxide (NO2)", "stikstofdioxide"), ("pm25", "Fijnstof (PM2,5)", "fijnstof PM2,5")):
-            x = lu.get(sleutel)
-            if not _is_getal(x):
-                continue
-            who, eu30, eu = dr[f"{sleutel}_who"], dr[f"{sleutel}_eu_2030"], dr[f"{sleutel}_eu_grens"]
-            duiding, let_op = _lucht_duiding(x, who, eu30, eu)
-            uit.append(_item(OMGEVING, "let_op" if let_op else "neutraal", label, f"{nl(x)} µg/m³, {duiding}", "RIVM 2024",
-                             kort=f"{sleutel} {nl(x)}",
-                             uitleg=f"Jaargemiddelde {naam} op dit punt in 2024, in microgram per m³. WHO-advies {who}, "
-                                    f"EU-grenswaarde {eu} en vanaf 2030 {eu30}."))
-        if _is_getal(lu.get("groen_pct")):
-            uit.append(_item(OMGEVING, "neutraal", "Groen binnen 500 m", f"{nl(lu['groen_pct'], 0)}%", "RIVM 2022", kort="groen",
-                             uitleg="Gemiddeld aandeel groen (bomen, struiken, gras) binnen 500 m van dit punt (RIVM-groenkaart 2022)."))
-
-    st, kl, _ = _bron(verrijking, "klimaat")
-    if st == "ok" and kl:
-        bron = "Klimaateffectatlas"
-        wo = kl.get("wateroverlast")
-        if isinstance(wo, str) and wo:
-            hoog = wo in _WATEROVERLAST_LET_OP
-            waarde = "geen hinderlijke waterdiepte" if wo == "geen" else f"{wo}, {kl.get('waterdiepte') or ''}".rstrip(", ")
-            uit.append(_item(OMGEVING, "let_op" if hoog else "neutraal", "Wateroverlast bij bui", waarde, bron,
-                             kort="wateroverlast bij bui",
-                             vraag="Vraag of er water in de kelder, berging of entree heeft gestaan." if hoog else None,
-                             uitleg="Berekende waterdiepte rond het pand bij een extreme bui. Zegt vooral iets over de "
-                                    "begane grond, kelder en berging, niet over een hogere verdieping."))
-        ok_ = kl.get("overstromingskans")
-        if _is_getal(ok_) and ok_ in _OVERSTROMING:      # een lijst of dict uit een beschadigde cache: overslaan
-            naam, kans = _OVERSTROMING[ok_]
-            uit.append(_item(OMGEVING, "let_op" if ok_ >= 4 else "neutraal", "Overstromingskans", naam, bron,
-                             kort="overstromingskans",
-                             uitleg=f"Kans per jaar op meer dan 20 cm water op deze plek bij een overstroming: {kans} "
-                                    "(huidige situatie)."))
-        gw = kl.get("grondwater")
-        if _is_getal(gw) and gw in _GRONDWATER:
-            uit.append(_item(OMGEVING, "let_op" if gw in (3, 4) else "neutraal", "Grondwateroverlast 2050", _GRONDWATER[gw], bron,
-                             kort="grondwateroverlast",
-                             uitleg=("Kleine kans op grondwateroverlast door een lage grondwaterstand."
-                                     if gw == 5 else "Toename van de kans op grondwateroverlast in 2050 (klimaatscenario hoog), "
-                                                     "op gebiedsniveau: geen oordeel over dit pand.")))
-
-    st, eg, _ = _bron(verrijking, "erfgoed")
-    if st == "ok" and eg:
-        if eg.get("gezicht"):
-            sinds = f", aangewezen in {eg['gezicht_sinds']}" if eg.get("gezicht_sinds") else ""
-            uit.append(_item(OMGEVING, "neutraal", "Beschermd gezicht", str(eg["gezicht"]), "RCE", kort="beschermd gezicht",
-                             uitleg=f"Beschermd stads- of dorpsgezicht{sinds}. Voor veranderingen aan de buitenkant is vaker "
-                                    "een vergunning nodig; dat geldt ook voor onderhoud door de VvE."))
-        n = eg.get("monumenten_dichtbij")
-        if _is_getal(n) and n > 0 and not monument_funda:
-            uit.append(_item(OMGEVING, "neutraal", "Rijksmonument dichtbij", f"{int(n)} binnen 25 m", "RCE",
-                             kort="rijksmonument dichtbij",
-                             uitleg="Dit pand zelf of een buurpand: controleer het adres in het monumentenregister. "
-                                    "Een monument vraagt een vergunning voor verbouwen en duurder onderhoud."))
+    for naam, maak in (("kerncijfers", _omgeving_kerncijfers), ("veiligheid", _omgeving_veiligheid),
+                       ("lucht", lambda lu: _omgeving_lucht(lu, dr)), ("klimaat", _omgeving_klimaat),
+                       ("erfgoed", lambda eg: _omgeving_erfgoed(eg, monument_funda))):
+        status, data, _ = _bron(verrijking, naam)
+        if status == "ok" and data:
+            uit += maak(data)
     return uit
 
 
@@ -1655,8 +1600,16 @@ _KACHEL = re.compile(r"gaskachel|gashaard|moederhaard|elektrische\s+(?:verwarmin
 _COLLECTIEF = re.compile(r"stadsverwarming|blokverwarming|warmtenet")
 
 
-def _aanwijzingen(n: int) -> str:
-    return f"{n} aanwijzing" + ("" if n == 1 else "en")
+def _klimaat_item(seizoen: str, tegen: list[str], voor: list[str], woorden: tuple, vraag: str, opmerkingen=()) -> dict:
+    """Eén item van het binnenklimaat. woorden: (waarde bij meer tegen, bij gelijk, bij meer voor, kopje tegen, kopje voor)."""
+    meer_tegen, gelijk, meer_voor, kop_tegen, kop_voor = woorden
+    meer, lijst = (meer_tegen, tegen) if len(tegen) > len(voor) else (meer_voor, voor)
+    waarde = gelijk if len(tegen) == len(voor) else f"{meer}: {len(lijst)} aanwijzing" + ("" if len(lijst) == 1 else "en")
+    uitleg = "Een indicatie uit de advertentie en open kaarten. De temperatuur in huis is niet gemeten." + "".join(
+        f" {kop}: " + "; ".join(delen) + "." for kop, delen in ((kop_tegen, tegen), (kop_voor, voor), ("Niet meegeteld", opmerkingen))
+        if delen)
+    return _item(BINNENKLIMAAT, "neutraal", seizoen, waarde, "aanwijzingen, niet gemeten",
+                 kort=f"{seizoen.lower()}: " + waarde.split(":")[0], vraag=vraag, uitleg=uitleg)
 
 
 def binnenklimaat(w: dict, ch: dict, tekst: str, bag: dict | None = None, verrijking: dict | None = None,
@@ -1684,26 +1637,21 @@ def binnenklimaat(w: dict, ch: dict, tekst: str, bag: dict | None = None, verrij
     iso, verw, soort = kenm("Isolatie"), kenm("Verwarming"), kenm("Soort appartement")
     laag = woonlaag(ch, tekst)[0]
     kap = schuin_dak(ch, tekst, laag)
-    woonlagen = _getal(ch.get("Aantal woonlagen")) or 1
-    bouwlagen = _getal(ch.get("Aantal bouwlagen")) or _getal(ch.get("Bouwlagen"))
+    woonlagen, bouwlagen = _lagen(ch)
     onder_kap = kap["status"] == "zeker"
     bovenste = onder_kap or kap["bovenste"] or "penthouse" in soort
     # Alleen een uitdrukkelijke begane grond telt: of funda's "1e woonlaag" de begane grond is, is niet gemeten.
     begane_grond = "begane grond" in kenm("Gelegen op") or "benedenwoning" in soort
     tussen = not bovenste and not begane_grond and (
         "tussenverdieping" in soort or bool(laag and laag >= 2 and bouwlagen and laag + woonlagen - 1 < bouwlagen))
-    hoek = bool(_HOEK.search(soort) or _HOEK.search(kenm("Ligging")) or _zonder_ontkenning(_HOEK, t, niet=_NIET_DEZE_WONING))
-    bj = bouwjaar if isinstance(bouwjaar, (int, float)) and not isinstance(bouwjaar, bool) else None
-    if bj is None and isinstance(bag, dict):
-        bj = _getal(bag.get("bouwjaar"))
+    hoek = genoemd(_HOEK, "Soort appartement", "Ligging")
+    bj = bouwjaar if _is_getal(bouwjaar) else _getal(bag.get("bouwjaar")) if isinstance(bag, dict) else None
     oud = bool(bj and bj < ISOLATIE_BOUWJAAR)
     richting = buitenruimte(w or {}, ch, tekst)["richting"]
-    lu = _bron(verrijking, "lucht")
-    groen = lu[1].get("groen_pct") if lu[0] == "ok" and lu[1] and _is_getal(lu[1].get("groen_pct")) else None
-    geen_isolatie = "geen isolatie" in iso
+    lucht_st, lucht, _ = _bron(verrijking, "lucht")
+    groen = lucht["groen_pct"] if lucht_st == "ok" and lucht and _is_getal(lucht.get("groen_pct")) else None
     deels_enkel = "gedeeltelijk dubbel glas" in iso or "gedeeltelijk dubbel glas" in t
 
-    # --- zomer
     warm, koel = [], []
     if onder_kap:
         warm.append("woonruimte direct onder een schuin dak")
@@ -1713,7 +1661,7 @@ def binnenklimaat(w: dict, ch: dict, tekst: str, bag: dict | None = None, verrij
         warm.append(f"bouwjaar {int(bj)} en geen dakisolatie genoemd")
     if richting in _ZON_WARM:
         warm.append(f"buitenruimte op het {richting.lower()}en: middag- en avondzon op die gevel")
-    if _zonder_ontkenning(_VEEL_GLAS, t, niet=_NIET_DEZE_WONING):
+    if genoemd(_VEEL_GLAS):
         warm.append("veel glas volgens de advertentie")
     if groen is not None and groen < GROEN_WEINIG_PCT:
         warm.append(f"weinig groen in de buurt ({nl(groen, 0)}% binnen 500 m)")
@@ -1728,7 +1676,6 @@ def binnenklimaat(w: dict, ch: dict, tekst: str, bag: dict | None = None, verrij
     if groen is not None and groen >= GROEN_VEEL_PCT:
         koel.append(f"veel groen in de buurt ({nl(groen, 0)}% binnen 500 m)")
 
-    # --- winter
     koud, behaaglijk = [], []
     if hoek and (begane_grond or bovenste):
         koud.append(("begane grond" if begane_grond else "bovenste woonlaag") + " op een hoek: veel buitenvlak")
@@ -1742,9 +1689,10 @@ def binnenklimaat(w: dict, ch: dict, tekst: str, bag: dict | None = None, verrij
         koud.append("gedeeltelijk dubbel glas, dus deels enkel glas")
     elif genoemd(_ENKEL_GLAS, "Isolatie"):
         koud.append("enkel glas genoemd")
-    if geen_isolatie:
+    isolatie = bool(_ISOLATIE.search(iso)) or _zonder_ontkenning(_ISOLATIE, t)
+    if "geen isolatie" in iso:
         koud.append("volgens de advertentie geen isolatie")
-    elif oud and iso and not _ISOLATIE.search(iso) and not _zonder_ontkenning(_ISOLATIE, t):
+    elif oud and iso and not isolatie:
         koud.append(f"bouwjaar {int(bj)} en geen dak-, muur- of vloerisolatie genoemd")
     if _KACHEL.search(verw):
         koud.append("verwarming met losse kachels, geen centrale verwarming")
@@ -1752,7 +1700,7 @@ def binnenklimaat(w: dict, ch: dict, tekst: str, bag: dict | None = None, verrij
         behaaglijk.append("tussenverdieping: woningen erboven en eronder, weinig buitenvlak")
     if not deels_enkel and genoemd(_GOED_GLAS, "Isolatie"):
         behaaglijk.append("dubbel of HR-glas genoemd")
-    if _ISOLATIE.search(iso) or _zonder_ontkenning(_ISOLATIE, t):
+    if isolatie:
         behaaglijk.append("dak-, muur- of vloerisolatie genoemd")
     # Het label: een bekend label is een aanwijzing. Een aangenomen label niet: dat staat alleen als
     # opmerking in de uitleg, naast een echte aanwijzing, en telt niet mee in "n aanwijzingen".
@@ -1772,25 +1720,15 @@ def binnenklimaat(w: dict, ch: dict, tekst: str, bag: dict | None = None, verrij
         opmerkingen.append("stads- of blokverwarming: de stookkosten zitten dan vaak in de servicekosten")
 
     uit: list[dict] = []
-    basis = "Een indicatie uit de advertentie en open kaarten. De temperatuur in huis is niet gemeten."
     if warm or koel:
-        waarde = (f"kans op warmte: {_aanwijzingen(len(warm))}" if len(warm) > len(koel) else
-                  "aanwijzingen voor warm en koel" if len(warm) == len(koel) else f"eerder koel: {_aanwijzingen(len(koel))}")
-        uitleg = (basis + (" Warmer: " + "; ".join(warm) + "." if warm else "")
-                  + (" Koeler of beter af te koelen: " + "; ".join(koel) + "." if koel else ""))
-        uit.append(_item(BINNENKLIMAAT, "neutraal", "Zomer", waarde, "aanwijzingen, niet gemeten", kort="zomer: " + waarde.split(":")[0],
-                         vraag="Vraag bij de bezichtiging hoe warm het in de zomer wordt en of het 's avonds afkoelt.",
-                         uitleg=uitleg))
+        uit.append(_klimaat_item("Zomer", warm, koel, ("kans op warmte", "aanwijzingen voor warm en koel", "eerder koel",
+                                                       "Warmer", "Koeler of beter af te koelen"),
+                                 "Vraag bij de bezichtiging hoe warm het in de zomer wordt en of het 's avonds afkoelt."))
     if koud or behaaglijk:
-        waarde = (f"kans op kou: {_aanwijzingen(len(koud))}" if len(koud) > len(behaaglijk) else
-                  "aanwijzingen voor warm en koud" if len(koud) == len(behaaglijk)
-                  else f"eerder warm: {_aanwijzingen(len(behaaglijk))}")
-        uitleg = (basis + (" Kouder: " + "; ".join(koud) + "." if koud else "")
-                  + (" Warmer: " + "; ".join(behaaglijk) + "." if behaaglijk else "")
-                  + (" Niet meegeteld: " + "; ".join(opmerkingen) + "." if opmerkingen else ""))
-        uit.append(_item(BINNENKLIMAAT, "neutraal", "Winter", waarde, "aanwijzingen, niet gemeten", kort="winter: " + waarde.split(":")[0],
-                         vraag="Vraag bij de bezichtiging naar tocht, koude vloeren en het energieverbruik van vorig jaar.",
-                         uitleg=uitleg))
+        uit.append(_klimaat_item("Winter", koud, behaaglijk, ("kans op kou", "aanwijzingen voor warm en koud", "eerder warm",
+                                                             "Kouder", "Warmer"),
+                                 "Vraag bij de bezichtiging naar tocht, koude vloeren en het energieverbruik van vorig jaar.",
+                                 opmerkingen))
     return uit
 
 
@@ -1833,6 +1771,394 @@ def _twijfel_item(zin: str) -> dict:
     return _item("buurt", "let_op", "Twijfel", zin.rstrip("."), "jouw lijst", kort="twijfel")
 
 
+def _oppervlak(w: dict) -> int:
+    m2 = w.get("living_area") or 0
+    try:
+        return int(m2)
+    except (TypeError, ValueError):
+        return _getal(m2) or 0
+
+
+# De stappen van beoordeel(): elk geeft de items van één onderdeel. De volgorde van de items telt (bij
+# gelijke punten noemt de uitlegregel het eerste item), dus beoordeel() roept ze in vaste volgorde aan.
+def _items_geld(fin: dict, dr: dict, kk_onz: float) -> list[dict]:
+    """Woonlasten als onderdeel van de score (de financiering zelf is de poort), eigen geld en leenruimte."""
+    if fin["netto"] is None:
+        return [_item("woonlasten", "onbekend", "Woonlasten", "prijs onbekend", "funda", kort="woonlasten onbekend",
+                      vraag="Vraag de vraagprijs of een richtprijs.")]
+    netto_grens = fin["grens_soort"] == "netto"
+    lasten = fin["netto"] if netto_grens else fin["bruto"]
+    ruimte = fin["grens"] - lasten
+    oord = "goed" if ruimte >= dr["woonlasten_ruim_onder_grens"] else ("let_op" if ruimte < 0 else "neutraal")
+    uit = [_item("woonlasten", oord, "Woonlasten", f"{eur(lasten)} {'netto' if netto_grens else 'bruto'} per maand",
+                 "berekening", _begrens(ruimte / 100, -1.5, 1.5), kort=f"woonlasten {eur(lasten)}",
+                 uitleg=(f"Netto, jaar 1. Je grens: {eur(fin['grens'])}." if netto_grens else
+                         f"Bruto. Zonder eigen grens geldt de norm van 33% van je bruto inkomen ({eur(fin['grens'])})."))]
+    tekort, bron = fin["tekort"], "berekening, kosten koper ≈"
+    if tekort > kk_onz:
+        uit.append(_item("financiering", "let_op", "Eigen geld", f"{eur(tekort)} tekort", bron))
+    elif tekort > 0:
+        uit.append(_item("financiering", "neutraal", "Eigen geld", "net genoeg (schatting)", bron,
+                         vraag="Laat je kosten koper narekenen door een adviseur.",
+                         uitleg=f"Tekort {eur(tekort)} valt binnen de onzekerheid van de kosten koper."))
+    else:
+        uit.append(_item("financiering", "neutraal", "Eigen geld", f"genoeg, {eur(-tekort)} over", bron))
+    marge = fin["marge_lenen"]
+    if marge >= 0:
+        uit.append(_item("financiering", "neutraal", "Leenruimte", f"{eur(marge)} over", "leentoets 2026"))
+    else:
+        uit.append(_item("financiering", "sterk" if tekort > kk_onz else "neutraal", "Leenruimte",
+                         f"{eur(-marge)} te weinig", "leentoets 2026", kort="leenruimte te klein"))
+    if fin["scenario_tekst"]:
+        uit.append(_item("financiering", "neutraal", "Leentoets", fin["scenario_tekst"], "leentoets 2026, jouw scenario's",
+                         kort=fin["scenario_tekst"].lower()))
+    return uit
+
+
+def _items_buitenruimte(br: dict, dr: dict) -> list[dict]:
+    soort, bron, r = br["soort"], br["bron"], br["richting"]
+    if soort is None and br["zeker"]:
+        return [_item("buitenruimte", "sterk", "Buitenruimte", "geen", bron, -1.5, kort="geen buitenruimte")]
+    if soort is None:
+        return [_item("buitenruimte", "onbekend", "Buitenruimte", "niet vermeld", "funda", kort="buitenruimte onbekend",
+                      vraag="Vraag of er een balkon of andere buitenruimte is.")]
+    if soort == "frans balkon":
+        return [_item("buitenruimte", "let_op", "Buitenruimte", "alleen frans balkon", bron, -1.0, kort="alleen frans balkon")]
+    maat = f"{br['m2']} m²" if br["m2"] else "maat onbekend"
+    p = 1.0 if soort in ("dakterras", "tuin") else (0.5 if (br["m2"] or 0) >= dr["buitenruimte_balkon_min_m2"] else 0.0)
+    uit = [_item("buitenruimte", "goed" if p > 0 else "neutraal", soort.capitalize(), maat, bron, p,
+                 kort=f"{soort} {maat if br['m2'] else ''}".strip() + (f" {r.lower()}" if r else ""),
+                 vraag="Is er een vergunning voor het dakterras en staat het in de splitsingsakte?" if soort == "dakterras" else None)]
+    if r:
+        zon = 0.5 if r in ("Zuid", "Zuidwest", "Zuidoost", "West") else (-0.5 if r.startswith("Noord") else 0.0)
+        uit.append(_item("buitenruimte", "goed" if zon > 0 else ("let_op" if zon < 0 else "neutraal"), "Zon op buitenruimte",
+                         r.lower(), "advertentietekst", zon, kort=f"zon {r.lower()}"))
+    return uit
+
+
+def _items_oppervlak(m2: int, wens, dr: dict) -> list[dict]:
+    if not m2:
+        return [_item("oppervlak", "onbekend", "Woonoppervlak", "onbekend", "funda", kort="oppervlak onbekend")]
+    oord = "goed" if m2 >= wens + 10 else ("let_op" if m2 < wens - 10 else "neutraal")
+    return [_item("oppervlak", oord, "Woonoppervlak", f"{m2} m² (wens {wens})", "funda",
+                  _begrens((m2 - wens) / dr["oppervlak_stap_m2"], -1.0, 1.0), kort=f"{m2} m²")]
+
+
+def _items_woonlaag(laag, lift, bron: str, mx) -> list[dict]:
+    if laag and lift is False and laag > mx:
+        return [_item("woonlaag_lift", "sterk" if laag >= mx + 2 else "let_op", "Trappen", f"{laag}e woonlaag, geen lift",
+                      bron, max(-1.5, -0.5 * (laag - mx)), kort=f"{laag}e zonder lift")]
+    if laag and lift is None and laag > mx:
+        return [_item("woonlaag_lift", "onbekend", "Lift", "niet vermeld", "funda", kort="lift onbekend",
+                      vraag=f"Is er een lift? De woning ligt op de {laag}e woonlaag.")]
+    if laag and lift and laag >= 3:
+        return [_item("woonlaag_lift", "goed", "Lift", f"{laag}e woonlaag", "kenmerk 'Voorzieningen'", kort=f"lift, {laag}e woonlaag")]
+    return []
+
+
+def _items_schuin_dak(kap: dict, dr: dict) -> list[dict]:
+    """Klein minpunt als de woonruimte onder de kap ligt (besluit eigenaar, 18 nov 2026)."""
+    if kap["status"] == "zeker":
+        waarde = ("bovenste woonlaag onder de kap" if kap["maisonnette"] else
+                  "bovenste etage onder de kap" if kap["bovenste"] else "woonruimte onder schuin dak")
+        return [_item("schuin_dak", "let_op", "Schuin dak", waarde, kap["bron"], dr["schuin_dak_punten"], kort="onder schuin dak",
+                      vraag="Vraag de bruikbare oppervlakte boven 1,50 m hoogte op.",
+                      uitleg="Onder een schuin dak is minder vloer bruikbaar dan het aantal m² doet denken, en de ruimte voelt anders.")]
+    if kap["status"] == "mogelijk":
+        return [_item("schuin_dak", "neutraal", "Schuin dak", "mogelijk onder schuin dak", kap["bron"], kort="mogelijk schuin dak",
+                      uitleg="Het pand heeft een schuin dak; of deze woning eronder ligt, is niet te zien. "
+                             "Kijk op de foto's en de plattegrond.")]
+    return []
+
+
+def _items_reisafstand(routes, cfg: dict, werk_bekend: bool) -> list[dict]:
+    routes = [r for r in (routes or []) if isinstance(r, dict) and isinstance(r.get("km"), (int, float))]
+    if not routes:
+        return [_item("reisafstand", "onbekend", "Reisafstand", "onbekend", "route", kort="reisafstand onbekend")] if werk_bekend else []
+    gewicht = cfg["werk"].get("gewicht") or {}
+    goed_km, slecht_km = cfg["werk"]["km_goed"], cfg["werk"]["km_slecht"]
+    uit = []
+    for rt in routes:
+        g = float(gewicht.get(rt.get("label"), 0)) if gewicht else 1 / len(routes)
+        km = float(rt["km"])
+        f = _begrens(((goed_km + slecht_km) / 2 - km) / ((slecht_km - goed_km) / 2), -1.0, 1.0)
+        oord = "goed" if km <= goed_km else ("let_op" if km >= slecht_km else "neutraal")
+        uit.append(_item("reisafstand", oord, f"Werk {rt.get('label') or ''}".strip(), f"≈ {nl(km)} km",
+                         "route" if rt.get("soort") == "weg" else "schatting (hemelsbreed x 1,3)", g * f, kort=f"werk {nl(km)} km"))
+    return uit
+
+
+def _items_energielabel(label: str, bron: str, reken_label: str, grond: str | None, dr: dict) -> list[dict]:
+    """Kosten zitten in de woonlasten, leenruimte in de poort; hier alleen het verbouwrisico."""
+    if label in dr["energielabel_slecht"]:
+        extra = tabel()["label_verduurzamen"].get(label)
+        return [_item("energielabel", "let_op", "Energielabel", label, bron, -1.0, kort=f"label {label}",
+                      vraag="Vraag naar verduurzamingsplannen van de VvE.",
+                      uitleg=(f"Voor energiebesparende maatregelen mag je tot {eur(extra)} extra lenen." if extra else None))]
+    if label == "?":
+        return [_item("energielabel", "onbekend", "Energielabel", f"onbekend, gerekend als {reken_label}", bron,
+                      kort="label onbekend", vraag="Vraag het energielabel op.",
+                      uitleg=(f"Energiekosten gerekend met label {reken_label}"
+                              + (f", op grond van {grond}." if grond else ": zonder label gaan we uit van het slechtste.")
+                              + " Een aanname, geen gegeven."))]
+    if label in dr["energielabel_goed"]:
+        return [_item("energielabel", "goed", "Energielabel", label, bron, kort=f"label {label}",
+                      uitleg="Lagere stookkosten en meer leenruimte; dat zit al in woonlasten en leentoets.")]
+    return []
+
+
+# Erfpachtstatus met een vast item: (oordeel, label, waarde, punten, kort, vraag).
+_ERFPACHT_ONDUIDELIJK = ("let_op", "Erfpacht", "voorwaarden onbekend", -0.5, "erfpacht onduidelijk",
+                         "Vraag de erfpachtakte: canon, afkoop en einddatum.")
+_ERFPACHT_ITEM = {
+    "eigen": ("goed", "Grond", "eigen grond", 0.0, "eigen grond", None),
+    "eeuwig_afgekocht": ("goed", "Erfpacht", "eeuwigdurend afgekocht", 0.0, "erfpacht afgekocht", None),
+    "voortdurend": ("sterk", "Erfpacht", "voortdurend, canon herzien", -1.5, "voortdurende erfpacht",
+                    "Vraag wanneer het tijdvak afloopt en wat de nieuwe canon wordt."),
+    "afgekocht_looptijd_onbekend": _ERFPACHT_ONDUIDELIJK,
+    "erfpacht_onduidelijk": _ERFPACHT_ONDUIDELIJK,
+    "onbekend": ("onbekend", "Eigendom", "niet vermeld", 0.0, "eigendom onbekend", "Vraag of het eigen grond of erfpacht is."),
+}
+
+
+def _items_erfpacht(erf: dict, jaar_nu: int, dr: dict) -> list[dict]:
+    st, bron, eind, canon = erf["status"], erf["bron"], erf["eind"], erf["canon_jaar"]
+    if st == "afgekocht_tot":
+        jaren = eind - jaar_nu
+        p = 0.0 if jaren >= dr["erfpacht_afkoop_middel_jaren"] else (-1.0 if jaren >= dr["erfpacht_afkoop_kort_jaren"] else -2.0)
+        return [_item("erfpacht", "sterk" if p <= -2.0 else ("let_op" if p < 0 else "neutraal"), "Erfpacht",
+                      f"afgekocht tot {eind} ({jaren} jaar)" if jaren >= 0 else f"afkoop verlopen in {eind}", bron, p,
+                      kort=f"afkoop tot {eind}", vraag=f"Vraag wat de canon na {eind} wordt.")]
+    if st == "eeuwig_canon":
+        return [_item("erfpacht", "let_op", "Erfpachtcanon", f"{eur(canon)} per jaar" if canon else "bedrag onbekend", bron, -0.5,
+                      kort="erfpachtcanon", vraag="Vraag de erfpachtakte en de datum van de volgende herziening.",
+                      uitleg="De canon zit in je woonlasten en in de leentoets." if canon else None)]
+    oord, label, waarde, p, kort, vraag = _ERFPACHT_ITEM.get(st, _ERFPACHT_ITEM["onbekend"])
+    return [_item("erfpacht", oord, label, waarde, bron, p, kort=kort, vraag=vraag)]
+
+
+def _nog_ophalen(reden, status: str):
+    return reden or ("Nog niet opgehaald. Komt bij een volgende update." if status == "budget" else None)
+
+
+def _items_vve(ch: dict, tekst: str, vve, vve_bron: str, stook: bool, m2: int, n_vbo, bag_st: str, bag_reden,
+               dr: dict) -> list[dict]:
+    """VvE: de bijdrage, de kenmerken (KvK, vergadering, fonds, plan), de tekst en het aantal adressen uit de BAG."""
+    uit: list[dict] = []
+    add = uit.append
+    if vve is None:
+        add(_item("vve", "onbekend", "VvE-bijdrage", f"onbekend, gerekend met {eur(VVE_GESCHAT)}", "aanname",
+                  kort="VvE-bijdrage onbekend", vraag="Vraag de maandelijkse VvE-bijdrage op."))
+    else:
+        per_m2 = vve / max(m2, 1)
+        hoogte = (None if stook else "laag" if per_m2 < dr["vve_bijdrage_laag_per_m2"]
+                  else "hoog" if per_m2 > dr["vve_bijdrage_hoog_per_m2"] else None)
+        add(_item("vve", "let_op" if hoogte else "neutraal", "VvE-bijdrage",
+                  f"{eur(vve)} per maand" + (", met stookkosten" if stook else f", {hoogte}" if hoogte else ""), vve_bron,
+                  kort=f"VvE {eur(vve)}" + (f" {hoogte}" if hoogte else ""),
+                  vraag="Lage bijdrage: vraag de stand van het reservefonds en het onderhoudsplan." if hoogte == "laag" else None,
+                  uitleg="Zit al in je woonlasten." if hoogte == "hoog" else None))
+    slapend = vve_status(ch, tekst) == "slapend"
+    ja, nee = _vve_kenmerken(ch)
+    if slapend:
+        add(_item("vve", "sterk", "VvE", "niet actief", "kenmerken en tekst", -1.0, kort="VvE niet actief",
+                  vraag="Vraag of de VvE een rekening, verzekering en vergadering heeft."))
+    if "Reservefonds aanwezig" in nee:
+        add(_item("vve", "let_op", "Reservefonds", "nee", "kenmerk 'Reservefonds aanwezig'", -0.5, kort="geen reservefonds"))
+    if "Onderhoudsplan" in nee:
+        add(_item("vve", "let_op", "Onderhoudsplan", "nee", "kenmerk 'Onderhoudsplan'", -0.5, kort="geen onderhoudsplan"))
+    if len(ja) == len(_VVE_KENMERKEN) and not slapend:
+        add(_item("vve", "goed", "VvE op orde", "KvK, vergadering, fonds en plan", "kenmerken", 0.5, kort="VvE op orde"))
+    if n_vbo is not None and n_vbo <= dr["vve_klein_max_woningen"]:
+        add(_item("vve", "let_op", "Kleine VvE", f"{n_vbo} adressen in het pand", "BAG", -0.5, kort=f"VvE van {n_vbo}",
+                  vraag="Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds.",
+                  uitleg="Grote kosten (dak, fundering) deel je met weinig eigenaren."))
+    elif n_vbo is not None:
+        add(_item("vve", "neutraal", "Pand", f"{n_vbo} adressen", "BAG", kort=f"pand met {n_vbo} adressen"))
+    elif bag_st in ("onbekend", "budget"):
+        add(_item("vve", "onbekend", "VvE-grootte", "onbekend", "BAG", kort="VvE-grootte onbekend",
+                  uitleg=_nog_ophalen(bag_reden, bag_st)))
+    return uit
+
+
+def _items_fundering(verrijking, bj, bj_bag, klein: bool, herstel: bool, dr: dict) -> list[dict]:
+    """Funderingsrisico van de buurt, alleen bij een bouwjaar voor de grens (1970)."""
+    st, fu, reden = _bron(verrijking, "fundering")
+    grens = dr["fundering_bouwjaar_voor"]
+    uit: list[dict] = []
+    if bj and bj >= grens and st in ("ok", "niet_nodig", "onbekend", "budget"):
+        uit.append(_item("fundering", "neutraal", "Fundering", f"bouwjaar {bj}, na {grens}", "BAG" if bj_bag else "funda",
+                         kort="fundering geen risico"))
+    elif st in ("onbekend", "budget"):
+        uit.append(_item("fundering", "onbekend", "Funderingsrisico buurt", "onbekend", "Klimaateffectatlas", kort="fundering onbekend",
+                         uitleg=_nog_ophalen(reden, st), vraag="Vraag de VvE of er funderingsonderzoek is gedaan."))
+    elif st == "ok" and fu:
+        klassen = [(k, v) for k, v in fu.items() if v in FUND_KLASSE]
+        if klassen:
+            soort, klasse = max(klassen, key=lambda kv: FUND_KLASSE.index(kv[1]))
+            rang = FUND_KLASSE.index(klasse)
+            if rang >= FUND_KLASSE.index(dr["fundering_klasse_let_op"]) and not herstel:
+                uit.append(_item("fundering", "sterk" if rang >= 3 else "let_op", "Funderingsrisico buurt", f"{soort} {klasse} (2050)",
+                                 "Klimaateffectatlas, buurtniveau", {2: -0.5, 3: -1.0, 4: -1.5}[rang] + (-0.5 if klein else 0.0),
+                                 kort=f"fundering {klasse}",
+                                 vraag="Vraag de VvE naar funderingsonderzoek en of ze ervoor reserveert.",
+                                 uitleg=f"Pand uit {bj}. Kaart op buurtniveau: geen oordeel over dit pand."))
+            else:
+                uit.append(_item("fundering", "goed", "Funderingsrisico buurt", klasse, "Klimaateffectatlas, buurtniveau",
+                                 0.5 if herstel and rang >= 2 else 0.0, kort=f"fundering {klasse}"))
+    if herstel:
+        uit.append(_item("fundering", "goed", "Funderingsherstel", "uitgevoerd (advertentie)", "advertentietekst",
+                         kort="fundering hersteld", vraag="Vraag het rapport en de garantie van het herstel."))
+    return uit
+
+
+def _items_geluid(verrijking, dr: dict) -> list[dict]:
+    """Geluid aan de gevel: het zwaarste van weg en trein, dag en nacht."""
+    st, ge, reden = _bron(verrijking, "geluid")
+    if not (st == "ok" and ge):
+        return [_item("geluid", "onbekend", "Geluid aan de gevel", "onbekend", "RIVM", kort="geluid onbekend",
+                      uitleg=reden)] if st in ("onbekend", "budget") else []
+
+    def db(veld):                                       # None = geen waarde of onder de kaartgrens
+        v = ge.get(veld)
+        return v if isinstance(v, (int, float)) and v > -9000 else None
+
+    lden_w, lden_t = db("lden_weg"), db("lden_trein")
+    if lden_w is None and lden_t is None:
+        return [_item("geluid", "goed", "Geluid aan de gevel", "rustig, onder de kaartgrens", "RIVM 2022/2023", kort="rustige gevel")]
+    stap = max(sum(db(veld) >= grens for grens in dr[f"geluid_{veld}"])
+               for veld in ("lden_weg", "lnight_weg", "lden_trein", "lnight_trein") if db(veld) is not None)
+    soort = "trein" if (lden_t or 0) > (lden_w or 0) else "weg"
+    lden, nacht = (lden_t if soort == "trein" else lden_w), db(f"lnight_{soort}")
+    waarde = f"{nl(lden, 0)} dB" + (f", nacht {nl(nacht, 0)} dB" if nacht is not None else "") + f" ({soort})"
+    oord = ["neutraal", "let_op", "sterk", "sterk"][min(stap, 3)]
+    if stap == 0 and lden < dr["geluid_rustig_lden"]:
+        oord, waarde = "goed", f"rustig, {nl(lden, 0)} dB"
+    return [_item("geluid", oord, "Geluid aan de gevel", waarde, "RIVM 2022/2023", -0.5 * min(stap, 3),
+                  kort=f"geluid {nl(lden, 0)} dB", uitleg="Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn.",
+                  vraag="Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn." if stap else None)]
+
+
+def _items_buurt(twijfel_z: list[str], verrijking, dr: dict) -> list[dict]:
+    """Buurt: jouw lijst blijft leidend, data vult aan (nooit bevolkingskenmerken).
+
+    Een zwakke Leefbaarometer komt als zin bij twijfel_z (in place), tenzij de buurt al op jouw lijst staat."""
+    uit = [it for it in map(_twijfel_item, twijfel_z) if it]
+    st, bu, reden = _bron(verrijking, "buurt")
+    if st == "ok" and bu:
+        k = bu.get("kscore")
+        if isinstance(k, (int, float)) and int(k) in LBM_KLASSE:
+            k = int(k)
+            klasse, jaar = LBM_KLASSE[k], bu.get("jaar") or 2024
+            if k <= dr["leefbaarometer_twijfel_max"]:
+                if not any(z.lower().startswith("twijfelbuurt") for z in twijfel_z):
+                    twijfel_z.append(f"Leefbaarometer {klasse} ({jaar}). Buurt staat niet op jouw lijst.")
+                uit.append(_item("buurt", "sterk", "Leefbaarometer", f"{klasse} ({jaar})", "Leefbaarometer 3.0", kort="buurt zwak",
+                                 uitleg="Staat niet op je uitsluitlijst. Zelf bekijken en eventueel toevoegen."))
+            else:
+                goed = k >= dr["leefbaarometer_goed_min"]
+                uit.append(_item("buurt", "goed" if goed else "neutraal", "Leefbaarometer", f"{klasse} ({jaar})", "Leefbaarometer 3.0",
+                                 0.5 if goed else 0.0, kort=f"buurt {klasse}"))
+        onv = bu.get("onv")
+        if isinstance(onv, (int, float)) and onv <= dr["leefbaarometer_onv_let_op"]:
+            uit.append(_item("buurt", "let_op", "Overlast en onveiligheid", f"{nl(onv, 2)} tegenover Nederland", "Leefbaarometer 3.0",
+                             -0.5, kort="overlast buurt"))
+    elif st in ("onbekend", "budget"):
+        uit.append(_item("buurt", "onbekend", "Buurtdata", "onbekend", "Leefbaarometer", kort="buurtdata onbekend", uitleg=reden))
+    tv = (bu or {}).get("tevreden_woonomgeving") if st == "ok" else None
+    tv_st, tv_data, _ = _bron(verrijking, "tevredenheid")
+    if tv is None and tv_st == "ok" and tv_data:
+        tv = tv_data.get("tevreden_woonomgeving", tv_data.get("tevreden"))
+    if isinstance(tv, (int, float)):
+        laag = tv < dr["tevreden_woonomgeving_let_op"]
+        if laag or tv >= dr["tevreden_woonomgeving_goed"]:
+            uit.append(_item("buurt", "let_op" if laag else "goed", "Tevreden met buurt", f"{nl(tv, 0)}% (2024)",
+                             "RIVM-gezondheidsmonitor", -0.5 if laag else 0.0, kort=f"tevreden {nl(tv, 0)}%",
+                             uitleg="Modelschatting met onzekerheidsmarge." if laag else None))
+    return uit
+
+
+def _items_zonder_prijs(ruw, hist: dict) -> list[dict]:
+    """Eerder zonder vraagprijs aangeboden: eigen waarneming (d["_zonder_prijs_gezien"]), anders funda's prijshistorie."""
+    eigen = _datum(ruw)
+    wanneer = eigen or _datum(hist.get("zonder_prijs"))
+    if not wanneer and ruw != ZONDER_PRIJS_ONBEKEND:
+        return []
+    return [_item("prijsverloop", "neutraal", "Eerder zonder prijs",
+                  f"gezien op {_dag_kort(wanneer)}" if wanneer else "gezien, datum onbekend",
+                  "eigen waarneming" if eigen or not wanneer else "funda prijshistorie", kort="eerder zonder prijs",
+                  uitleg="Deze woning stond eerder zonder vraagprijs te koop (prijs op aanvraag). "
+                         "Vraag de makelaar waarom er nu wel een prijs staat.")]
+
+
+def _items_staat(w: dict, ch: dict, signalen: list[tuple], m2: int, bj_bag, bj_funda, dr: dict) -> list[dict]:
+    """Staat en clausules uit de advertentie (funderingsherstel staat bij de fundering)."""
+    uit = [_item(onderdeel, oord, lab, waarde, "advertentietekst", p, kort=kort, vraag=vraag)
+           for sid, _, _, onderdeel, oord, lab, waarde, p, kort, vraag in signalen if sid != "funderingsherstel"]
+    if w.get("is_fixer_upper") and not any(s[0] == "opknapper" for s in signalen):
+        uit.append(_item("staat", "sterk", "Staat", "kluswoning", "funda", -1.5, kort="kluswoning",
+                         vraag="Laat een verbouwbegroting maken voor je bod."))
+    if w.get("is_monument"):
+        uit.append(_item("staat", "neutraal", "Monument", "ja", "funda", kort="monument",
+                         vraag="Vraag welke verbouwingen een vergunning nodig hebben."))
+    if (ch.get("Aanvaarding") or w.get("acceptance") or "").lower().startswith("in overleg"):
+        uit.append(_item("clausules", "neutraal", "Oplevering", "in overleg", "kenmerk 'Aanvaarding'", kort="oplevering in overleg"))
+    inhoud = _getal(ch.get("Inhoud")) if ch.get("Inhoud") else None
+    if inhoud and m2 and inhoud / m2 >= dr["inhoud_per_m2_hoog"]:
+        uit.append(_item("staat", "neutraal", "Hoge ruimtes", f"{nl(inhoud / m2)} m³ per m²", "kenmerk 'Inhoud'", kort="hoge ruimtes",
+                         uitleg="Sfeer, maar ook meer stookkosten."))
+    if bj_bag and bj_funda and abs(bj_bag - bj_funda) >= dr["bouwjaar_verschil_bag_funda"]:
+        uit.append(_item("staat", "neutraal", "Bouwjaar", f"funda {bj_funda}, BAG {bj_bag}", "BAG", kort="bouwjaar wijkt af"))
+    return uit
+
+
+def _items_markt(prijs, m2: int, gem, verklaard: bool, dr: dict) -> list[dict]:
+    """Prijs per m² tegenover de buurt. verklaard: de lage prijs komt al door de staat of het label."""
+    if not (prijs and isinstance(gem, (int, float)) and gem > 0 and m2):
+        return []
+    diff = (prijs / m2 - gem) / gem * 100
+    onder = diff <= -dr["markt_afwijking_pct"] and not verklaard
+    if not onder and diff < dr["markt_afwijking_pct"]:
+        return []
+    tekst = f"{nl(abs(diff), 0)}% onder" if onder else f"{nl(diff, 0)}% boven"
+    return [_item("markt", "goed" if onder else "let_op", "Prijs per m²", f"{tekst} de buurt", "funda-buurtcijfer",
+                  0.5 if onder else -0.5, kort=f"m²-prijs {tekst} buurt",
+                  uitleg="Vergeleken met alle te koop staande woningen in de buurt.")]
+
+
+def _items_info(w: dict, woz: dict | None, makelaar: dict) -> list[dict]:
+    """Informatief, 0 punten: WOZ, makelaar, open huis."""
+    uit = []
+    if woz and woz["bedrag"]:
+        jr = woz["jaar"]
+        uit.append(_item("info", "neutraal", "WOZ-waarde", f"{eur(woz['bedrag'])}" + (f" (WOZ {jr})" if jr else ""),
+                         "funda prijshistorie", kort="WOZ-waarde",
+                         uitleg=f"Waardepeildatum 1 januari {jr - 1}: de WOZ loopt achter op de markt." if jr else None))
+    cijfer = makelaar.get("review_average")
+    if isinstance(cijfer, (int, float)):
+        n = makelaar.get("review_count")
+        uit.append(_item("info", "neutraal", "Makelaar", f"{nl(cijfer)} uit {n} reviews" if n else nl(cijfer),
+                         "funda" + (f", {makelaar['name']}" if makelaar.get("name") else ""), kort="makelaar"))
+    if w.get("open_house"):
+        uit.append(_item("info", "neutraal", "Open huis", "gepland", "funda", kort="open huis"))
+    return uit
+
+
+def _items_kansen(tr: dict, prijs, hoogste, cfg: dict) -> list[dict]:
+    """Kansen bij bieden: tellen niet mee, elke oorzaak één keer."""
+    uit = []
+    if tr.get("gedaald") and tr.get("drop_bedrag"):
+        uit.append(_item("kans", "kans", "Prijs verlaagd", f"{eur(tr['drop_bedrag'])} lager", "eigen tracking", kort="prijs verlaagd",
+                         uitleg=f"Was {eur(tr['eerdere_prijs'])}." if tr.get("eerdere_prijs") else None))
+    elif prijs and hoogste and hoogste > prijs:
+        uit.append(_item("kans", "kans", "Prijs verlaagd", f"{eur(hoogste - prijs)} lager", "funda prijshistorie",
+                         kort="prijs verlaagd", uitleg=f"Hoogste vraagprijs sinds de laatste verkoop: {eur(hoogste)}."))
+    dagen = tr.get("dagen") or 0
+    if isinstance(dagen, (int, float)) and dagen >= cfg["lang_op_funda_dagen"]:
+        uit.append(_item("kans", "kans", "Lang te koop", f"{int(dagen)} dagen", "eigen tracking", kort="lang te koop"))
+    return uit
+
+
 def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list | None, profiel: dict | None,
               config: dict | None, verrijking: dict | None = None, *, rente: dict | None = None,
               vandaag=None) -> dict:
@@ -1841,32 +2167,27 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
     profiel = profiel or {}
     cfg = config if isinstance(config, dict) and "gewichten" in config else laad_config(profiel)
     rente = rente or rente_uit_config(cfg, vandaag)
+    d = d or {}
     w = _woning(d, details)
-    ch = w.get("characteristics") if isinstance(w.get("characteristics"), dict) else {}
+    ch = _blok(w, "characteristics")
     tekst = str(w.get("description") or "")
     dr = cfg["drempels"]
-    m2 = w.get("living_area") or 0
-    try:
-        m2 = int(m2)
-    except (TypeError, ValueError):
-        m2 = _getal(m2) or 0
-    items: list[dict] = []
-    add = items.append
-    if twijfel is None:
-        twijfel = (d or {}).get("_twijfel")
-    twijfel_z = _twijfel_zinnen(twijfel)
-    enr = (d or {}).get("_enrichment") if isinstance((d or {}).get("_enrichment"), dict) else {}
+    m2 = _oppervlak(w)
+    twijfel_z = _twijfel_zinnen(d.get("_twijfel") if twijfel is None else twijfel)
+    enr = _blok(d, "_enrichment")
 
-    # --- invoer voor de financiering
+    # Wat de financiering nodig heeft: label, erfpacht, VvE-bijdrage, energiekosten en de WOZ.
     label, label_bron = energielabel(w, ch, tekst)
     erf = erfpacht(ch, tekst)
     vve, vve_bron = vve_maand(ch, tekst)
     stook = stookkosten_in_vve(ch, tekst)
     # Bouwjaar: BAG gaat voor, anders funda. Zonder label bepaalt het ook het rekenlabel van de energiekosten.
     bag_st, bag, bag_reden = _bron(verrijking, "bag")
+    bag = bag if bag_st == "ok" else None
     bj_funda = _getal(w.get("construction_year")) or _getal(ch.get("Bouwjaar"))
-    bj_bag = _getal((bag or {}).get("bouwjaar")) if bag_st == "ok" else None
+    bj_bag = _getal((bag or {}).get("bouwjaar"))
     bj = bj_bag or bj_funda
+    n_vbo = _getal((bag or {}).get("aantal_vbo_pand"))
     reken_label, label_grond = label_aanname(label, bj)
     energie = ENERGIE_PER_LABEL[reken_label] * max(m2, 40) / 75 * (STOOK_IN_VVE_FACTOR if stook else 1)
     hist = prijshistorie(prijswijzigingen(d))
@@ -1877,378 +2198,36 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
     gate = poort(w, cfg, fin)
     signalen = lees_advertentie(tekst)
     sig_ids = {s[0] for s in signalen}
-    kk_onz = cfg["financiering"]["kk_onzekerheid"]
-
-    # --- woonlasten en geld (de financiering zelf is de poort; hier de maandlast als onderdeel)
-    if fin["netto"] is not None:
-        netto_grens = fin["grens_soort"] == "netto"
-        waarde_lasten = fin["netto"] if netto_grens else fin["bruto"]
-        ruimte = fin["grens"] - waarde_lasten
-        oord = "goed" if ruimte >= dr["woonlasten_ruim_onder_grens"] else ("let_op" if ruimte < 0 else "neutraal")
-        add(_item("woonlasten", oord, "Woonlasten", f"{eur(waarde_lasten)} {'netto' if netto_grens else 'bruto'} per maand",
-                  "berekening", max(-1.5, min(1.5, ruimte / 100)), kort=f"woonlasten {eur(waarde_lasten)}",
-                  uitleg=(f"Netto, jaar 1. Je grens: {eur(fin['grens'])}." if netto_grens else
-                          f"Bruto. Zonder eigen grens geldt de norm van 33% van je bruto inkomen ({eur(fin['grens'])}).")))
-        if fin["tekort"] > kk_onz:
-            add(_item("financiering", "let_op", "Eigen geld", f"{eur(fin['tekort'])} tekort", "berekening, kosten koper ≈"))
-        elif fin["tekort"] > 0:
-            add(_item("financiering", "neutraal", "Eigen geld", "net genoeg (schatting)", "berekening, kosten koper ≈",
-                      vraag="Laat je kosten koper narekenen door een adviseur.",
-                      uitleg=f"Tekort {eur(fin['tekort'])} valt binnen de onzekerheid van de kosten koper."))
-        else:
-            add(_item("financiering", "neutraal", "Eigen geld", f"genoeg, {eur(-fin['tekort'])} over", "berekening, kosten koper ≈"))
-        marge = fin["marge_lenen"]
-        if marge >= 0:
-            add(_item("financiering", "neutraal", "Leenruimte", f"{eur(marge)} over", "leentoets 2026"))
-        else:
-            add(_item("financiering", "sterk" if fin["tekort"] > kk_onz else "neutraal", "Leenruimte",
-                      f"{eur(-marge)} te weinig", "leentoets 2026", kort="leenruimte te klein"))
-        if fin["scenario_tekst"]:
-            add(_item("financiering", "neutraal", "Leentoets", fin["scenario_tekst"], "leentoets 2026, jouw scenario's",
-                      kort=fin["scenario_tekst"].lower()))
-    else:
-        add(_item("woonlasten", "onbekend", "Woonlasten", "prijs onbekend", "funda", kort="woonlasten onbekend",
-                  vraag="Vraag de vraagprijs of een richtprijs."))
-
-    # --- buitenruimte
-    br = buitenruimte(w, ch, tekst)
-    if br["soort"] is None and br["zeker"]:
-        add(_item("buitenruimte", "sterk", "Buitenruimte", "geen", br["bron"], -1.5, kort="geen buitenruimte"))
-    elif br["soort"] is None:
-        add(_item("buitenruimte", "onbekend", "Buitenruimte", "niet vermeld", "funda", kort="buitenruimte onbekend",
-                  vraag="Vraag of er een balkon of andere buitenruimte is."))
-    elif br["soort"] == "frans balkon":
-        add(_item("buitenruimte", "let_op", "Buitenruimte", "alleen frans balkon", br["bron"], -1.0, kort="alleen frans balkon"))
-    else:
-        maat = f"{br['m2']} m²" if br["m2"] else "maat onbekend"
-        groot = br["soort"] in ("dakterras", "tuin")
-        p = 1.0 if groot else (0.5 if (br["m2"] or 0) >= dr["buitenruimte_balkon_min_m2"] else 0.0)
-        add(_item("buitenruimte", "goed" if p > 0 else "neutraal", br["soort"].capitalize(), maat, br["bron"], p,
-                  kort=f"{br['soort']} {maat if br['m2'] else ''}".strip() + (f" {br['richting'].lower()}" if br["richting"] else ""),
-                  vraag="Is er een vergunning voor het dakterras en staat het in de splitsingsakte?" if br["soort"] == "dakterras" else None))
-        r = br["richting"]
-        if r in ("Zuid", "Zuidwest", "Zuidoost", "West"):
-            add(_item("buitenruimte", "goed", "Zon op buitenruimte", r.lower(), "advertentietekst", 0.5, kort=f"zon {r.lower()}"))
-        elif r and r.startswith("Noord"):
-            add(_item("buitenruimte", "let_op", "Zon op buitenruimte", r.lower(), "advertentietekst", -0.5, kort=f"zon {r.lower()}"))
-        elif r:
-            add(_item("buitenruimte", "neutraal", "Zon op buitenruimte", r.lower(), "advertentietekst", kort=f"zon {r.lower()}"))
-
-    # --- oppervlak
-    wens = cfg["m2_wens"]
-    if m2:
-        oord = "goed" if m2 >= wens + 10 else ("let_op" if m2 < wens - 10 else "neutraal")
-        add(_item("oppervlak", oord, "Woonoppervlak", f"{m2} m² (wens {wens})", "funda",
-                  max(-1.0, min(1.0, (m2 - wens) / dr["oppervlak_stap_m2"])), kort=f"{m2} m²"))
-    else:
-        add(_item("oppervlak", "onbekend", "Woonoppervlak", "onbekend", "funda", kort="oppervlak onbekend"))
-
-    # --- woonlaag en lift
     laag, lift, laag_bron = woonlaag(ch, tekst)
-    mx = cfg["max_woonlaag_zonder_lift"]
-    if laag and lift is False and laag > mx:
-        add(_item("woonlaag_lift", "sterk" if laag >= mx + 2 else "let_op", "Trappen", f"{laag}e woonlaag, geen lift",
-                  laag_bron, max(-1.5, -0.5 * (laag - mx)), kort=f"{laag}e zonder lift"))
-    elif laag and lift is None and laag > mx:
-        add(_item("woonlaag_lift", "onbekend", "Lift", "niet vermeld", "funda", kort="lift onbekend",
-                  vraag=f"Is er een lift? De woning ligt op de {laag}e woonlaag."))
-    elif laag and lift and laag >= 3:
-        add(_item("woonlaag_lift", "goed", "Lift", f"{laag}e woonlaag", "kenmerk 'Voorzieningen'", kort=f"lift, {laag}e woonlaag"))
+    # De lage m²-prijs van een kluswoning of een slecht label is geen koopje.
+    verklaard = bool(w.get("is_fixer_upper")) or "opknapper" in sig_ids or label in dr["energielabel_slecht"]
 
-    # --- schuin dak: klein minpunt als de woonruimte onder de kap ligt (besluit eigenaar, 18 nov 2026)
-    kap = schuin_dak(ch, tekst, laag)
-    if kap["status"] == "zeker":
-        waarde = ("bovenste woonlaag onder de kap" if kap["maisonnette"] else
-                  "bovenste etage onder de kap" if kap["bovenste"] else "woonruimte onder schuin dak")
-        add(_item("schuin_dak", "let_op", "Schuin dak", waarde, kap["bron"], dr["schuin_dak_punten"], kort="onder schuin dak",
-                  vraag="Vraag de bruikbare oppervlakte boven 1,50 m hoogte op.",
-                  uitleg="Onder een schuin dak is minder vloer bruikbaar dan het aantal m² doet denken, en de ruimte voelt anders."))
-    elif kap["status"] == "mogelijk":
-        add(_item("schuin_dak", "neutraal", "Schuin dak", "mogelijk onder schuin dak", kap["bron"], kort="mogelijk schuin dak",
-                  uitleg="Het pand heeft een schuin dak; of deze woning eronder ligt, is niet te zien. Kijk op de foto's en de plattegrond."))
-
-    # --- reisafstand
-    routes = [r for r in (routes or []) if isinstance(r, dict) and isinstance(r.get("km"), (int, float))]
-    if routes:
-        gw_cfg = cfg["werk"].get("gewicht") or {}
-        goed_km, slecht_km = cfg["werk"]["km_goed"], cfg["werk"]["km_slecht"]
-        for rt in routes:
-            g = float(gw_cfg.get(rt.get("label"), 0)) if gw_cfg else 1 / len(routes)
-            km = float(rt["km"])
-            f_ = max(-1.0, min(1.0, ((goed_km + slecht_km) / 2 - km) / ((slecht_km - goed_km) / 2)))
-            oord = "goed" if km <= goed_km else ("let_op" if km >= slecht_km else "neutraal")
-            bron = "route" if rt.get("soort") == "weg" else "schatting (hemelsbreed x 1,3)"
-            add(_item("reisafstand", oord, f"Werk {rt.get('label') or ''}".strip(), f"≈ {nl(km)} km", bron, g * f_,
-                      kort=f"werk {nl(km)} km"))
-    elif profiel.get("werk_postcodes"):
-        add(_item("reisafstand", "onbekend", "Reisafstand", "onbekend", "route", kort="reisafstand onbekend"))
-
-    # --- energielabel: kosten zitten in de woonlasten, leenruimte in de poort; hier alleen het verbouwrisico
-    if label in dr["energielabel_slecht"]:
-        extra = tabel()["label_verduurzamen"].get(label)
-        add(_item("energielabel", "let_op", "Energielabel", label, label_bron, -1.0, kort=f"label {label}",
-                  vraag="Vraag naar verduurzamingsplannen van de VvE.",
-                  uitleg=(f"Voor energiebesparende maatregelen mag je tot {eur(extra)} extra lenen." if extra else None)))
-    elif label == "?":
-        add(_item("energielabel", "onbekend", "Energielabel", f"onbekend, gerekend als {reken_label}", label_bron,
-                  kort="label onbekend", vraag="Vraag het energielabel op.",
-                  uitleg=(f"Energiekosten gerekend met label {reken_label}"
-                          + (f", op grond van {label_grond}." if label_grond else ": zonder label gaan we uit van het slechtste.")
-                          + " Een aanname, geen gegeven.")))
-    elif label in dr["energielabel_goed"]:
-        add(_item("energielabel", "goed", "Energielabel", label, label_bron, kort=f"label {label}",
-                  uitleg="Lagere stookkosten en meer leenruimte; dat zit al in woonlasten en leentoets."))
-
-    # --- erfpacht
-    st = erf["status"]
-    jaren = (erf["eind"] - vandaag.year) if erf["eind"] else None
-    if st == "eigen":
-        add(_item("erfpacht", "goed", "Grond", "eigen grond", erf["bron"], kort="eigen grond"))
-    elif st == "eeuwig_afgekocht":
-        add(_item("erfpacht", "goed", "Erfpacht", "eeuwigdurend afgekocht", erf["bron"], kort="erfpacht afgekocht"))
-    elif st == "afgekocht_tot":
-        p = 0.0 if jaren >= dr["erfpacht_afkoop_middel_jaren"] else (-1.0 if jaren >= dr["erfpacht_afkoop_kort_jaren"] else -2.0)
-        oord = "sterk" if p <= -2.0 else ("let_op" if p < 0 else "neutraal")
-        waarde = f"afgekocht tot {erf['eind']} ({jaren} jaar)" if jaren >= 0 else f"afkoop verlopen in {erf['eind']}"
-        add(_item("erfpacht", oord, "Erfpacht", waarde, erf["bron"], p, kort=f"afkoop tot {erf['eind']}",
-                  vraag=f"Vraag wat de canon na {erf['eind']} wordt."))
-    elif st == "eeuwig_canon":
-        add(_item("erfpacht", "let_op", "Erfpachtcanon", f"{eur(erf['canon_jaar'])} per jaar" if erf["canon_jaar"] else "bedrag onbekend",
-                  erf["bron"], -0.5, kort="erfpachtcanon", vraag="Vraag de erfpachtakte en de datum van de volgende herziening.",
-                  uitleg="De canon zit in je woonlasten en in de leentoets." if erf["canon_jaar"] else None))
-    elif st == "voortdurend":
-        add(_item("erfpacht", "sterk", "Erfpacht", "voortdurend, canon herzien", erf["bron"], -1.5, kort="voortdurende erfpacht",
-                  vraag="Vraag wanneer het tijdvak afloopt en wat de nieuwe canon wordt."))
-    elif st in ("afgekocht_looptijd_onbekend", "erfpacht_onduidelijk"):
-        add(_item("erfpacht", "let_op", "Erfpacht", "voorwaarden onbekend", erf["bron"], -0.5, kort="erfpacht onduidelijk",
-                  vraag="Vraag de erfpachtakte: canon, afkoop en einddatum."))
-    else:
-        add(_item("erfpacht", "onbekend", "Eigendom", "niet vermeld", erf["bron"], kort="eigendom onbekend",
-                  vraag="Vraag of het eigen grond of erfpacht is."))
-
-    # --- VvE (kenmerken, tekst en BAG)
-    vs = vve_status(ch, tekst)
-    if vve is not None:
-        per_m2 = vve / max(m2, 1)
-        if stook:
-            add(_item("vve", "neutraal", "VvE-bijdrage", f"{eur(vve)} per maand, met stookkosten", vve_bron, kort=f"VvE {eur(vve)}"))
-        elif per_m2 < dr["vve_bijdrage_laag_per_m2"]:
-            add(_item("vve", "let_op", "VvE-bijdrage", f"{eur(vve)} per maand, laag", vve_bron, kort=f"VvE {eur(vve)} laag",
-                      vraag="Lage bijdrage: vraag de stand van het reservefonds en het onderhoudsplan."))
-        elif per_m2 > dr["vve_bijdrage_hoog_per_m2"]:
-            add(_item("vve", "let_op", "VvE-bijdrage", f"{eur(vve)} per maand, hoog", vve_bron, kort=f"VvE {eur(vve)} hoog",
-                      uitleg="Zit al in je woonlasten."))
-        else:
-            add(_item("vve", "neutraal", "VvE-bijdrage", f"{eur(vve)} per maand", vve_bron, kort=f"VvE {eur(vve)}"))
-    else:
-        add(_item("vve", "onbekend", "VvE-bijdrage", f"onbekend, gerekend met {eur(VVE_GESCHAT)}", "aanname",
-                  kort="VvE-bijdrage onbekend", vraag="Vraag de maandelijkse VvE-bijdrage op."))
-    sleutels = ("Inschrijving KvK", "Jaarlijkse vergadering", "Reservefonds aanwezig", "Onderhoudsplan")
-    ja = {k: (ch.get(k) or "").lower().startswith("ja") for k in sleutels}
-    nee = {k: (ch.get(k) or "").lower().startswith("nee") for k in sleutels}
-    if vs == "slapend":
-        add(_item("vve", "sterk", "VvE", "niet actief", "kenmerken en tekst", -1.0, kort="VvE niet actief",
-                  vraag="Vraag of de VvE een rekening, verzekering en vergadering heeft."))
-    if nee["Reservefonds aanwezig"]:
-        add(_item("vve", "let_op", "Reservefonds", "nee", "kenmerk 'Reservefonds aanwezig'", -0.5, kort="geen reservefonds"))
-    if nee["Onderhoudsplan"]:
-        add(_item("vve", "let_op", "Onderhoudsplan", "nee", "kenmerk 'Onderhoudsplan'", -0.5, kort="geen onderhoudsplan"))
-    if all(ja.values()) and vs != "slapend":
-        add(_item("vve", "goed", "VvE op orde", "KvK, vergadering, fonds en plan", "kenmerken", 0.5, kort="VvE op orde"))
-    n_vbo = _getal((bag or {}).get("aantal_vbo_pand")) if bag_st == "ok" else None
-    klein = n_vbo is not None and n_vbo <= dr["vve_klein_max_woningen"]
-    if n_vbo is not None:
-        if klein:
-            add(_item("vve", "let_op", "Kleine VvE", f"{n_vbo} adressen in het pand", "BAG", -0.5, kort=f"VvE van {n_vbo}",
-                      vraag="Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds.",
-                      uitleg="Grote kosten (dak, fundering) deel je met weinig eigenaren."))
-        else:
-            add(_item("vve", "neutraal", "Pand", f"{n_vbo} adressen", "BAG", kort=f"pand met {n_vbo} adressen"))
-    elif bag_st in ("onbekend", "budget"):
-        add(_item("vve", "onbekend", "VvE-grootte", "onbekend", "BAG", kort="VvE-grootte onbekend",
-                  uitleg=bag_reden or ("Nog niet opgehaald. Komt bij een volgende update." if bag_st == "budget" else None)))
-
-    # --- fundering (alleen bij een bouwjaar voor 1970)
-    fu_st, fu, fu_reden = _bron(verrijking, "fundering")
-    herstel = "funderingsherstel" in sig_ids
-    if bj and bj >= dr["fundering_bouwjaar_voor"] and fu_st in ("ok", "niet_nodig", "onbekend", "budget"):
-        add(_item("fundering", "neutraal", "Fundering", f"bouwjaar {bj}, na {dr['fundering_bouwjaar_voor']}", "BAG" if bj_bag else "funda",
-                  kort="fundering geen risico"))
-    elif fu_st in ("onbekend", "budget"):
-        add(_item("fundering", "onbekend", "Funderingsrisico buurt", "onbekend", "Klimaateffectatlas", kort="fundering onbekend",
-                  uitleg=fu_reden or ("Nog niet opgehaald. Komt bij een volgende update." if fu_st == "budget" else None),
-                  vraag="Vraag de VvE of er funderingsonderzoek is gedaan."))
-    elif fu_st == "ok" and fu:
-        klassen = [(k, v) for k, v in fu.items() if v in FUND_KLASSE]
-        if klassen:
-            soort, klasse = max(klassen, key=lambda kv: FUND_KLASSE.index(kv[1]))
-            rang = FUND_KLASSE.index(klasse)
-            if rang >= FUND_KLASSE.index(dr["fundering_klasse_let_op"]) and not herstel:
-                p = {2: -0.5, 3: -1.0, 4: -1.5}[rang] + (-0.5 if klein else 0.0)
-                add(_item("fundering", "sterk" if rang >= 3 else "let_op", "Funderingsrisico buurt", f"{soort} {klasse} (2050)",
-                          "Klimaateffectatlas, buurtniveau", p, kort=f"fundering {klasse}",
-                          vraag="Vraag de VvE naar funderingsonderzoek en of ze ervoor reserveert.",
-                          uitleg=f"Pand uit {bj}. Kaart op buurtniveau: geen oordeel over dit pand."))
-            else:
-                add(_item("fundering", "goed", "Funderingsrisico buurt", klasse, "Klimaateffectatlas, buurtniveau",
-                          0.5 if herstel and rang >= 2 else 0.0, kort=f"fundering {klasse}"))
-    if herstel:
-        add(_item("fundering", "goed", "Funderingsherstel", "uitgevoerd (advertentie)", "advertentietekst", kort="fundering hersteld",
-                  vraag="Vraag het rapport en de garantie van het herstel."))
-
-    # --- geluid aan de gevel
-    ge_st, ge, ge_reden = _bron(verrijking, "geluid")
-    if ge_st == "ok" and ge:
-        stap = 0
-        for veld in ("lden_weg", "lnight_weg", "lden_trein", "lnight_trein"):
-            v = ge.get(veld)
-            if isinstance(v, (int, float)) and v > -9000:
-                stap = max(stap, sum(v >= grens for grens in dr[f"geluid_{veld}"]))
-        lden_w = ge.get("lden_weg") if isinstance(ge.get("lden_weg"), (int, float)) and ge.get("lden_weg") > -9000 else None
-        lden_t = ge.get("lden_trein") if isinstance(ge.get("lden_trein"), (int, float)) and ge.get("lden_trein") > -9000 else None
-        if lden_w is None and lden_t is None:
-            add(_item("geluid", "goed", "Geluid aan de gevel", "rustig, onder de kaartgrens", "RIVM 2022/2023", kort="rustige gevel"))
-        else:
-            bron_txt = "trein" if (lden_t or 0) > (lden_w or 0) else "weg"
-            lden = lden_t if bron_txt == "trein" else lden_w
-            nacht = ge.get(f"lnight_{bron_txt}")
-            waarde = f"{nl(lden, 0)} dB" + (f", nacht {nl(nacht, 0)} dB" if isinstance(nacht, (int, float)) and nacht > -9000 else "") + f" ({bron_txt})"
-            oord = ["neutraal", "let_op", "sterk", "sterk"][min(stap, 3)]
-            if stap == 0 and lden < dr["geluid_rustig_lden"]:
-                oord, waarde = "goed", f"rustig, {nl(lden, 0)} dB"
-            add(_item("geluid", oord, "Geluid aan de gevel", waarde, "RIVM 2022/2023", -0.5 * min(stap, 3),
-                      kort=f"geluid {nl(lden, 0)} dB", uitleg="Rekenwaarde op het adrespunt. De achtergevel kan stiller zijn.",
-                      vraag="Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn." if stap else None))
-    elif ge_st in ("onbekend", "budget"):
-        add(_item("geluid", "onbekend", "Geluid aan de gevel", "onbekend", "RIVM", kort="geluid onbekend", uitleg=ge_reden))
-
-    # --- buurt: jouw lijst blijft leidend, data vult aan (nooit bevolkingskenmerken)
-    for zin in twijfel_z:
-        it = _twijfel_item(zin)
-        if it:
-            add(it)
-    bu_st, bu, bu_reden = _bron(verrijking, "buurt")
-    tv_st, tv_data, _ = _bron(verrijking, "tevredenheid")
-    if bu_st == "ok" and bu:
-        k = bu.get("kscore")
-        if isinstance(k, (int, float)) and int(k) in LBM_KLASSE:
-            k = int(k)
-            jaar = bu.get("jaar") or 2024
-            if k <= dr["leefbaarometer_twijfel_max"]:
-                if not any(z.lower().startswith("twijfelbuurt") for z in twijfel_z):
-                    twijfel_z.append(f"Leefbaarometer {LBM_KLASSE[k]} ({jaar}). Buurt staat niet op jouw lijst.")
-                add(_item("buurt", "sterk", "Leefbaarometer", f"{LBM_KLASSE[k]} ({jaar})", "Leefbaarometer 3.0", kort="buurt zwak",
-                          uitleg="Staat niet op je uitsluitlijst. Zelf bekijken en eventueel toevoegen."))
-            elif k >= dr["leefbaarometer_goed_min"]:
-                add(_item("buurt", "goed", "Leefbaarometer", f"{LBM_KLASSE[k]} ({jaar})", "Leefbaarometer 3.0", 0.5,
-                          kort=f"buurt {LBM_KLASSE[k]}"))
-            else:
-                add(_item("buurt", "neutraal", "Leefbaarometer", f"{LBM_KLASSE[k]} ({jaar})", "Leefbaarometer 3.0",
-                          kort=f"buurt {LBM_KLASSE[k]}"))
-        onv = bu.get("onv")
-        if isinstance(onv, (int, float)) and onv <= dr["leefbaarometer_onv_let_op"]:
-            add(_item("buurt", "let_op", "Overlast en onveiligheid", f"{nl(onv, 2)} tegenover Nederland", "Leefbaarometer 3.0", -0.5,
-                      kort="overlast buurt"))
-    elif bu_st in ("onbekend", "budget"):
-        add(_item("buurt", "onbekend", "Buurtdata", "onbekend", "Leefbaarometer", kort="buurtdata onbekend", uitleg=bu_reden))
-    tv = (bu or {}).get("tevreden_woonomgeving") if bu_st == "ok" else None
-    if tv is None and tv_st == "ok" and tv_data:
-        tv = tv_data.get("tevreden_woonomgeving", tv_data.get("tevreden"))
-    if isinstance(tv, (int, float)):
-        if tv < dr["tevreden_woonomgeving_let_op"]:
-            add(_item("buurt", "let_op", "Tevreden met buurt", f"{nl(tv, 0)}% (2024)", "RIVM-gezondheidsmonitor", -0.5,
-                      kort=f"tevreden {nl(tv, 0)}%", uitleg="Modelschatting met onzekerheidsmarge."))
-        elif tv >= dr["tevreden_woonomgeving_goed"]:
-            add(_item("buurt", "goed", "Tevreden met buurt", f"{nl(tv, 0)}% (2024)", "RIVM-gezondheidsmonitor",
-                      kort=f"tevreden {nl(tv, 0)}%"))
-
-    # --- open bronnen zonder scoregewicht: kerncijfers, politiecijfers, lucht, klimaat, erfgoed
-    for it in omgeving_items(verrijking, dr, monument_funda=bool(w.get("is_monument"))):
-        add(it)
-
-    # --- eerder zonder vraagprijs aangeboden (alleen als er nu wel een prijs is; nooit rekenen met prijs 0)
-    if prijs:
-        ruw_zp = (d or {}).get("_zonder_prijs_gezien")
-        eigen = _datum(ruw_zp)
-        uit_hist = _datum(hist.get("zonder_prijs"))
-        wanneer, bron_zp = (eigen, "eigen waarneming") if eigen else (uit_hist, "funda prijshistorie")
-        zonder_datum = not wanneer and ruw_zp == ZONDER_PRIJS_ONBEKEND
-        if wanneer or zonder_datum:
-            add(_item("prijsverloop", "neutraal", "Eerder zonder prijs",
-                      f"gezien op {_dag_kort(wanneer)}" if wanneer else "gezien, datum onbekend",
-                      bron_zp if wanneer else "eigen waarneming", kort="eerder zonder prijs",
-                      uitleg="Deze woning stond eerder zonder vraagprijs te koop (prijs op aanvraag). "
-                             "Vraag de makelaar waarom er nu wel een prijs staat."))
-
-    # --- staat en clausules uit de advertentie
-    kluswoning = bool(w.get("is_fixer_upper")) or "opknapper" in sig_ids
-    for sid, _, _, onderdeel, oord, lab, waarde, p, kort, vraag in signalen:
-        if sid == "funderingsherstel":
-            continue
-        add(_item(onderdeel, oord, lab, waarde, "advertentietekst", p, kort=kort, vraag=vraag))
-    if w.get("is_fixer_upper") and "opknapper" not in sig_ids:
-        add(_item("staat", "sterk", "Staat", "kluswoning", "funda", -1.5, kort="kluswoning",
-                  vraag="Laat een verbouwbegroting maken voor je bod."))
-    if w.get("is_monument"):
-        add(_item("staat", "neutraal", "Monument", "ja", "funda", kort="monument",
-                  vraag="Vraag welke verbouwingen een vergunning nodig hebben."))
-    if (ch.get("Aanvaarding") or w.get("acceptance") or "").lower().startswith("in overleg"):
-        add(_item("clausules", "neutraal", "Oplevering", "in overleg", "kenmerk 'Aanvaarding'", kort="oplevering in overleg"))
-    inhoud = _getal(ch.get("Inhoud")) if ch.get("Inhoud") else None
-    if inhoud and m2 and inhoud / m2 >= dr["inhoud_per_m2_hoog"]:
-        add(_item("staat", "neutraal", "Hoge ruimtes", f"{nl(inhoud / m2)} m³ per m²", "kenmerk 'Inhoud'", kort="hoge ruimtes",
-                  uitleg="Sfeer, maar ook meer stookkosten."))
-    if bj_bag and bj_funda and abs(bj_bag - bj_funda) >= dr["bouwjaar_verschil_bag_funda"]:
-        add(_item("staat", "neutraal", "Bouwjaar", f"funda {bj_funda}, BAG {bj_bag}", "BAG", kort="bouwjaar wijkt af"))
-
-    # --- markt (alleen als de lage prijs niet al door staat of label verklaard wordt)
-    mk = enr.get("market") if isinstance(enr.get("market"), dict) else {}
-    gem = mk.get("avg_asking_price_per_m2")
-    if prijs and isinstance(gem, (int, float)) and gem > 0 and m2:
-        diff = (prijs / m2 - gem) / gem * 100
-        verklaard = kluswoning or label in dr["energielabel_slecht"]
-        uitleg = "Vergeleken met alle te koop staande woningen in de buurt."
-        if diff <= -dr["markt_afwijking_pct"] and not verklaard:
-            add(_item("markt", "goed", "Prijs per m²", f"{nl(abs(diff), 0)}% onder de buurt", "funda-buurtcijfer", 0.5,
-                      kort=f"m²-prijs {nl(abs(diff), 0)}% onder buurt", uitleg=uitleg))
-        elif diff >= dr["markt_afwijking_pct"]:
-            add(_item("markt", "let_op", "Prijs per m²", f"{nl(diff, 0)}% boven de buurt", "funda-buurtcijfer", -0.5,
-                      kort=f"m²-prijs {nl(diff, 0)}% boven buurt", uitleg=uitleg))
-
-    # --- parkeren (standaard gewicht 0: zichtbaar, telt niet mee)
-    if w.get("has_parking_on_site") or w.get("has_parking_enclosed"):
-        add(_item("parkeren", "goed", "Parkeerplek", "eigen plek", "funda", 0.5, kort="eigen parkeerplek"))
-
-    # --- informatief: WOZ, makelaar, open huis (0 punten)
-    if hist["woz"] and hist["woz"]["bedrag"]:
-        jr = hist["woz"]["jaar"]
-        add(_item("info", "neutraal", "WOZ-waarde", f"{eur(hist['woz']['bedrag'])}" + (f" (WOZ {jr})" if jr else ""),
-                  "funda prijshistorie", kort="WOZ-waarde",
-                  uitleg=f"Waardepeildatum 1 januari {jr - 1}: de WOZ loopt achter op de markt." if jr else None))
-    br_info = enr.get("broker") if isinstance(enr.get("broker"), dict) else {}
-    if isinstance(br_info.get("review_average"), (int, float)):
-        n = br_info.get("review_count")
-        add(_item("info", "neutraal", "Makelaar", f"{nl(br_info['review_average'])} uit {n} reviews" if n else nl(br_info["review_average"]),
-                  "funda" + (f", {br_info['name']}" if br_info.get("name") else ""), kort="makelaar"))
-    if w.get("open_house"):
-        add(_item("info", "neutraal", "Open huis", "gepland", "funda", kort="open huis"))
-
-    # --- kansen bij bieden: tellen niet mee, elke oorzaak één keer
-    tr = (d or {}).get("_track") if isinstance((d or {}).get("_track"), dict) else {}
-    if tr.get("gedaald") and tr.get("drop_bedrag"):
-        add(_item("kans", "kans", "Prijs verlaagd", f"{eur(tr['drop_bedrag'])} lager", "eigen tracking", kort="prijs verlaagd",
-                  uitleg=f"Was {eur(tr['eerdere_prijs'])}." if tr.get("eerdere_prijs") else None))
-    elif prijs and hist["hoogste"] and hist["hoogste"] > prijs:
-        add(_item("kans", "kans", "Prijs verlaagd", f"{eur(hist['hoogste'] - prijs)} lager", "funda prijshistorie",
-                  kort="prijs verlaagd", uitleg=f"Hoogste vraagprijs sinds de laatste verkoop: {eur(hist['hoogste'])}."))
-    dagen = tr.get("dagen") or 0
-    if isinstance(dagen, (int, float)) and dagen >= cfg["lang_op_funda_dagen"]:
-        add(_item("kans", "kans", "Lang te koop", f"{int(dagen)} dagen", "eigen tracking", kort="lang te koop"))
-
-    # --- binnenklimaat: indicatie voor zomer en winter, informatief (verzoek eigenaar, 19 nov 2026)
-    for it in binnenklimaat(w, ch, tekst, bag if bag_st == "ok" else None, verrijking, label, reken_label, bj):
-        add(it)
-
+    items = [
+        *_items_geld(fin, dr, cfg["financiering"]["kk_onzekerheid"]),
+        *_items_buitenruimte(buitenruimte(w, ch, tekst), dr),
+        *_items_oppervlak(m2, cfg["m2_wens"], dr),
+        *_items_woonlaag(laag, lift, laag_bron, cfg["max_woonlaag_zonder_lift"]),
+        *_items_schuin_dak(schuin_dak(ch, tekst, laag), dr),
+        *_items_reisafstand(routes, cfg, bool(profiel.get("werk_postcodes"))),
+        *_items_energielabel(label, label_bron, reken_label, label_grond, dr),
+        *_items_erfpacht(erf, vandaag.year, dr),
+        *_items_vve(ch, tekst, vve, vve_bron, stook, m2, n_vbo, bag_st, bag_reden, dr),
+        *_items_fundering(verrijking, bj, bj_bag, n_vbo is not None and n_vbo <= dr["vve_klein_max_woningen"],
+                          "funderingsherstel" in sig_ids, dr),
+        *_items_geluid(verrijking, dr),
+        *_items_buurt(twijfel_z, verrijking, dr),
+        *omgeving_items(verrijking, dr, monument_funda=bool(w.get("is_monument"))),
+        # Alleen als er nu wel een prijs is; nooit rekenen met prijs 0.
+        *(_items_zonder_prijs(d.get("_zonder_prijs_gezien"), hist) if prijs else []),
+        *_items_staat(w, ch, signalen, m2, bj_bag, bj_funda, dr),
+        *_items_markt(prijs, m2, _blok(enr, "market").get("avg_asking_price_per_m2"), verklaard, dr),
+        # Parkeren heeft standaard gewicht 0: zichtbaar, telt niet mee.
+        *([_item("parkeren", "goed", "Parkeerplek", "eigen plek", "funda", 0.5, kort="eigen parkeerplek")]
+          if w.get("has_parking_on_site") or w.get("has_parking_enclosed") else []),
+        *_items_info(w, hist["woz"], _blok(enr, "broker")),
+        *_items_kansen(_blok(d, "_track"), prijs, hist["hoogste"], cfg),
+        *binnenklimaat(w, ch, tekst, bag, verrijking, label, reken_label, bj),
+    ]
     return _samenvatten(cfg, items, gate, twijfel_z, fin, verrijking)
 
 
@@ -2285,20 +2264,12 @@ def _samenvatten(cfg: dict, items: list[dict], gate: dict, twijfel: list[str], f
     let_op = sorted([i for i in items if i["groep"] == "let_op"], key=lambda i: (volg[i["oordeel"]], i["punten"]))
     plus = sorted([i for i in items if i["groep"] == "plus"], key=lambda i: -i["punten"])
     info = [i for i in items if i["groep"] == "info"]
-    vragen: list[str] = []
-    for i in let_op + onbekend + plus + info:
-        if i["onderdeel"] == BINNENKLIMAAT:   # die vraag staat bij het item zelf; hier zou hij de vaste vragen verdringen
-            continue
-        if i.get("vraag") and i["vraag"] not in vragen:
-            vragen.append(i["vraag"])
-    for v in VRAGEN_ALTIJD:
-        if v not in vragen:
-            vragen.append(v)
-    fin_uit = {k: v for k, v in fin.items() if k not in ("poort", "redenen")}
+    # Zonder het binnenklimaat: die vraag staat bij het item zelf; hier zou hij de vaste vragen verdringen.
+    vragen = list(dict.fromkeys([i["vraag"] for i in let_op + onbekend + plus + info
+                                 if i["onderdeel"] != BINNENKLIMAAT and i.get("vraag")] + VRAGEN_ALTIJD))
     namen = ["bag", "fundering", "geluid", "buurt"]
     if isinstance(verrijking, dict):
-        namen += [k for k in verrijking if k not in namen
-                  and k in ("tevredenheid", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed")]
+        namen += [k for k in verrijking if k in ("tevredenheid", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed")]
     poort_ = gate["poort"]
     return {
         "poort": poort_,
@@ -2314,7 +2285,7 @@ def _samenvatten(cfg: dict, items: list[dict], gate: dict, twijfel: list[str], f
         "info": info,
         "kansen": [i for i in items if i["groep"] == "kans"],
         "zelf_nagaan": vragen[:6],
-        "financiering": fin_uit,
+        "financiering": {k: v for k, v in fin.items() if k not in ("poort", "redenen")},
         "verrijking": {n: _bron(verrijking, n)[0] for n in namen},
     }
 
@@ -2370,12 +2341,7 @@ def log_kenmerk_labels(details_lijst) -> dict[str, int]:
     """Welke kenmerklabels funda gaf en hoe vaak: alleen namen en aantallen, geen waarden of adressen."""
     teller: dict[str, int] = {}
     for det in details_lijst or []:
-        if not isinstance(det, dict):
-            continue
-        ch = det.get("characteristics") if isinstance(det.get("characteristics"), dict) else None
-        if ch is None:
-            continue
-        for k in ch:
+        for k in _blok(det, "characteristics") if isinstance(det, dict) else ():
             if isinstance(k, str) and k.strip():
                 teller[k.strip()] = teller.get(k.strip(), 0) + 1
     return dict(sorted(teller.items(), key=lambda kv: (-kv[1], kv[0])))

@@ -53,9 +53,10 @@ from __future__ import annotations
 
 import html as html_mod
 import re
-import time
 from typing import Any, Callable, Iterable
 from urllib.parse import unquote
+
+from funda_sitemap_zoek import IMPERSONATE, UA, DropIn, Resultaat
 
 # /detail/koop/<stad>/<type-straat-nr>/<tiny_id>/
 WONING_PAD = re.compile(
@@ -70,23 +71,18 @@ TRACKING_LINK = re.compile(r"https?://links\.funda\.nl/[^\s\"'<>)\]]+", re.IGNOR
 MAX_REDIRECT_HOPS = 5
 
 # Client voor links.funda.nl: hetzelfde vaste profiel als de zoekers voor
-# www.funda.nl (funda_sitemap_zoek.UA en IMPERSONATE). Eén profiel, nooit wisselen.
-# Een kopie, zodat de mailroute niet van de sitemapmodule afhangt;
+# www.funda.nl, uit dezelfde bron. Eén profiel, nooit wisselen;
 # test_funda_mail.py pint vast dat ze gelijk blijven.
-TRACKER_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
-    "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
-)
-TRACKER_IMPERSONATE = "safari15_5"
+TRACKER_UA = UA
+TRACKER_IMPERSONATE = IMPERSONATE
 
 
-class MailResultaat:
-    """Zelfde vorm als pyfunda's Listing: een `.data`-dict."""
-
-    __slots__ = ("data",)
-
-    def __init__(self, data: dict[str, Any]) -> None:
-        self.data = data
+def _zonder_dubbelen(items: Iterable[Any], sleutel: Callable[[Any], Any] = lambda item: item) -> list[Any]:
+    """De items in volgorde, per sleutel alleen het eerste."""
+    uit: dict[Any, Any] = {}
+    for item in items:
+        uit.setdefault(sleutel(item), item)
+    return list(uit.values())
 
 
 def _varianten(tekst: str) -> list[str]:
@@ -111,22 +107,9 @@ def vind_woning_links(tekst: str) -> list[tuple[str, str]]:
     """
     if not tekst:
         return []
-
-    varianten = _varianten(tekst)
-
-    gevonden: list[tuple[str, str]] = []
-    gezien: set[str] = set()
-    for variant in varianten:
-        for m in WONING_PAD.finditer(variant):
-            tiny_id = m.group(1)
-            if tiny_id in gezien:
-                continue
-            gezien.add(tiny_id)
-            pad = m.group(0)
-            if not pad.endswith("/"):
-                pad += "/"
-            gevonden.append((pad, tiny_id))
-    return gevonden
+    treffers = ((m.group(0) if m.group(0).endswith("/") else m.group(0) + "/", m.group(1))
+                for variant in _varianten(tekst) for m in WONING_PAD.finditer(variant))
+    return _zonder_dubbelen(treffers, lambda treffer: treffer[1])
 
 
 def vind_tracking_links(tekst: str) -> list[str]:
@@ -143,14 +126,7 @@ def vind_tracking_links(tekst: str) -> list[str]:
     # is de link onbruikbaar), maar %-escapes in het token horen te blijven staan,
     # want met die URL moet straks echt een call gedaan worden. Eén variant houdt
     # bovendien de dedup kloppend; op twee varianten telt dezelfde link dubbel.
-    gevonden: list[str] = []
-    gezien: set[str] = set()
-    for m in TRACKING_LINK.finditer(html_mod.unescape(tekst)):
-        url = m.group(0).rstrip(".,;")
-        if url not in gezien:
-            gezien.add(url)
-            gevonden.append(url)
-    return gevonden
+    return _zonder_dubbelen(m.group(0).rstrip(".,;") for m in TRACKING_LINK.finditer(html_mod.unescape(tekst)))
 
 
 def _haal_locatie(url: str) -> str | None:
@@ -262,18 +238,13 @@ def woningen_uit_mail(
         return []
 
     zeg(f"Geen directe woninglinks; {len(tracking)} tracking-link(s) volgen.")
-    gevonden: list[tuple[str, str]] = []
-    gezien: set[str] = set()
-    for link in tracking:
-        treffer = los_tracking_link_op(link, haal=haal, log=zeg)
-        if treffer and treffer[1] not in gezien:
-            gezien.add(treffer[1])
-            gevonden.append(treffer)
+    treffers = [los_tracking_link_op(link, haal=haal, log=zeg) for link in tracking]
+    gevonden = _zonder_dubbelen((treffer for treffer in treffers if treffer), lambda treffer: treffer[1])
     zeg(f"{len(gevonden)} woning(en) uit redirects gehaald.")
     return gevonden
 
 
-class MailBron:
+class MailBron(DropIn):
     """Drop-in vervanger voor het Funda-object, met mails als bron.
 
     De mail heeft het filterwerk al gedaan (de bewaarde zoekopdracht staat in je
@@ -290,16 +261,13 @@ class MailBron:
         pauze: float = 0.4,
         log: Callable[[str], None] | None = None,
     ) -> None:
-        self._client = detail_client
+        super().__init__(detail_client, pauze=pauze, log=log)
         self._woningen = list(woningen)
-        self._pauze = pauze
-        self._log = log or (lambda _b: None)
-        self._cache: dict[str, Any] = {}
         self._uitgeleverd = False
 
     # -- Drop-in API --------------------------------------------------------
 
-    def search_listing(self, *_args: Any, page: int = 0, **_kwargs: Any) -> list[MailResultaat]:
+    def search_listing(self, *_args: Any, page: int = 0, **_kwargs: Any) -> list[Resultaat]:
         """Levert alle woningen uit de mails bij de eerste aanroep.
 
         funda_zoek.py zoekt per prijsband en sortering; dat is hier zinloos, want
@@ -311,50 +279,13 @@ class MailBron:
         self._uitgeleverd = True
 
         self._log(f"Mailbron: {len(self._woningen)} woning(en) uit notificatiemails.")
-        resultaten: list[MailResultaat] = []
+        resultaten: list[Resultaat] = []
         for pad, tiny_id in self._woningen:
-            data = self._detail_data(pad, tiny_id)
+            data, _fout = self._haal_detail(pad, "mail", tiny_id)
             if data:
-                resultaten.append(MailResultaat(data))
+                resultaten.append(Resultaat(data))
         self._log(f"Mailbron: {len(resultaten)} verrijkt via het detail-endpoint.")
         return resultaten
 
-    def get_listing(self, listing_id: Any) -> Any:
-        sleutel = str(listing_id)
-        if sleutel in self._cache:
-            return self._cache[sleutel]
-        return self._client.get_listing(listing_id)
-
-    def __getattr__(self, naam: str) -> Any:
-        """Onbekende aanroepen (prijshistorie, marktdata) naar de client."""
-        if naam.startswith("_"):
-            raise AttributeError(naam)
-        return getattr(self._client, naam)
-
-    # -- Intern -------------------------------------------------------------
-
-    def _detail_data(self, pad: str, tiny_id: str) -> dict[str, Any] | None:
-        gecacht = self._cache.get(tiny_id)
-        if gecacht is not None:
-            listing = gecacht
-        else:
-            try:
-                listing = self._client.get_listing(f"https://www.funda.nl{pad}")
-            except Exception as exc:
-                self._log(f"Detail mislukt voor {pad}: {exc}")
-                return None
-            finally:
-                time.sleep(self._pauze)
-
-        data = dict(getattr(listing, "data", None) or {})
-        if not data:
-            return None
-        data.setdefault("detail_url", pad)
-        data["_bron"] = "mail"
-
-        for id_veld in ("global_id", "listing_id", "tiny_id"):
-            waarde = data.get(id_veld)
-            if waarde:
-                self._cache[str(waarde)] = listing
-        self._cache[tiny_id] = listing
-        return data
+    def _fout_regel(self, pad: str, exc: Exception) -> str:
+        return f"Detail mislukt voor {pad}: {exc}"

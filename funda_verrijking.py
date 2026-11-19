@@ -35,7 +35,7 @@ Regels (CLAUDE.md):
 - Per host stoppen bij 401/403/429/5xx. Een weigering wordt nooit omzeild: geen andere
   user-agent, host of client. Na een weigering blijft de host een dag dicht.
 - Budget per run (standaard 90 verzoeken). Past en Krap eerst, daarna op score.
-- Cache in het bestaande funda_enrichment_cache.json, als eigen secties (zie CACHE_SECTIES).
+- Cache in het bestaande funda_enrichment_cache.json, als eigen secties (de tabel SECTIES).
   Een antwoord blijft `bewaar_dagen` geldig, een fout wordt na `fout_opnieuw_na_dagen`
   (1) opnieuw geprobeerd.
 - Allowlist van velden: alleen de velden in VELDEN komen in de cache. Herkomst,
@@ -102,11 +102,11 @@ KEA_WMS = "https://cas.cloud.sogelink.com/public/data/org/gws/YWFMLMWERURF/kea_p
 KEA_LAGEN = {"verschilzetting": "risicoverschilzetting_2050hoog", "paalrot": "risicopaalrot_2050hoog"}
 # Klassegrenzen uit de legenda van de WMS (GetLegendGraphic, format=application/json).
 # Het kaartveld is sterke_c_1 (verschilzetting) of sterke_c_2 (paalrot); bovengrens inclusief.
+# De namen van die klassen, van laag naar hoog: FUND_KLASSE uit funda_beoordeling (één bron).
 KEA_KLASSEN = {
     "verschilzetting": ((1.0, "zeer laag"), (5.0, "laag"), (10.0, "matig"), (25.0, "hoog"), (math.inf, "zeer hoog")),
     "paalrot": ((0.8, "zeer laag"), (3.0, "laag"), (6.0, "matig"), (15.0, "hoog"), (math.inf, "zeer hoog")),
 }
-# De namen van die klassen, van laag naar hoog: FUND_KLASSE uit funda_beoordeling (één bron).
 
 RIVM_WMS = "https://data.rivm.nl/geo/alo/wms"
 # Volgorde telt: de GetFeatureInfo-features hebben geen id en komen in deze volgorde terug.
@@ -159,6 +159,11 @@ POLITIE_JAAR = 2025
 POLITIE_PERIODE = f"{POLITIE_JAAR}JJ00"
 MISDRIJF_CODES = {"0.0.0": "misdrijven", "1.1.1": "woninginbraak", "2.2.1": "vernieling"}
 OVERLAST_CODES = {"0.0.0": "overlast"}
+# Per cachesectie: tabel, dimensie, onderwerp en de codes die gelezen worden.
+POLITIE_TABELLEN = {
+    "misdrijven": (CBS_MISDRIJVEN, "SoortMisdrijf", "GeregistreerdeMisdrijven_1", MISDRIJF_CODES),
+    "overlast": (CBS_OVERLAST, "Overlast", "GeregistreerdeOverlast_1", OVERLAST_CODES),
+}
 
 # RIVM: jaargemiddelde NO2 en PM2,5 (microgram per m3, NSL-kaart 2024) en het percentage groen binnen
 # 500 m (groenkaart 2022). Eén verzoek; volgorde telt, net als bij RIVM_LAGEN. De namen dragen een
@@ -168,7 +173,6 @@ RIVM_LUCHT_LAGEN = (
     ("pm25", "rivm_nsl_20260401_gm_PM252024"),
     ("groen_pct", "groenkaart_cjp_2022_500m"),
 )
-LUCHT_JAAR, GROEN_JAAR = 2024, 2022
 
 # Klimaateffectatlas, drie lagen in één verzoek. Betekenis uit de legenda (GetLegendGraphic):
 # - wateroverlast: per pand de klasse van de waterdiepte rond het pand bij een extreme bui;
@@ -192,33 +196,41 @@ MONUMENT_STRAAL_M = 25
 
 BRONNEN = ("bag", "fundering", "geluid", "buurt", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed")
 
-# ---------------------------------------------------------------- allowlist
+# ---------------------------------------------------------------- cachesecties en allowlist
 
-# Alleen deze velden komen in de cache. cache_schrijf() weigert alles daarbuiten.
-VELDEN = {
-    "bag": ("bouwjaar", "aantal_vbo_pand", "gebruiksdoel", "gebruiksdoel_pand"),
-    "fundering": ("verschilzetting", "paalrot"),
-    "geluid": ("lden_weg", "lnight_weg", "lden_trein", "lnight_trein"),
-    "buurtcode": ("buurtcode", "buurtnaam", "gemeentenaam"),
-    "leefbaarometer": ("kscore", "lbm", "afw", "fys", "onv", "soc", "vrz", "won"),
-    "tevredenheid": ("tevreden_woonomgeving", "tevreden_woonomgeving_min", "tevreden_woonomgeving_max",
-                     "tevreden_woning"),
-    "robots": ("regels",),
-    "kerncijfers": tuple(KERN_PDOK) + ("gemeentecode",),
-    "gemeente": ("woningen",),
-    "misdrijven": ("jaar",) + tuple(MISDRIJF_CODES.values()) + tuple("gem_" + k for k in MISDRIJF_CODES.values()),
-    "overlast": ("jaar",) + tuple(OVERLAST_CODES.values()) + tuple("gem_" + k for k in OVERLAST_CODES.values()),
-    "lucht": tuple(k for k, _ in RIVM_LUCHT_LAGEN),
-    "klimaat": ("wateroverlast", "waterdiepte", "overstromingskans", "grondwater"),
-    "erfgoed": ("gezicht", "gezicht_sinds", "monumenten_dichtbij"),
+# Eén tabel voor de eigen secties in funda_enrichment_cache.json. Per sectie: de bewaartermijn in dagen
+# (de standaard; beoordeling.verrijking.bewaar_dagen gaat voor), het aantal verzoeken voor een nieuw
+# element en de allowlist: alleen deze velden komen in de cache, cache_schrijf() weigert alles daarbuiten.
+# Erachter: waarop de sleutel staat en welke schakelaar in beoordeling.verrijking.bronnen de sectie vult.
+_POLITIE_VELDEN = {s: ("jaar",) + tuple(c.values()) + tuple("gem_" + k for k in c.values())
+                   for s, (_, _, _, c) in POLITIE_TABELLEN.items()}
+SECTIES = {
+    "bag": (180, 2, ("bouwjaar", "aantal_vbo_pand", "gebruiksdoel", "gebruiksdoel_pand")),   # adres; bag
+    "fundering": (365, 1, ("verschilzetting", "paalrot")),                                   # punt; fundering
+    "geluid": (365, 1, ("lden_weg", "lnight_weg", "lden_trein", "lnight_trein")),            # punt; geluid
+    "buurtcode": (365, 1, ("buurtcode", "buurtnaam", "gemeentenaam")),   # punt; buurt, kerncijfers of veiligheid
+    # buurtcode, met één verzoek per gemeente ("gemeente|<naam>" bewaart alleen een aantal); buurt
+    "leefbaarometer": (30, 1, ("kscore", "lbm", "afw", "fys", "onv", "soc", "vrz", "won")),
+    "tevredenheid": (90, 1, ("tevreden_woonomgeving", "tevreden_woonomgeving_min", "tevreden_woonomgeving_max",
+                             "tevreden_woning")),                                            # buurtcode; tevredenheid
+    "robots": (1, 1, ("regels",)),                                                           # host
+    "verrijking_weigering": (None, 0, None),              # host -> {datum, status}; telt fout_opnieuw_na_dagen
+    # buurtcode; kerncijfers of veiligheid. Komt mee met het verzoek voor de buurtcode; alleen bij een
+    # buurtcode van voor 18 nov 2026 een eigen verzoek.
+    "kerncijfers": (365, 1, tuple(KERN_PDOK) + ("gemeentecode",)),
+    "gemeente": (365, 1, ("woningen",)),                                                     # gemeentecode; veiligheid
+    "misdrijven": (180, 1, _POLITIE_VELDEN["misdrijven"]),                                   # buurtcode; veiligheid
+    "overlast": (180, 1, _POLITIE_VELDEN["overlast"]),                                       # buurtcode; veiligheid
+    "lucht": (365, 1, tuple(k for k, _ in RIVM_LUCHT_LAGEN)),                                # punt; lucht (en groen)
+    "klimaat": (365, 1, ("wateroverlast", "waterdiepte", "overstromingskans", "grondwater")),   # punt; klimaat
+    "erfgoed": (180, 2, ("gezicht", "gezicht_sinds", "monumenten_dichtbij")),                # punt; erfgoed
 }
-# Per 1.000 woningen, buurt en gemeente: wat de bron veiligheid uitvoert (de aantallen zelf blijven in de cache).
-VEILIGHEID_SOORTEN = tuple(MISDRIJF_CODES.values()) + tuple(OVERLAST_CODES.values())
+CACHE_SECTIES = tuple(SECTIES)
+VELDEN = {s: velden for s, (_, _, velden) in SECTIES.items() if velden is not None}
 # De gemeentemarkering in de sectie leefbaarometer ("gemeente|<naam>") bewaart alleen een aantal.
 LBM_GEMEENTE_VELDEN = ("buurten",)
-CACHE_SECTIES = ("bag", "fundering", "geluid", "buurtcode", "leefbaarometer", "tevredenheid", "robots",
-                 "verrijking_weigering", "kerncijfers", "gemeente", "misdrijven", "overlast", "lucht", "klimaat",
-                 "erfgoed")
+# Per 1.000 woningen, buurt en gemeente: wat de bron veiligheid uitvoert (de aantallen zelf blijven in de cache).
+VEILIGHEID_SOORTEN = tuple(MISDRIJF_CODES.values()) + tuple(OVERLAST_CODES.values())
 # Velden die per bron in de uitvoer mogen staan (cache-velden plus wat hier wordt afgeleid).
 UITVOER_VELDEN = {
     "bag": VELDEN["bag"],
@@ -254,9 +266,7 @@ STANDAARD = {
     "fout_opnieuw_na_dagen": 1,
     "fouten_op_rij_stop": 3,
     # Jaarcijfers per buurt blijven lang: de bron verandert hooguit één keer per jaar.
-    "bewaar_dagen": {"bag": 180, "fundering": 365, "geluid": 365, "buurtcode": 365, "leefbaarometer": 30,
-                     "tevredenheid": 90, "robots": 1, "kerncijfers": 365, "gemeente": 365, "misdrijven": 180,
-                     "overlast": 180, "lucht": 365, "klimaat": 365, "erfgoed": 180},
+    "bewaar_dagen": {s: dagen for s, (dagen, _, _) in SECTIES.items() if dagen is not None},
 }
 # RFC 9309 par. 2.4: een gecachete robots.txt niet langer dan 24 uur gebruiken, tenzij hij onbereikbaar
 # is. Vers = opgehaald op dezelfde dag (twee runs per dag: hooguit één verzoek per host per dag).
@@ -323,15 +333,20 @@ def _teken(x: float, d: int = 2) -> str:
 
 # ---------------------------------------------------------------- cache
 
+def _leeftijd(e, vandaag, veld: str = "fetched") -> int | None:
+    """Dagen sinds de datum in e[veld]; None zonder element, zonder datum of met een onleesbare datum."""
+    try:
+        return _dagen(e[veld], vandaag) if isinstance(e, dict) and e.get(veld) else None
+    except ValueError:
+        return None
+
+
 def cache_lees(cache: dict, sectie: str, sleutel: str, vcfg: dict, vandaag) -> tuple[object, str | None]:
     """-> (data, status). Status "vers" (gebruiken), "fout_vers" (niet opnieuw proberen)
     of None (ophalen)."""
     e = (cache.get(sectie) or {}).get(sleutel)
-    if not isinstance(e, dict) or not e.get("fetched"):
-        return None, None
-    try:
-        dagen = _dagen(e["fetched"], vandaag)
-    except ValueError:
+    dagen = _leeftijd(e, vandaag)
+    if dagen is None:
         return None, None
     if e.get("fout"):
         return (None, "fout_vers") if dagen < vcfg["fout_opnieuw_na_dagen"] else (None, None)
@@ -340,22 +355,13 @@ def cache_lees(cache: dict, sectie: str, sleutel: str, vcfg: dict, vandaag) -> t
     return None, None
 
 
-def _controleer_velden(sectie: str, sleutel: str, data) -> None:
-    if not isinstance(data, dict):
-        return
-    if sectie == "leefbaarometer" and sleutel.startswith("gemeente|"):
-        toegestaan = LBM_GEMEENTE_VELDEN
-    else:
-        toegestaan = VELDEN.get(sectie)
-    if toegestaan is None:
-        return
-    extra = sorted(set(data) - set(toegestaan))
-    if extra:
-        raise ValueError(f"veld buiten de allowlist voor {sectie}: {', '.join(extra)}")
-
-
 def cache_schrijf(cache: dict, sectie: str, sleutel: str, vandaag, data=None, fout: str | None = None) -> None:
-    _controleer_velden(sectie, sleutel, data)
+    if isinstance(data, dict):
+        gemeente = sectie == "leefbaarometer" and sleutel.startswith("gemeente|")
+        toegestaan = LBM_GEMEENTE_VELDEN if gemeente else VELDEN.get(sectie)
+        extra = sorted(set(data) - set(toegestaan)) if toegestaan is not None else []
+        if extra:
+            raise ValueError(f"veld buiten de allowlist voor {sectie}: {', '.join(extra)}")
     e = {"fetched": _datum(vandaag).isoformat(), "data": data}
     if fout:
         e["fout"] = fout
@@ -372,12 +378,8 @@ def opruimen(cache: dict, vcfg: dict, vandaag) -> int:
         grens = vcfg["bewaar_dagen"].get(sectie, 30) + 30
         for k in list(s):
             e = s[k]
-            datum = (e or {}).get("fetched") or (e or {}).get("datum") if isinstance(e, dict) else None
-            try:
-                oud = datum is None or _dagen(datum, vandaag) > grens
-            except ValueError:
-                oud = True
-            if oud:
+            dagen = _leeftijd(e, vandaag, "fetched" if isinstance(e, dict) and e.get("fetched") else "datum")
+            if dagen is None or dagen > grens:
                 del s[k]
                 weg += 1
     return weg
@@ -434,9 +436,7 @@ def robots_mag(regels: list[list[str]], pad: str) -> bool:
     """Langste overeenkomst wint; bij gelijke lengte wint allow. Lege disallow = alles mag."""
     beste_len, beste = -1, True
     for soort, patroon in regels:
-        if not patroon:
-            continue
-        if _robots_patroon(patroon).match(pad):
+        if patroon and _robots_patroon(patroon).match(pad):
             lengte = len(patroon)
             if lengte > beste_len or (lengte == beste_len and soort == "allow"):
                 beste_len, beste = lengte, soort == "allow"
@@ -541,7 +541,13 @@ class Sessie:
             self.geweigerd.setdefault(host, reden)
             self.dicht.setdefault(host, reden)
 
-    # -- intern
+    def _stop(self, host: str, reden: str, mee: bool = False) -> HostGestopt:
+        """Sluit de host voor deze run; met mee=True ook voor een volgende Sessie (neem_over)."""
+        self.dicht[host] = reden
+        if mee:
+            self.geweigerd[host] = reden
+        return HostGestopt(reden)
+
     def _verzoek(self, url: str, accept: str) -> tuple[int, bytes]:
         if self.over <= 0:
             raise GeenBudget()
@@ -574,12 +580,7 @@ class Sessie:
         if host in self.robots_run:
             return self.robots_run[host]
         e = (self.cache.get("robots") or {}).get(host)
-        dagen, oud = None, None
-        if isinstance(e, dict) and e.get("fetched"):
-            try:
-                dagen = _dagen(e["fetched"], self.vandaag)
-            except ValueError:
-                dagen = None
+        dagen, oud = _leeftijd(e, self.vandaag), None
         if dagen is not None and e.get("fout"):
             if dagen < self.fout_opnieuw_na_dagen:
                 raise HostGestopt("robots.txt was niet te lezen")
@@ -597,29 +598,21 @@ class Sessie:
         except BronFout:
             if oud is None:
                 raise
-            self.robots_run[host] = oud              # onbereikbaar: de laatste goede versie
-            return oud
-        if status == 200:
+            status = None
+        if oud is not None and (status is None or status >= 500):
+            regels = oud                                 # onbereikbaar: de laatste goede versie
+        elif status == 200:
             regels = robots_regels(body.decode("utf-8", "replace"))
+            cache_schrijf(self.cache, "robots", host, self.vandaag, data={"regels": regels})
         elif 400 <= status < 500 and status not in (401, 403, 429):
-            regels = []                       # geen robots.txt: alles toegestaan
-        elif status >= 500 and oud is not None:
-            self.robots_run[host] = oud              # onbereikbaar: de laatste goede versie
-            return oud
+            regels = []                                  # geen robots.txt: alles toegestaan
+            cache_schrijf(self.cache, "robots", host, self.vandaag, data={"regels": regels})
         else:
             cache_schrijf(self.cache, "robots", host, self.vandaag, fout=f"status {status}")
-            self.dicht[host] = self.geweigerd[host] = f"robots.txt gaf status {status}"
-            raise HostGestopt(self.dicht[host])
-        cache_schrijf(self.cache, "robots", host, self.vandaag, data={"regels": regels})
+            raise self._stop(host, f"robots.txt gaf status {status}", mee=True)
         self.robots_run[host] = regels
         return regels
 
-    def _robots_ok(self, host: str, pad: str) -> None:
-        if not robots_mag(self._robots_regels(host), pad):
-            self.dicht[host] = "robots.txt staat dit pad niet toe"
-            raise HostGestopt(self.dicht[host])
-
-    # -- publiek
     def haal(self, url: str, accept: str = "application/json") -> bytes:
         deel = urllib.parse.urlparse(url)
         host = deel.hostname or ""
@@ -628,23 +621,18 @@ class Sessie:
         if host in self.dicht:
             raise HostGestopt(self.dicht[host])
         w = (self.cache.get("verrijking_weigering") or {}).get(host)
-        if isinstance(w, dict) and w.get("datum"):
-            try:
-                if _dagen(w["datum"], self.vandaag) < self.fout_opnieuw_na_dagen:
-                    self.dicht[host] = f"weigerde eerder (status {w.get('status')})"
-                    raise HostGestopt(self.dicht[host])
-            except ValueError:
-                pass
+        dagen = _leeftijd(w, self.vandaag, "datum")
+        if dagen is not None and dagen < self.fout_opnieuw_na_dagen:
+            raise self._stop(host, f"weigerde eerder (status {w.get('status')})")
         pad = deel.path + (f"?{deel.query}" if deel.query else "")
-        self._robots_ok(host, pad)
+        if not robots_mag(self._robots_regels(host), pad):
+            raise self._stop(host, "robots.txt staat dit pad niet toe")
         status, body = self._verzoek(url, accept)
         if status in (401, 403, 429):
-            self.dicht[host] = self.geweigerd[host] = f"geweigerd (status {status})"
             self.cache.setdefault("verrijking_weigering", {})[host] = {"datum": self.vandaag, "status": status}
-            raise HostGestopt(self.dicht[host])
+            raise self._stop(host, f"geweigerd (status {status})", mee=True)
         if status >= 500:
-            self.dicht[host] = self.geweigerd[host] = f"serverfout (status {status})"
-            raise HostGestopt(self.dicht[host])
+            raise self._stop(host, f"serverfout (status {status})", mee=True)
         if status != 200:
             raise BronFout(f"status {status}")
         self.op_rij[host] = 0
@@ -660,16 +648,9 @@ class Sessie:
 
 # ---------------------------------------------------------------- woningvelden
 
-def _bronnen_van(w: dict) -> list[dict]:
-    uit = [w]
-    for k in ("d", "listing", "details"):
-        if isinstance(w.get(k), dict):
-            uit.append(w[k])
-    return uit
-
-
 def _veld(w: dict, *namen):
-    for bron in _bronnen_van(w):
+    """De eerste gevulde waarde, in de rij zelf en dan in rij["d"], rij["listing"] en rij["details"]."""
+    for bron in [w] + [w[k] for k in ("d", "listing", "details") if isinstance(w.get(k), dict)]:
         for n in namen:
             v = bron.get(n)
             if v not in (None, ""):
@@ -707,36 +688,36 @@ def _norm_toevoeging(s) -> str:
     return re.sub(r"[^0-9a-z]", "", str(s or "").lower())
 
 
-def _bouwjaar_funda(w: dict) -> int | None:
+def _bouwjaar(v) -> int | None:
+    """Een bouwjaar als getal; None bij een plaatshouder (1005 en 9999 in de BAG) of iets onleesbaars."""
     try:
-        bj = int(str(_veld(w, "construction_year", "bouwjaar") or "")[:4])
-    except ValueError:
+        bj = int(v)
+    except (TypeError, ValueError):
         return None
     return bj if 1200 <= bj <= date.today().year + 5 else None
 
 
-def _poort(w: dict) -> str | None:
-    for b in (w.get("beoordeling"), w.get("_beoordeling"), (w.get("d") or {}).get("_beoordeling")):
-        if isinstance(b, dict):
-            p = b.get("poort")
-            if isinstance(p, str):
-                return p.upper()
-    return None
-
-
-def _score(w: dict) -> float:
-    for b in (w.get("beoordeling"), w.get("_beoordeling"), (w.get("d") or {}).get("_beoordeling")):
-        if isinstance(b, dict) and isinstance(b.get("score"), (int, float)):
-            return float(b["score"])
-    return 0.0
-
-
 def prioriteit(w: dict) -> tuple[int, float]:
     """Past en Krap eerst, daarna op score (hoog eerst). Zonder beoordeling ertussenin."""
-    return POORT_RANG.get(_poort(w) or "", POORT_ONBEKEND_RANG), -_score(w)
+    bs = [b for b in (w.get("beoordeling"), w.get("_beoordeling"), (w.get("d") or {}).get("_beoordeling"))
+          if isinstance(b, dict)]
+    poort = next((b["poort"].upper() for b in bs if isinstance(b.get("poort"), str)), "")
+    score = next((float(b["score"]) for b in bs if isinstance(b.get("score"), (int, float))), 0.0)
+    return POORT_RANG.get(poort, POORT_ONBEKEND_RANG), -score
 
 
 # ---------------------------------------------------------------- parsers (op de gemeten antwoorden)
+
+def _features(antwoord: dict, verplicht: bool = False) -> list:
+    fs = antwoord.get("features")
+    if verplicht and not isinstance(fs, list):
+        raise BronFout("onverwacht antwoord")
+    return fs or []
+
+
+def _props(f: dict) -> dict:
+    return f.get("properties") or {}
+
 
 def bag_kies(antwoord: dict, postcode: str, huisnummer: str, toevoeging: str) -> tuple[dict | None, list[str]]:
     """Uit een verblijfsobject-antwoord: (verblijfsobject of None, pand-links).
@@ -744,8 +725,8 @@ def bag_kies(antwoord: dict, postcode: str, huisnummer: str, toevoeging: str) ->
     Een exacte toevoeging gaat voor. Zonder exacte treffer telt het pand alleen als alle
     verblijfsobjecten met dit nummer in hetzelfde pand liggen."""
     treffers = []
-    for f in antwoord.get("features") or []:
-        p = f.get("properties") or {}
+    for f in _features(antwoord):
+        p = _props(f)
         if (p.get("postcode") or "").replace(" ", "").upper() != postcode:
             continue
         if str(p.get("huisnummer")) != str(huisnummer):
@@ -765,73 +746,64 @@ def bag_kies(antwoord: dict, postcode: str, huisnummer: str, toevoeging: str) ->
 
 
 def bag_pand_velden(pand: dict, vbo: dict | None) -> dict:
-    p = pand.get("properties") or {}
-    try:
-        bj = int(p.get("bouwjaar"))
-        bj = bj if 1200 <= bj <= date.today().year + 5 else None   # 1005 en 9999 zijn plaatshouders
-    except (TypeError, ValueError):
-        bj = None
+    p = _props(pand)
     try:
         n = int(p.get("aantal_verblijfsobjecten"))
     except (TypeError, ValueError):
         n = None
-    return {"bouwjaar": bj, "aantal_vbo_pand": n,
+    return {"bouwjaar": _bouwjaar(p.get("bouwjaar")), "aantal_vbo_pand": n,
             "gebruiksdoel": (vbo or {}).get("gebruiksdoel") if vbo else None,
             "gebruiksdoel_pand": p.get("gebruiksdoel")}
 
 
-def kea_klasse(soort: str, waarde) -> str | None:
+def _kaartwaarde(v) -> float | None:
+    """Een kaartwaarde als getal; None als hij ontbreekt of negatief is (-9999 = buiten de kaart)."""
     try:
-        v = float(waarde)
+        x = float(v)
     except (TypeError, ValueError):
         return None
-    if v < 0 or math.isnan(v):
-        return None
-    for grens, naam in KEA_KLASSEN[soort]:
-        if v <= grens:
-            return naam
-    return None
+    return None if x < 0 or math.isnan(x) else x
+
+
+def kea_klasse(soort: str, waarde) -> str | None:
+    v = _kaartwaarde(waarde)
+    return None if v is None else next((naam for grens, naam in KEA_KLASSEN[soort] if v <= grens), None)
 
 
 def kea_parse(antwoord: dict) -> dict:
     uit = {"verschilzetting": None, "paalrot": None}
     laag_naar_soort = {v: k for k, v in KEA_LAGEN.items()}
-    for f in antwoord.get("features") or []:
+    for f in _features(antwoord):
         laag = str(f.get("id") or "").split(".", 1)[0]
         soort = laag_naar_soort.get(laag)
         if not soort:
             continue
-        props = f.get("properties") or {}
-        waarde = next((v for k, v in props.items() if k.startswith("sterke_c")), None)
+        waarde = next((v for k, v in _props(f).items() if k.startswith("sterke_c")), None)
         uit[soort] = kea_klasse(soort, waarde)
     if uit["verschilzetting"] is None and uit["paalrot"] is None:
         raise BronFout("geen kaartwaarde op dit punt")
     return uit
 
 
-def _raster(v) -> int | None:
-    """GRAY_INDEX: -9999 (of negatief) = onder de kaartgrens, geen fout."""
-    try:
-        x = float(v)
-    except (TypeError, ValueError):
-        return None
-    if x < 0 or math.isnan(x):
-        return None
-    return int(round(x))
+def _gray_per_laag(antwoord: dict, lagen: tuple, wat: str) -> dict:
+    """De rasterwaarde per veld. De features hebben geen id: ze tellen op volgorde van de lagen."""
+    fs = _features(antwoord)
+    if len(fs) != len(lagen):
+        raise BronFout(f"{len(fs)} van {len(lagen)} {wat} in het antwoord")
+    return {veld: _props(f).get("GRAY_INDEX") for (veld, _), f in zip(lagen, fs)}
 
 
 def rivm_parse(antwoord: dict) -> dict:
-    fs = antwoord.get("features") or []
-    if len(fs) != len(RIVM_LAGEN):
-        raise BronFout(f"{len(fs)} van {len(RIVM_LAGEN)} geluidlagen in het antwoord")
-    return {veld: _raster((f.get("properties") or {}).get("GRAY_INDEX")) for (veld, _), f in zip(RIVM_LAGEN, fs)}
+    ruw = _gray_per_laag(antwoord, RIVM_LAGEN, "geluidlagen")
+    # Onder de kaartgrens (-9999) is geen fout: dan None.
+    return {veld: None if (x := _kaartwaarde(v)) is None else int(round(x)) for veld, v in ruw.items()}
 
 
 def pdok_buurt_parse(antwoord: dict) -> dict:
-    fs = antwoord.get("features") or []
+    fs = _features(antwoord)
     if not fs:
         raise BronFout("geen CBS-buurt op dit punt")
-    p = fs[0].get("properties") or {}
+    p = _props(fs[0])
     uit = {k: p.get(k) for k in VELDEN["buurtcode"]}          # allowlist: niets anders lezen
     if not uit["buurtcode"]:
         raise BronFout("buurt zonder buurtcode")
@@ -850,8 +822,8 @@ def _cbs_getal(v) -> float | None:
 def pdok_kern_parse(antwoord: dict, buurtcode: str | None = None) -> dict:
     """Kerncijfers van de buurt uit hetzelfde PDOK-antwoord als de buurtcode. Alleen KERN_PDOK en de
     gemeentecode worden gelezen (allowlist): geen bevolkingsveld komt hier doorheen."""
-    for f in antwoord.get("features") or []:
-        p = f.get("properties") or {}
+    for f in _features(antwoord):
+        p = _props(f)
         if buurtcode and p.get("buurtcode") != buurtcode:
             continue
         uit = {k: _cbs_getal(p.get(veld)) for k, veld in KERN_PDOK.items()}
@@ -866,9 +838,8 @@ def pdok_kern_parse(antwoord: dict, buurtcode: str | None = None) -> dict:
 def pdok_gemeente_parse(antwoord: dict, gemeentecode: str) -> dict:
     """Aantal woningen van de gemeente (de noemer van het gemeentecijfer). Het antwoord kan ook een
     watervlak met dezelfde code bevatten (woningvoorraad -99997): het grootste geldige getal telt."""
-    aantallen = [_cbs_getal((f.get("properties") or {}).get("woningvoorraad"))
-                 for f in antwoord.get("features") or []
-                 if (f.get("properties") or {}).get("gemeentecode") == gemeentecode]
+    aantallen = [_cbs_getal(_props(f).get("woningvoorraad")) for f in _features(antwoord)
+                 if _props(f).get("gemeentecode") == gemeentecode]
     aantallen = [a for a in aantallen if a]
     if not aantallen:
         raise BronFout("geen aantal woningen voor de gemeente")
@@ -896,12 +867,9 @@ def politie_parse(antwoord: dict, dimensie: str, onderwerp: str, codes: dict, bu
 
 
 def lucht_parse(antwoord: dict) -> dict:
-    fs = antwoord.get("features") or []
-    if len(fs) != len(RIVM_LUCHT_LAGEN):
-        raise BronFout(f"{len(fs)} van {len(RIVM_LUCHT_LAGEN)} lagen in het antwoord")
     uit = {}
-    for (veld, _), f in zip(RIVM_LUCHT_LAGEN, fs):
-        x = _cbs_getal((f.get("properties") or {}).get("GRAY_INDEX"))      # negatief = buiten de kaart
+    for veld, ruw in _gray_per_laag(antwoord, RIVM_LUCHT_LAGEN, "lagen").items():
+        x = _cbs_getal(ruw)                                              # negatief = buiten de kaart
         uit[veld] = None if x is None else (int(round(x)) if veld == "groen_pct" else round(float(x), 1))
     if all(x is None for x in uit.values()):
         raise BronFout("geen kaartwaarde op dit punt")
@@ -909,10 +877,7 @@ def lucht_parse(antwoord: dict) -> dict:
 
 
 def _klasse_1_5(v) -> int | None:
-    try:
-        x = float(v)
-    except (TypeError, ValueError):
-        return None
+    x = _kaartwaarde(v)
     return int(x) if x in (1, 2, 3, 4, 5) else None
 
 
@@ -920,12 +885,11 @@ def klimaat_parse(antwoord: dict) -> dict:
     """Wateroverlast (klasse van het pand op het punt), overstromingskans en grondwater (klasse 1 tot 5).
     Geen pand of geen klasse op het punt = None, geen fout. Van het pand alleen de klasse: het
     BAG-nummer en het bouwjaar in het antwoord worden niet gelezen."""
-    if not isinstance(antwoord.get("features"), list):
-        raise BronFout("onverwacht antwoord")
+    fs = _features(antwoord, verplicht=True)
     uit = {k: None for k in VELDEN["klimaat"]}
-    for f in antwoord["features"]:
+    for f in fs:
         laag = str(f.get("id") or "").split(".", 1)[0]
-        p = f.get("properties") or {}
+        p = _props(f)
         if laag == KEA_KLIMAAT_LAGEN["wateroverlast"]:
             diepte = str(p.get("waterdiepte_klasse") or "").strip()
             if diepte in KEA_WATERDIEPTE:
@@ -945,10 +909,8 @@ def _meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 def gezicht_parse(antwoord: dict) -> dict:
     """Beschermd stads- of dorpsgezicht op het punt: naam en jaar van aanwijzing, of None."""
-    if not isinstance(antwoord.get("features"), list):
-        raise BronFout("onverwacht antwoord")
-    for f in antwoord["features"]:
-        p = f.get("properties") or {}
+    for f in _features(antwoord, verplicht=True):
+        p = _props(f)
         if p.get("namespace") == RCE_GEZICHT:
             jaar = str(p.get("legalfoundationdate") or "")[:4]
             return {"gezicht": str(p.get("text") or "").strip() or "ja",
@@ -958,12 +920,10 @@ def gezicht_parse(antwoord: dict) -> dict:
 
 def monument_parse(antwoord: dict, lat: float, lon: float) -> int:
     """Aantal rijksmonumenten (punten) binnen MONUMENT_STRAAL_M van het punt."""
-    if not isinstance(antwoord.get("features"), list):
-        raise BronFout("onverwacht antwoord")
     n = 0
-    for f in antwoord["features"]:
+    for f in _features(antwoord, verplicht=True):
         c = (f.get("geometry") or {}).get("coordinates")
-        if (f.get("properties") or {}).get("namespace") != RCE_MONUMENT or not isinstance(c, list) or len(c) < 2:
+        if _props(f).get("namespace") != RCE_MONUMENT or not isinstance(c, list) or len(c) < 2:
             continue
         try:
             if _meters(lat, lon, float(c[1]), float(c[0])) <= MONUMENT_STRAAL_M:
@@ -975,8 +935,8 @@ def monument_parse(antwoord: dict, lat: float, lon: float) -> int:
 
 def lbm_parse(antwoord: dict) -> dict[str, dict]:
     uit = {}
-    for f in antwoord.get("features") or []:
-        p = f.get("properties") or {}
+    for f in _features(antwoord):
+        p = _props(f)
         code = p.get("id")
         if not code:
             continue
@@ -1001,32 +961,35 @@ def cbs_tevreden_parse(antwoord: dict) -> dict:
     return uit
 
 
-# ---------------------------------------------------------------- URL's
+# ---------------------------------------------------------------- URL's: één vorm per soort dienst
 
-def _getfeatureinfo_url(wms: str, lagen: list[str], lat: float, lon: float) -> str:
-    """WMS 1.3.0 met CRS:84 (lon,lat), bbox van ~100 x 100 m, pixel in het midden."""
-    dlat, dlon = 0.00045, 0.00073
+def _bbox(lat: float, lon: float, dlat: float, dlon: float) -> str:
+    return f"{lon - dlon:.6f},{lat - dlat:.6f},{lon + dlon:.6f},{lat + dlat:.6f}"
+
+
+def _ogc_url(collectie: str, **filters) -> str:
+    """OGC API Features: de items van een collectie (PDOK), als JSON."""
+    return collectie + "?" + "&".join(f"{k}={v}" for k, v in filters.items()) + "&f=json"
+
+
+def _wms_url(wms: str, lagen, lat: float, lon: float) -> str:
+    """WMS 1.3.0 GetFeatureInfo met CRS:84 (lon,lat), bbox van ~100 x 100 m, pixel in het midden."""
     q = ",".join(lagen)
     par = {"service": "WMS", "version": "1.3.0", "request": "GetFeatureInfo", "layers": q,
-           "query_layers": q, "styles": "", "crs": "CRS:84",
-           "bbox": f"{lon - dlon:.6f},{lat - dlat:.6f},{lon + dlon:.6f},{lat + dlat:.6f}",
+           "query_layers": q, "styles": "", "crs": "CRS:84", "bbox": _bbox(lat, lon, 0.00045, 0.00073),
            "width": 101, "height": 101, "i": 50, "j": 50, "info_format": "application/json",
            "feature_count": 10}
     return wms + "?" + urllib.parse.urlencode(par, safe=",:")
 
 
-def _bag_bbox_url(lat: float, lon: float, dlat: float, dlon: float, limit: int) -> str:
-    bbox = f"{lon - dlon:.6f},{lat - dlat:.6f},{lon + dlon:.6f},{lat + dlat:.6f}"
-    return f"{BAG_BASIS}/verblijfsobject/items?bbox={bbox}&limit={limit}&f=json"
+def _odata_url(tabel: str, filt: str, sel: str) -> str:
+    """CBS OData (dataderden): een TypedDataSet met een filter en alleen de gevraagde kolommen."""
+    return tabel + "?" + urllib.parse.urlencode({"$filter": filt, "$select": sel, "$format": "json"},
+                                                quote_via=urllib.parse.quote)
 
 
-def _pdok_buurt_url(lat: float, lon: float) -> str:
-    d = 0.00001                                            # PDOK weigert een bbox zonder oppervlak
-    return f"{PDOK_BUURTEN}?bbox={lon - d:.6f},{lat - d:.6f},{lon + d:.6f},{lat + d:.6f}&f=json"
-
-
-def _pdok_gemeente_url(gemeentecode: str) -> str:
-    return f"{PDOK_GEMEENTEN}?gemeentecode={gemeentecode}&limit=10&f=json"
+def _buurt_url(lat: float, lon: float) -> str:
+    return _ogc_url(PDOK_BUURTEN, bbox=_bbox(lat, lon, 0.00001, 0.00001))    # PDOK weigert een bbox zonder oppervlak
 
 
 def _politie_url(basis: str, dimensie: str, onderwerp: str, codes: dict, buurtcode: str, gemeentecode: str | None) -> str:
@@ -1034,15 +997,14 @@ def _politie_url(basis: str, dimensie: str, onderwerp: str, codes: dict, buurtco
     if gemeentecode:
         regio = f"({regio} or startswith(WijkenEnBuurten,'{gemeentecode}'))"
     soorten = " or ".join(f"{dimensie} eq '{c.ljust(6)}'" for c in codes)
-    filt = f"{regio} and Perioden eq '{POLITIE_PERIODE}' and ({soorten})"
-    sel = f"{dimensie},WijkenEnBuurten,Perioden,{onderwerp}"
-    return basis + "?" + urllib.parse.urlencode({"$filter": filt, "$select": sel, "$format": "json"},
-                                                quote_via=urllib.parse.quote)
+    return _odata_url(basis, f"{regio} and Perioden eq '{POLITIE_PERIODE}' and ({soorten})",
+                      f"{dimensie},WijkenEnBuurten,Perioden,{onderwerp}")
 
 
-def _rce_url(collectie: str, lat: float, lon: float, dlat: float, dlon: float) -> str:
-    bbox = f"{lon - dlon:.6f},{lat - dlat:.6f},{lon + dlon:.6f},{lat + dlat:.6f}"
-    return f"{RCE_BASIS}/{collectie}/items?bbox={bbox}&limit=50&f=json"
+def _tevreden_url(buurtcode: str) -> str:
+    return _odata_url(CBS_50150, f"WijkenEnBuurten eq '{buurtcode}' and Perioden eq '{CBS_PERIODE}' "
+                                 f"and Leeftijd eq '{CBS_LEEFTIJD_18PLUS}'",
+                      "Marges,WijkenEnBuurten,TevredenMetDeWoning_56,TevredenMetDeWoonomgeving_57")
 
 
 def _lbm_url(gemeente: str) -> str:
@@ -1052,132 +1014,128 @@ def _lbm_url(gemeente: str) -> str:
     return LBM_WFS + "?" + urllib.parse.urlencode(par)
 
 
-def _cbs_url(buurtcode: str) -> str:
-    filt = (f"WijkenEnBuurten eq '{buurtcode}' and Perioden eq '{CBS_PERIODE}' "
-            f"and Leeftijd eq '{CBS_LEEFTIJD_18PLUS}'")
-    sel = "Marges,WijkenEnBuurten,TevredenMetDeWoning_56,TevredenMetDeWoonomgeving_57"
-    return CBS_50150 + "?" + urllib.parse.urlencode({"$filter": filt, "$select": sel, "$format": "json"},
-                                                    quote_via=urllib.parse.quote)
-
-
 # ---------------------------------------------------------------- ophalen per bron
 
-def bag_ophalen(sessie: Sessie, w: dict) -> dict:
-    pc, nr = _postcode(w), _huisnummer(w)
-    ext = _veld(w, "house_number_ext", "toevoeging") or ""
-    punt = _coords(w)
-    if not pc or not nr:
-        raise BronFout("geen postcode of huisnummer")
-    if not punt:
-        raise BronFout("geen coördinaten")
-    if sessie.over < 2:                                    # adres en pand: niet half beginnen
-        raise GeenBudget()
-    lat, lon = punt
-    vbo, panden = bag_kies(sessie.haal_json(_bag_bbox_url(lat, lon, 0.00014, 0.00022, 200)), pc, nr, ext)
-    if not panden:                                         # punt iets verder van het adres: één ruimere poging
-        vbo, panden = bag_kies(sessie.haal_json(_bag_bbox_url(lat, lon, 0.0007, 0.0011, 1000)), pc, nr, ext)
-    if not panden:
+def bag_ophalen(sessie: Sessie, pc: str, nr: str, ext: str, lat: float, lon: float) -> dict:
+    """Verblijfsobjecten rond het punt (zo nodig één ruimere poging), daarna het pand."""
+    for dlat, dlon, limit in ((0.00014, 0.00022, 200), (0.0007, 0.0011, 1000)):
+        url = _ogc_url(f"{BAG_BASIS}/verblijfsobject/items", bbox=_bbox(lat, lon, dlat, dlon), limit=limit)
+        vbo, panden = bag_kies(sessie.haal_json(url), pc, nr, ext)
+        if panden:
+            break
+    else:
         raise BronFout("adres niet gevonden in de BAG rond het punt")
     href = panden[0]
     if not href.startswith(BAG_PAND_PREFIX):
         raise BronFout("onverwachte pand-link")
-    pand = sessie.haal_json(href + ("&" if "?" in href else "?") + "f=json")
-    return bag_pand_velden(pand, vbo)
-
-
-def fundering_ophalen(sessie: Sessie, lat: float, lon: float) -> dict:
-    return kea_parse(sessie.haal_json(_getfeatureinfo_url(KEA_WMS, list(KEA_LAGEN.values()), lat, lon)))
-
-
-def geluid_ophalen(sessie: Sessie, lat: float, lon: float) -> dict:
-    return rivm_parse(sessie.haal_json(_getfeatureinfo_url(RIVM_WMS, [n for _, n in RIVM_LAGEN], lat, lon)))
-
-
-def lucht_ophalen(sessie: Sessie, lat: float, lon: float) -> dict:
-    return lucht_parse(sessie.haal_json(_getfeatureinfo_url(RIVM_WMS, [n for _, n in RIVM_LUCHT_LAGEN], lat, lon)))
-
-
-def klimaat_ophalen(sessie: Sessie, lat: float, lon: float) -> dict:
-    return klimaat_parse(sessie.haal_json(_getfeatureinfo_url(KEA_WMS, list(KEA_KLIMAAT_LAGEN.values()), lat, lon)))
+    return bag_pand_velden(sessie.haal_json(href + ("&" if "?" in href else "?") + "f=json"), vbo)
 
 
 def erfgoed_ophalen(sessie: Sessie, lat: float, lon: float) -> dict:
-    if sessie.over < 2:                                    # vlak en punten: niet half beginnen
-        raise GeenBudget()
-    uit = gezicht_parse(sessie.haal_json(_rce_url("rce_inspire_polygons", lat, lon, 0.00001, 0.00001)))
+    def rce(collectie: str, dlat: float, dlon: float) -> dict:
+        return sessie.haal_json(_ogc_url(f"{RCE_BASIS}/{collectie}/items", bbox=_bbox(lat, lon, dlat, dlon), limit=50))
+    uit = gezicht_parse(rce("rce_inspire_polygons", 0.00001, 0.00001))
     dlat = MONUMENT_STRAAL_M / 111_320
-    dlon = dlat / math.cos(math.radians(lat))
-    uit["monumenten_dichtbij"] = monument_parse(
-        sessie.haal_json(_rce_url("rce_inspire_points", lat, lon, dlat, dlon)), lat, lon)
+    uit["monumenten_dichtbij"] = monument_parse(rce("rce_inspire_points", dlat, dlat / math.cos(math.radians(lat))),
+                                                lat, lon)
     return uit
+
+
+# Bronnen met één WMS GetFeatureInfo op het punt. De naam is ook de cachesectie en de schakelaar.
+WMS_BRONNEN = {
+    "fundering": (KEA_WMS, tuple(KEA_LAGEN.values()), kea_parse),
+    "geluid": (RIVM_WMS, tuple(n for _, n in RIVM_LAGEN), rivm_parse),
+    "lucht": (RIVM_WMS, tuple(n for _, n in RIVM_LUCHT_LAGEN), lucht_parse),
+    "klimaat": (KEA_WMS, tuple(KEA_KLIMAAT_LAGEN.values()), klimaat_parse),
+}
+
+
+def _punt_ophalen(naam: str, sessie: Sessie, lat: float, lon: float) -> dict:
+    if naam == "erfgoed":
+        return erfgoed_ophalen(sessie, lat, lon)
+    wms, lagen, parse = WMS_BRONNEN[naam]
+    return parse(sessie.haal_json(_wms_url(wms, lagen, lat, lon)))
 
 
 def _buurt_ophalen(sessie: Sessie, cache: dict, lat: float, lon: float) -> dict:
     """Buurtcode van het punt; de kerncijfers uit hetzelfde antwoord gaan per buurtcode de cache in."""
-    antwoord = sessie.haal_json(_pdok_buurt_url(lat, lon))
+    antwoord = sessie.haal_json(_buurt_url(lat, lon))
     data = pdok_buurt_parse(antwoord)
     try:
-        cache_schrijf(cache, "kerncijfers", data["buurtcode"], sessie.vandaag,
-                      data=pdok_kern_parse(antwoord, data["buurtcode"]))
+        kern = {"data": pdok_kern_parse(antwoord, data["buurtcode"])}
     except BronFout as exc:
-        cache_schrijf(cache, "kerncijfers", data["buurtcode"], sessie.vandaag, fout=str(exc))
+        kern = {"fout": str(exc)}
+    cache_schrijf(cache, "kerncijfers", data["buurtcode"], sessie.vandaag, **kern)
     return data
 
 
+# ---------------------------------------------------------------- resultaat per bron
+
+def _res(status: str, data=None, reden: str | None = None, uit_cache: bool = False, signalen=None) -> dict:
+    """De vaste vorm van een resultaat. Status: ok, onbekend, budget, uit of niet_nodig."""
+    return {"status": status, "data": data, "reden": reden, "uit_cache": uit_cache, "signalen": signalen or []}
+
+
+def _uit() -> dict:
+    return _res("uit", reden="staat uit in de config")
+
+
+def _mislukt(exc: Exception, sessie: Sessie, cache: dict, sectie: str, sleutel: str) -> dict:
+    """Een GeenBudget of BronFout als resultaat. Alleen een fout van de bron zelf komt in de cache
+    (fout_opnieuw_na_dagen niet opnieuw); een op budget of een gestopte host zegt niets over dit element."""
+    if isinstance(exc, GeenBudget):
+        return _res("budget", reden="budget voor deze run op")
+    if isinstance(exc, HostGestopt):
+        return _res("onbekend", reden=f"bron gestopt: {exc}")
+    cache_schrijf(cache, sectie, sleutel, sessie.vandaag, fout=str(exc))
+    return _res("onbekend", reden=str(exc))
+
+
 def _met_cache(sessie: Sessie, cache: dict, sectie: str, sleutel: str, vcfg: dict, ophalen) -> dict:
-    """Eén bron met cache. -> {"status", "data", "reden", "uit_cache"}."""
+    """Eén element van een sectie: uit de cache, of opgehaald en bewaard."""
     data, st = cache_lees(cache, sectie, sleutel, vcfg, sessie.vandaag)
     if st == "vers":
-        return {"status": "ok", "data": data, "reden": None, "uit_cache": True}
+        return _res("ok", data, uit_cache=True)
     if st == "fout_vers":
-        fout = (cache.get(sectie) or {}).get(sleutel, {}).get("fout")
-        return {"status": "onbekend", "data": None, "uit_cache": True,
-                "reden": f"vorige poging mislukt ({fout}); na een dag opnieuw"}
+        reden = f"vorige poging mislukt ({cache[sectie][sleutel].get('fout')}); na een dag opnieuw"
+        return {"status": "onbekend", "data": None, "uit_cache": True, "reden": reden, "signalen": []}
     try:
+        nodig = SECTIES[sectie][1]
+        if nodig > 1 and sessie.over < nodig:                  # meer dan één verzoek: niet half beginnen
+            raise GeenBudget()
         data = ophalen()
-    except GeenBudget:
-        return {"status": "budget", "data": None, "reden": "budget voor deze run op", "uit_cache": False}
-    except HostGestopt as exc:
-        return {"status": "onbekend", "data": None, "reden": f"bron gestopt: {exc}", "uit_cache": False}
-    except BronFout as exc:
-        cache_schrijf(cache, sectie, sleutel, sessie.vandaag, fout=str(exc))
-        return {"status": "onbekend", "data": None, "reden": str(exc), "uit_cache": False}
+    except (GeenBudget, BronFout) as exc:
+        return _mislukt(exc, sessie, cache, sectie, sleutel)
     except Exception as exc:  # noqa: BLE001  onverwacht antwoord: nooit de run laten vallen
         cache_schrijf(cache, sectie, sleutel, sessie.vandaag, fout=f"onverwacht antwoord ({type(exc).__name__})")
-        return {"status": "onbekend", "data": None, "reden": "onverwacht antwoord", "uit_cache": False}
+        return _res("onbekend", reden="onverwacht antwoord")
     cache_schrijf(cache, sectie, sleutel, sessie.vandaag, data=data)
-    return {"status": "ok", "data": data, "reden": None, "uit_cache": False}
+    return _res("ok", data)
 
 
 def _leefbaarometer(sessie: Sessie, cache: dict, vcfg: dict, buurtcode: str, gemeente: str | None) -> dict:
     """Eén WFS-verzoek per gemeente (30 dagen), daarna per buurtcode uit de cache."""
     data, st = cache_lees(cache, "leefbaarometer", buurtcode, vcfg, sessie.vandaag)
     if st == "vers":
-        return {"status": "ok", "data": data, "reden": None, "uit_cache": True}
+        return _res("ok", data, uit_cache=True)
     if not gemeente:
-        return {"status": "onbekend", "data": None, "reden": "gemeente onbekend", "uit_cache": False}
+        return _res("onbekend", reden="gemeente onbekend")
     marker = "gemeente|" + gemeente
     _, mst = cache_lees(cache, "leefbaarometer", marker, vcfg, sessie.vandaag)
     if mst == "vers":
-        return {"status": "onbekend", "data": None, "reden": "buurt niet in de Leefbaarometer", "uit_cache": True}
+        return _res("onbekend", reden="buurt niet in de Leefbaarometer", uit_cache=True)
     if mst == "fout_vers":
-        return {"status": "onbekend", "data": None, "reden": "vorige poging mislukt; na een dag opnieuw",
-                "uit_cache": True}
+        return _res("onbekend", reden="vorige poging mislukt; na een dag opnieuw", uit_cache=True)
     try:
         buurten = lbm_parse(sessie.haal_json(_lbm_url(gemeente)))
-    except GeenBudget:
-        return {"status": "budget", "data": None, "reden": "budget voor deze run op", "uit_cache": False}
-    except HostGestopt as exc:
-        return {"status": "onbekend", "data": None, "reden": f"bron gestopt: {exc}", "uit_cache": False}
-    except BronFout as exc:
-        cache_schrijf(cache, "leefbaarometer", marker, sessie.vandaag, fout=str(exc))
-        return {"status": "onbekend", "data": None, "reden": str(exc), "uit_cache": False}
+    except (GeenBudget, BronFout) as exc:
+        return _mislukt(exc, sessie, cache, "leefbaarometer", marker)
     for code, velden in buurten.items():
         cache_schrijf(cache, "leefbaarometer", code, sessie.vandaag, data=velden)
     cache_schrijf(cache, "leefbaarometer", marker, sessie.vandaag, data={"buurten": len(buurten)})
     if buurtcode in buurten:
-        return {"status": "ok", "data": buurten[buurtcode], "reden": None, "uit_cache": False}
-    return {"status": "onbekend", "data": None, "reden": "buurt niet in de Leefbaarometer", "uit_cache": False}
+        return _res("ok", buurten[buurtcode])
+    return _res("onbekend", reden="buurt niet in de Leefbaarometer")
 
 
 # ---------------------------------------------------------------- signalen
@@ -1230,7 +1188,7 @@ def signalen_fundering(status: str, data: dict | None, bouwjaar: int | None, n_v
 
 def geluid_stap(data: dict, dr: dict) -> int:
     stap = 0
-    for veld in ("lden_weg", "lnight_weg", "lden_trein", "lnight_trein"):
+    for veld in VELDEN["geluid"]:
         v = data.get(veld)
         if v is not None:
             stap = max(stap, sum(v >= g for g in dr[f"geluid_{veld}"]))
@@ -1259,15 +1217,12 @@ def signalen_buurt(data: dict, dr: dict) -> tuple[list[dict], bool]:
     naam = data.get("buurtnaam") or "deze buurt"
     k = data.get("kscore")
     if isinstance(k, int) and k in LBM_KLASSE:
-        klasse = LBM_KLASSE[k]
+        tekst = f"Leefbaarometer {LBM_KLASSE[k]} ({LBM_JAAR}) in {naam}."
         if k <= dr["leefbaarometer_twijfel_max"]:
             twijfel = True
-            uit.append(_signaal("sterk", f"Leefbaarometer {klasse} ({LBM_JAAR}) in {naam}. "
-                                         "Staat de buurt niet op jouw lijst? Bekijk hem zelf."))
-        elif k >= dr["leefbaarometer_goed_min"]:
-            uit.append(_signaal("goed", f"Leefbaarometer {klasse} ({LBM_JAAR}) in {naam}."))
+            uit.append(_signaal("sterk", tekst + " Staat de buurt niet op jouw lijst? Bekijk hem zelf."))
         else:
-            uit.append(_signaal("info", f"Leefbaarometer {klasse} ({LBM_JAAR}) in {naam}."))
+            uit.append(_signaal("goed" if k >= dr["leefbaarometer_goed_min"] else "info", tekst))
     onv = data.get("onv")
     if isinstance(onv, (int, float)) and onv <= dr["leefbaarometer_onv_let_op"]:
         uit.append(_signaal("let_op", f"Overlast en onveiligheid {_teken(onv)} ten opzichte van Nederland "
@@ -1276,28 +1231,26 @@ def signalen_buurt(data: dict, dr: dict) -> tuple[list[dict], bool]:
     if isinstance(tv, (int, float)):
         lo, hi = data.get("tevreden_woonomgeving_min"), data.get("tevreden_woonomgeving_max")
         marge = f", marge {_nl(lo, 0)} tot {_nl(hi, 0)}%" if isinstance(lo, (int, float)) and isinstance(hi, (int, float)) else ""
-        tekst = f"Tevreden met de woonomgeving: {_nl(tv, 0)}% (RIVM 2024, modelschatting{marge})."
-        if tv < dr["tevreden_woonomgeving_let_op"]:
-            uit.append(_signaal("let_op", tekst))
-        elif tv >= dr["tevreden_woonomgeving_goed"]:
-            uit.append(_signaal("goed", tekst))
-        else:
-            uit.append(_signaal("info", tekst))
+        niveau = ("let_op" if tv < dr["tevreden_woonomgeving_let_op"]
+                  else "goed" if tv >= dr["tevreden_woonomgeving_goed"] else "info")
+        uit.append(_signaal(niveau, f"Tevreden met de woonomgeving: {_nl(tv, 0)}% (RIVM 2024, modelschatting{marge})."))
     return uit, twijfel
 
 
 # ---------------------------------------------------------------- één woning
-
-def _uit(reden: str = "staat uit in de config") -> dict:
-    return {"status": "uit", "data": None, "reden": reden, "uit_cache": False, "signalen": []}
-
 
 def _verrijk_een(w: dict, sessie: Sessie, cache: dict, vcfg: dict, dr: dict) -> dict:
     aan = vcfg.get("bronnen") or {}
     punt = _coords(w)
     res: dict[str, dict] = {}
 
-    # 1. BAG
+    def puntbron(naam: str) -> dict:
+        if not aan.get(naam, True):
+            return _uit()
+        if not punt:
+            return _res("onbekend", reden="geen coördinaten")
+        return _met_cache(sessie, cache, naam, punt_sleutel(*punt), vcfg, lambda: _punt_ophalen(naam, sessie, *punt))
+
     if not aan.get("bag", True):
         res["bag"] = _uit()
     else:
@@ -1305,42 +1258,29 @@ def _verrijk_een(w: dict, sessie: Sessie, cache: dict, vcfg: dict, dr: dict) -> 
         ext = _norm_toevoeging(_veld(w, "house_number_ext", "toevoeging"))
         if not pc or not nr or not punt:               # niets te vragen: geen verzoek en geen cache
             res["bag"] = {"status": "onbekend", "data": None, "uit_cache": False,
-                          "reden": "geen coördinaten" if pc and nr else "geen postcode of huisnummer"}
+                          "reden": "geen coördinaten" if pc and nr else "geen postcode of huisnummer", "signalen": []}
         else:
             res["bag"] = _met_cache(sessie, cache, "bag", _hash_sleutel("adres", pc, nr, ext), vcfg,
-                                    lambda: bag_ophalen(sessie, w))
-        res["bag"]["signalen"] = signalen_bag(res["bag"]["data"], dr) if res["bag"]["status"] == "ok" else []
-
+                                    lambda: bag_ophalen(sessie, pc, nr, ext, *punt))
+            if res["bag"]["status"] == "ok":
+                res["bag"]["signalen"] = signalen_bag(res["bag"]["data"], dr)
     bag_data = res["bag"].get("data") or {}
-    bouwjaar = bag_data.get("bouwjaar") or _bouwjaar_funda(w)
+    bouwjaar = bag_data.get("bouwjaar") or _bouwjaar(str(_veld(w, "construction_year", "bouwjaar") or "")[:4])
     n_vbo = bag_data.get("aantal_vbo_pand")
 
-    # 2. Fundering: alleen bij een pand van voor 1970 (of een onbekend bouwjaar)
-    if not aan.get("fundering", True):
-        res["fundering"] = _uit()
-    elif bouwjaar and bouwjaar >= dr["fundering_bouwjaar_voor"]:
-        res["fundering"] = {"status": "niet_nodig", "data": {"bouwjaar": bouwjaar}, "reden": None,
-                            "uit_cache": False}
-    elif not punt:
-        res["fundering"] = {"status": "onbekend", "data": None, "reden": "geen coördinaten", "uit_cache": False}
+    # Fundering: alleen bij een pand van voor 1970 (of een onbekend bouwjaar)
+    if aan.get("fundering", True) and bouwjaar and bouwjaar >= dr["fundering_bouwjaar_voor"]:
+        res["fundering"] = _res("niet_nodig", {"bouwjaar": bouwjaar})
     else:
-        res["fundering"] = _met_cache(sessie, cache, "fundering", punt_sleutel(*punt), vcfg,
-                                      lambda: fundering_ophalen(sessie, *punt))
+        res["fundering"] = puntbron("fundering")
     f = res["fundering"]
     f["signalen"] = signalen_fundering(f["status"], f.get("data"), bouwjaar, n_vbo, dr)
 
-    # 3. Geluid aan de gevel
-    if not aan.get("geluid", True):
-        res["geluid"] = _uit()
-    elif not punt:
-        res["geluid"] = {"status": "onbekend", "data": None, "reden": "geen coördinaten", "uit_cache": False}
-    else:
-        res["geluid"] = _met_cache(sessie, cache, "geluid", punt_sleutel(*punt), vcfg,
-                                   lambda: geluid_ophalen(sessie, *punt))
-    g = res["geluid"]
-    g["signalen"] = signalen_geluid(g["data"], dr) if g["status"] == "ok" else []
+    res["geluid"] = puntbron("geluid")
+    if res["geluid"]["status"] == "ok":
+        res["geluid"]["signalen"] = signalen_geluid(res["geluid"]["data"], dr)
 
-    # 4. Buurt: buurtcode, Leefbaarometer, tevredenheid. De buurtcode is ook nodig voor de kerncijfers
+    # Buurt: buurtcode, Leefbaarometer, tevredenheid. De buurtcode is ook nodig voor de kerncijfers
     # en de politiecijfers.
     bc = None
     if punt and any(aan.get(b, True) for b in ("buurt", "kerncijfers", "veiligheid")):
@@ -1348,47 +1288,36 @@ def _verrijk_een(w: dict, sessie: Sessie, cache: dict, vcfg: dict, dr: dict) -> 
                         lambda: _buurt_ophalen(sessie, cache, *punt))
     res["buurt"] = _buurt(sessie, cache, vcfg, dr, aan, punt, bc)
 
-    # 5. Kerncijfers en politiecijfers per buurt
+    # Kerncijfers en politiecijfers per buurt
     code = bc["data"]["buurtcode"] if bc and bc["status"] == "ok" else None
     kern = None
     if code and (aan.get("kerncijfers", True) or aan.get("veiligheid", True)):
         # Uit de cache (gevuld door _buurt_ophalen); een buurtcode van voor 18 nov 2026 heeft ze nog
         # niet: dan één keer hetzelfde PDOK-verzoek opnieuw.
         kern = _met_cache(sessie, cache, "kerncijfers", code, vcfg,
-                          lambda: pdok_kern_parse(sessie.haal_json(_pdok_buurt_url(*punt)), code))
+                          lambda: pdok_kern_parse(sessie.haal_json(_buurt_url(*punt)), code))
     for naam in ("kerncijfers", "veiligheid"):
         if not aan.get(naam, True):
             res[naam] = _uit()
         elif not punt:
-            res[naam] = _leeg("onbekend", "geen coördinaten")
+            res[naam] = _res("onbekend", reden="geen coördinaten")
         elif not code:
-            res[naam] = _leeg(bc["status"], bc["reden"])
+            res[naam] = _res(bc["status"], reden=bc["reden"])
         elif kern["status"] != "ok":
-            res[naam] = _leeg(kern["status"], kern["reden"])
+            res[naam] = _res(kern["status"], reden=kern["reden"])
         elif naam == "kerncijfers":
             data = {k: kern["data"].get(k) for k in UITVOER_VELDEN["kerncijfers"] if k != "jaar"}
             data["jaar"] = KERN_JAAR
-            res[naam] = {"status": "ok", "data": data, "reden": None, "uit_cache": kern["uit_cache"], "signalen": []}
+            res[naam] = _res("ok", data, uit_cache=kern["uit_cache"])
         else:
             res[naam] = _veiligheid(sessie, cache, vcfg, code, kern["data"])
 
-    # 6. Puntbronnen: lucht en groen (RIVM), klimaat (Klimaateffectatlas), erfgoed (RCE via PDOK)
-    for naam, ophalen in (("lucht", lucht_ophalen), ("klimaat", klimaat_ophalen), ("erfgoed", erfgoed_ophalen)):
-        if not aan.get(naam, True):
-            res[naam] = _uit()
-        elif not punt:
-            res[naam] = _leeg("onbekend", "geen coördinaten")
-        else:
-            res[naam] = _met_cache(sessie, cache, naam, punt_sleutel(*punt), vcfg,
-                                   lambda f=ophalen: f(sessie, *punt))
-            res[naam]["signalen"] = []
+    # Lucht en groen (RIVM), klimaat (Klimaateffectatlas), erfgoed (RCE via PDOK)
+    for naam in ("lucht", "klimaat", "erfgoed"):
+        res[naam] = puntbron(naam)
     if res["lucht"]["status"] == "ok" and not aan.get("groen", True):
         res["lucht"]["data"] = dict(res["lucht"]["data"], groen_pct=None)
     return res
-
-
-def _leeg(status: str, reden: str | None) -> dict:
-    return {"status": status, "data": None, "reden": reden, "uit_cache": False, "signalen": []}
 
 
 def _per_1000(aantal, woningen) -> float | None:
@@ -1403,24 +1332,20 @@ def _veiligheid(sessie: Sessie, cache: dict, vcfg: dict, code: str, kern: dict) 
     Het aantal woningen (CBS-kerncijfers) is alleen de noemer en komt niet in de uitvoer."""
     woningen = kern.get("woningen")
     if not isinstance(woningen, (int, float)) or woningen < MIN_WONINGEN_NOEMER:
-        return _leeg("onbekend", "te weinig woningen in de buurt voor een cijfer per 1.000")
+        return _res("onbekend", reden="te weinig woningen in de buurt voor een cijfer per 1.000")
     if not re.fullmatch(r"BU\d{8}", code):
-        return _leeg("onbekend", "onverwachte buurtcode")
+        return _res("onbekend", reden="onverwachte buurtcode")
     gm = kern.get("gemeentecode")
-    md = _met_cache(sessie, cache, "misdrijven", code, vcfg, lambda: politie_parse(
-        sessie.haal_json(_politie_url(CBS_MISDRIJVEN, "SoortMisdrijf", "GeregistreerdeMisdrijven_1", MISDRIJF_CODES,
-                                      code, gm)), "SoortMisdrijf", "GeregistreerdeMisdrijven_1", MISDRIJF_CODES, code))
-    ov = _met_cache(sessie, cache, "overlast", code, vcfg, lambda: politie_parse(
-        sessie.haal_json(_politie_url(CBS_OVERLAST, "Overlast", "GeregistreerdeOverlast_1", OVERLAST_CODES,
-                                      code, gm)), "Overlast", "GeregistreerdeOverlast_1", OVERLAST_CODES, code))
-    goed = [x for x in (md, ov) if x["status"] == "ok"]
-    redenen = "; ".join(x["reden"] for x in (md, ov) if x["status"] != "ok" and x.get("reden")) or None
+    delen = [_met_cache(sessie, cache, sectie, code, vcfg, lambda t=tabel: politie_parse(
+        sessie.haal_json(_politie_url(*t, code, gm)), *t[1:], code)) for sectie, tabel in POLITIE_TABELLEN.items()]
+    goed = [x for x in delen if x["status"] == "ok"]
+    redenen = "; ".join(x["reden"] for x in delen if x["status"] != "ok" and x.get("reden")) or None
     if not goed:
-        return _leeg("budget" if "budget" in (md["status"], ov["status"]) else "onbekend", redenen)
+        return _res("budget" if "budget" in [x["status"] for x in delen] else "onbekend", reden=redenen)
     gem_woningen = None
     if gm:
-        g = _met_cache(sessie, cache, "gemeente", gm, vcfg,
-                       lambda: pdok_gemeente_parse(sessie.haal_json(_pdok_gemeente_url(gm)), gm))
+        g = _met_cache(sessie, cache, "gemeente", gm, vcfg, lambda: pdok_gemeente_parse(
+            sessie.haal_json(_ogc_url(PDOK_GEMEENTEN, gemeentecode=gm, limit=10)), gm))
         gem_woningen = (g.get("data") or {}).get("woningen") if g["status"] == "ok" else None
     aantallen = {}
     for x in goed:
@@ -1429,44 +1354,38 @@ def _veiligheid(sessie: Sessie, cache: dict, vcfg: dict, code: str, kern: dict) 
     for k in VEILIGHEID_SOORTEN:
         data[f"{k}_per_1000"] = _per_1000(aantallen.get(k), woningen)
         data[f"gem_{k}_per_1000"] = _per_1000(aantallen.get("gem_" + k), gem_woningen)
-    return {"status": "ok", "data": data, "reden": redenen, "uit_cache": all(x["uit_cache"] for x in goed),
-            "signalen": []}
+    return _res("ok", data, redenen, all(x["uit_cache"] for x in goed))
 
 
 def _buurt(sessie: Sessie, cache: dict, vcfg: dict, dr: dict, aan: dict, punt, bc: dict | None) -> dict:
     if not aan.get("buurt", True):
         return dict(_uit(), twijfel=False)
     if not punt:
-        return {"status": "onbekend", "data": None, "reden": "geen coördinaten", "uit_cache": False,
-                "signalen": [], "twijfel": False, "delen": {}}
+        return dict(_res("onbekend", reden="geen coördinaten"), twijfel=False, delen={})
     delen = {"buurtcode": bc["status"]}
     if bc["status"] != "ok":
-        return {"status": bc["status"], "data": None, "reden": bc["reden"], "uit_cache": bc["uit_cache"],
-                "signalen": [], "twijfel": False, "delen": delen}
+        return dict(_res(bc["status"], reden=bc["reden"], uit_cache=bc["uit_cache"]), twijfel=False, delen=delen)
     code = bc["data"]["buurtcode"]
     lbm = _leefbaarometer(sessie, cache, vcfg, code, bc["data"].get("gemeentenaam"))
     delen["leefbaarometer"] = lbm["status"]
     if aan.get("tevredenheid", True):
         tv = _met_cache(sessie, cache, "tevredenheid", code, vcfg,
-                        lambda: cbs_tevreden_parse(sessie.haal_json(_cbs_url(code))))
+                        lambda: cbs_tevreden_parse(sessie.haal_json(_tevreden_url(code))))
     else:
         tv = _uit()
     delen["tevredenheid"] = tv["status"]
     data = dict(bc["data"])
-    for k in VELDEN["leefbaarometer"]:
-        data[k] = (lbm.get("data") or {}).get(k)
-    for k in VELDEN["tevredenheid"]:
-        data[k] = (tv.get("data") or {}).get(k)
-    redenen = [f"{naam}: {x['reden']}" for naam, x in (("Leefbaarometer", lbm), ("tevredenheid", tv))
-               if x["status"] not in ("ok", "uit") and x.get("reden")]
+    for sectie, x in (("leefbaarometer", lbm), ("tevredenheid", tv)):
+        for k in VELDEN[sectie]:
+            data[k] = (x.get("data") or {}).get(k)
+    redenen = "; ".join(f"{naam}: {x['reden']}" for naam, x in (("Leefbaarometer", lbm), ("tevredenheid", tv))
+                        if x["status"] not in ("ok", "uit") and x.get("reden")) or None
     if lbm["status"] == "ok" or tv["status"] == "ok":
         sig, twijfel = signalen_buurt(data, dr)
-        return {"status": "ok", "data": data, "reden": "; ".join(redenen) or None,
-                "uit_cache": all(x.get("uit_cache") for x in (bc, lbm, tv) if x["status"] != "uit"),
-                "signalen": sig, "twijfel": twijfel, "delen": delen}
+        uit_cache = all(x.get("uit_cache") for x in (bc, lbm, tv) if x["status"] != "uit")
+        return dict(_res("ok", data, redenen, uit_cache, sig), twijfel=twijfel, delen=delen)
     status = "budget" if "budget" in (lbm["status"], tv["status"]) else "onbekend"
-    return {"status": status, "data": None, "reden": "; ".join(redenen) or None,
-            "uit_cache": False, "signalen": [], "twijfel": False, "delen": delen}
+    return dict(_res(status, reden=redenen), twijfel=False, delen=delen)
 
 
 # ---------------------------------------------------------------- geocoding van postcodes
@@ -1528,7 +1447,7 @@ def coords_cache_schrijf(pad, cache: dict) -> None:
 
 
 def postcode_url(postcode: str) -> str:
-    return f"{BAG_ADRES}?postcode={postcode}&limit={GEOCODE_LIMIET}&f=json"
+    return _ogc_url(BAG_ADRES, postcode=postcode, limit=GEOCODE_LIMIET)
 
 
 def postcode_punt_parse(antwoord: dict, postcode: str) -> tuple[float, float] | None:
@@ -1538,7 +1457,7 @@ def postcode_punt_parse(antwoord: dict, postcode: str) -> tuple[float, float] | 
     "Naamgeving uitgegeven" gaan voor; een ingetrokken adres telt alleen als er geen ander is."""
     uitgegeven, alle = [], []
     for f in (antwoord or {}).get("features") or []:
-        p = f.get("properties") or {}
+        p = _props(f)
         if postcode_norm(p.get("postcode")) != postcode:
             continue
         g = f.get("geometry") or {}
