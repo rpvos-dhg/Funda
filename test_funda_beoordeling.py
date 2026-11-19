@@ -1564,7 +1564,13 @@ def test_buurtnaam() -> bool:
     lbm = [i for i in alle if i["label"] == "Leefbaarometer"]
     ok &= check("item met de buurtnaam, 0 punten", len(naam) == 1 and naam[0]["waarde"] == "Voorbeeldbuurt" and naam[0]["punten"] == 0,
                 str(naam)[:120])
-    ok &= check("de Leefbaarometer zegt voor welke buurt hij geldt", len(lbm) == 1 and "Voorbeeldbuurt" in (lbm[0]["uitleg"] or ""), str(lbm)[:160])
+    ok &= check("de Leefbaarometer zegt voor welke buurt hij geldt, zichtbaar in de waarde",
+                len(lbm) == 1 and lbm[0]["waarde"] == "goed (2024) in Voorbeeldbuurt" and "Voorbeeldbuurt" in (lbm[0]["uitleg"] or ""), str(lbm)[:160])
+    lang = b({"buurtnaam": "Voorbeeldbuurt-Noord en  omgeving\nvan het park", "kscore": 7})
+    naam_lang = [i for i in lang["info"] if i["label"] == fb.BUURT_LABEL]
+    ok &= check("lange naam: waarde afgekapt, volledige naam bewaard, witruimte genormaliseerd",
+                len(naam_lang) == 1 and len(naam_lang[0]["waarde"]) <= 32
+                and naam_lang[0]["volledig"] == "Voorbeeldbuurt-Noord en omgeving van het park", str(naam_lang)[:160])
     zwak = b({"buurtnaam": "Voorbeeldbuurt", "kscore": 2})
     lbm = [i for i in zwak["let_op"] if i["label"] == "Leefbaarometer"]
     ok &= check("ook bij een zwakke score, met de bestaande uitleg erachter",

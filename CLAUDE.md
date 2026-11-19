@@ -305,8 +305,8 @@ aangeroepen; het besluit geldt alleen voor de detail-host.
     Politiecijfers zijn altijd feitelijk, zonder oordeel over een buurt.
   - **De buurtscore noemt de buurt** (verzoek eigenaar, 19 nov 2026): het blok
     heet "Buurt en omgeving: <naam>", het eerste item is "Buurt (CBS)"
-    (`BUURT_LABEL`, `cbs_buurt()`) en de Leefbaarometer zegt voor welke buurt
-    hij geldt. De naam komt uit de CBS-indeling en kan afwijken van funda's
+    (`BUURT_LABEL`, `cbs_buurt()`) en de Leefbaarometer noemt de buurt in zijn
+    waarde ("goed (2024) in <naam>"). De naam komt uit de CBS-indeling en kan afwijken van funda's
     buurtnaam. Alleen in het versleutelde rapport, nooit in de log.
 - **Niet gemeten op echte advertenties** (reken er niet op): de waarden van
   "Soort dak", "Aantal bouwlagen", "Isolatie", "Verwarming" en "Voorzieningen",

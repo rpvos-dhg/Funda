@@ -560,10 +560,11 @@ def kaart_html(w, meta: dict | None = None) -> str:
     if w["omgeving"]:
         inhoud = (punten_lijst(w["omgeving"], False, True)
                   + '<p class="punt-tekst gesch mt-100">Uit open bronnen. Telt nog niet mee in de score.</p>')
-        buurt = next((i.get("waarde") for i in w["omgeving"] if i.get("label") == funda_beoordeling.BUURT_LABEL), "")
+        buurt = next((i.get("volledig") or i.get("waarde") for i in w["omgeving"] if i.get("label") == funda_beoordeling.BUURT_LABEL), "")
         kop = "Buurt en omgeving" + (f": {h(buurt)}" if buurt else "")
+        n_cijfers = len(w["omgeving"]) - (1 if buurt else 0)   # de naam zelf is geen cijfer
         blokken.append('<section class="blok">'
-                       + uitklap(met_waarde(kop, len(w["omgeving"])), inhoud, "opbouw omgeving") + "</section>")
+                       + uitklap(met_waarde(kop, n_cijfers), inhoud, "opbouw omgeving") + "</section>")
     if w["beoordeeld"]:
         blokken.append(f'<section class="blok">{opbouw_score(w)}</section>')
     blokken.append(blok("Geld", f'<div class="geld-blok">{opbouw_lasten(w)}{financiering(w, meta)}</div>'))

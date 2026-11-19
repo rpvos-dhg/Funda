@@ -676,7 +676,7 @@ def test_omgeving_blok() -> bool:
     verrijking = {"lucht": {"status": "ok", "data": {"no2": 18.3, "pm25": 8.7, "groen_pct": 16}},
                   "veiligheid": {"status": "ok", "data": {"jaar": 2025, "misdrijven_per_1000": 498.2, "gem_misdrijven_per_1000": 146.5}},
                   "klimaat": {"status": "ok", "data": {"wateroverlast": "zeer hoog", "waterdiepte": "meer dan 30 cm"}},
-                  "buurt": {"status": "ok", "data": {"buurtnaam": "Voorbeeld<b>buurt", "kscore": 7}}}
+                  "buurt": {"status": "ok", "data": {"buurtnaam": "Voorbeeld<b>buurt-Noord en omgeving van het park", "kscore": 7}}}
     items = fb.omgeving_items(verrijking)
     b = rijen[0]["beoordeling"]
     b["info"] = list(b.get("info") or []) + [i for i in items if i["groep"] == "info"] + [
@@ -694,8 +694,10 @@ def test_omgeving_blok() -> bool:
     andere = _kaart(body, funda_ui.woning_sleutel(rijen[1]["d"]))
     ok = [
         check("de kop noemt de buurt waarvoor de cijfers gelden, ge-escaped",
-              "Buurt en omgeving: Voorbeeld&lt;b&gt;buurt <span" in blok and "Voorbeeld<b>buurt" not in kaart, blok[:120]),
-        check("blok aanwezig met het aantal items", "Buurt en omgeving" in blok and f'<span class="waarde">{n_info}</span>' in blok, blok[:200]),
+              "Buurt en omgeving: Voorbeeld&lt;b&gt;buurt-Noord en omgeving van het park <span" in blok
+              and "Voorbeeld<b>buurt" not in kaart, blok[:160]),
+        check("blok aanwezig met het aantal cijfers (de buurtnaam zelf telt niet mee)",
+              "Buurt en omgeving" in blok and f'<span class="waarde">{n_info - 1}</span>' in blok, blok[:200]),
         check("items met label, waarde, bron en uitleg",
               all(t in blok for t in ("Stikstofdioxide (NO2)", "18,3 µg/m³, boven WHO-advies", "RIVM 2024", "WHO-advies 10",
                                       "Misdrijven buurt", "498 per 1.000 (gemeente 146)"))),
