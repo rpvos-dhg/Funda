@@ -270,6 +270,8 @@ def _woning(rij: dict, meta: dict) -> dict:
         # Informatieve items zonder punten die een eigen blok krijgen (open bronnen, "eerder zonder prijs",
         # "mogelijk onder schuin dak"). De overige neutrale items staan al in de kerncijfers en kenmerken.
         "omgeving": [x for x in (b.get("info") or []) if x.get("onderdeel") in funda_beoordeling.INFO_TONEN],
+        # Zomer en winter: een indicatie over de woning zelf, daarom in het blok Woning en niet bij de buurt.
+        "binnenklimaat": [x for x in (b.get("info") or []) if x.get("onderdeel") == funda_beoordeling.BINNENKLIMAAT],
         "kansen": kansen, "zelf": (b.get("zelf_nagaan") or [])[:6], "fin": f, "routes": routes,
         "foto": rij.get("foto_url"), "fotos": fotos, "lat": _getal(rij.get("lat")), "lon": _getal(rij.get("lon")),
         "ch": ch, "woz": woz, "aangeboden": det.get("offered_since") or d.get("offered_since"),
@@ -536,7 +538,13 @@ def kaart_html(w, meta: dict | None = None) -> str:
     if w["beoordeeld"]:
         blokken.append(f'<section class="blok">{opbouw_score(w)}</section>')
     blokken.append(f'<section class="blok"><h4>Geld</h4><div class="geld-blok">{opbouw_lasten(w)}{financiering(w, meta)}</div></section>')
-    blokken.append(f'<section class="blok"><h4>Woning</h4><dl class="kenmerken">{kenmerken(w)}</dl></section>')
+    klimaat = ""
+    if w["binnenklimaat"]:
+        klimaat = (f'<details class="opbouw binnenklimaat"><summary>Warmte en kou in huis <span class="waarde">indicatie</span>'
+                   f'{ic("chev", "ic chev")}</summary><ul class="punten">'
+                   f'{"".join(punt_html(x, False, True) for x in w["binnenklimaat"])}</ul>'
+                   f'<p class="punt-tekst gesch mt-100">Een indicatie uit aanwijzingen, geen meting. Telt niet mee in de score.</p></details>')
+    blokken.append(f'<section class="blok"><h4>Woning</h4><dl class="kenmerken">{kenmerken(w)}</dl>{klimaat}</section>')
     if zelf:
         blokken.append(f'<section class="blok"><h4>Zelf nagaan</h4><ol class="vragen">{zelf}</ol></section>')
     if fotos:

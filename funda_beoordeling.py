@@ -1596,6 +1596,161 @@ def omgeving_items(verrijking: dict | None, dr: dict | None = None, monument_fun
     return uit
 
 
+# Binnenklimaat: een indicatie uit aanwijzingen, geen meting (verzoek eigenaar, 19 nov 2026). Twee informatieve
+# items, "Zomer" en "Winter", 0 punten en geen gewicht. funda_ui toont ze in het blok Woning.
+BINNENKLIMAAT = "binnenklimaat"
+ISOLATIE_BOUWJAAR = 1975                       # daarvoor zelden isolatie vanaf de bouw (zelfde grens als label_aanname)
+GROEN_WEINIG_PCT, GROEN_VEEL_PCT = 15, 40      # eigen indeling van het percentage groen binnen 500 m; niet geijkt
+_LABEL_KOUD, _LABEL_WARM = ("E", "F", "G"), ("A++++", "A+++", "A++", "A+", "A", "B")
+_ZON_WARM, _ZON_KOEL = ("Zuid", "Zuidwest", "West"), ("Noord", "Noordoost", "Oost")
+_VEEL_GLAS = re.compile(r"grote\s+raampartij(?:en)?|glazen\s+(?:pui|gevel|wand)|\bglaspui|\bveel\s+glas\b|\bserre\b"
+                        r"|\bdakramen?\b|\blichtkoepel|ramen\s+van\s+vloer\s+tot\s+plafond")
+_DWARS = re.compile(r"\bdoorzon|\bhoek(?:appartement|woning|ligging)|dwarsventilatie"
+                    r"|ramen\s+aan\s+(?:twee|2|drie|3)\s+(?:zijden|kanten)|aan\s+(?:twee|2|drie|3)\s+(?:zijden|kanten)\s+(?:ramen|daglicht)")
+_HOEK = re.compile(r"\bhoek(?:appartement|woning|ligging)")
+_ZONWERING = re.compile(r"zonwering|\bscreens?\b|zonnescherm(?:en)?|\brolluik(?:en)?\b|\bluiken\b|\bmarkiezen\b|\bmarkies\b"
+                        r"|\bairco\b|airconditioning")
+_ENKEL_GLAS = re.compile(r"\benkel\s*glas|gedeeltelijk\s+dubbel\s+glas")
+_GOED_GLAS = re.compile(r"\bhr\s*\+*\s*-?\s*glas|dubbel\s+glas|dubbele\s+beglazing|triple\s+glas|drievoudig\s+glas|isolatieglas")
+_ISOLATIE = re.compile(r"dakisolatie|muurisolatie|spouwmuurisolatie|gevelisolatie|vloerisolatie|volledig\s+ge[iï]soleerd")
+_DAKISOLATIE = re.compile(r"dakisolatie|volledig\s+ge[iï]soleerd")
+_KACHEL = re.compile(r"gaskachel|gashaard|moederhaard|elektrische\s+(?:verwarming|kachel)")
+_COLLECTIEF = re.compile(r"stadsverwarming|blokverwarming|warmtenet")
+
+
+def _aanwijzingen(n: int) -> str:
+    return f"{n} aanwijzing" + ("" if n == 1 else "en")
+
+
+def binnenklimaat(w: dict, ch: dict, tekst: str, bag: dict | None = None, verrijking: dict | None = None,
+                  label: str = "?", reken_label: str | None = None, bouwjaar=None) -> list[dict]:
+    """Indicatie van het binnenklimaat: hooguit twee informatieve items, "Zomer" en "Winter" (0 punten).
+
+    Geen meting: alleen aanwijzingen uit de kenmerken, de advertentietekst en wat de verrijking al heeft
+    (groen binnen 500 m), geen nieuw verzoek. Onbekend is geen aanwijzing en geen minpunt; zonder enige
+    aanwijzing komt er geen item. Een onbekend energielabel telt alleen mee naast een andere aanwijzing voor
+    de winter, met het rekenlabel uit label_aanname() en de vermelding dat het een aanname is.
+    Kenmerken eerst ('Isolatie', 'Verwarming', 'Voorzieningen', 'Soort appartement', 'Gelegen op'), de tekst
+    als aanvulling en zonder ontkende zinnen ("geen airco"). Niet gemeten op echte advertenties: 'Soort dak',
+    'Aantal bouwlagen', de ligging van balkon of tuin als kenmerk, en zonwering of airco in 'Voorzieningen'."""
+    ch = ch if isinstance(ch, dict) else {}
+    t = (tekst or "").lower()
+
+    def kenm(naam):
+        return str(ch.get(naam) or "").lower()
+
+    def genoemd(patroon, *kenmerken):
+        return any(patroon.search(kenm(k)) for k in kenmerken) or _zonder_ontkenning(patroon, t)
+
+    iso, verw, soort = kenm("Isolatie"), kenm("Verwarming"), kenm("Soort appartement")
+    laag = woonlaag(ch, tekst)[0]
+    kap = schuin_dak(ch, tekst, laag)
+    woonlagen = _getal(ch.get("Aantal woonlagen")) or 1
+    bouwlagen = _getal(ch.get("Aantal bouwlagen")) or _getal(ch.get("Bouwlagen"))
+    onder_kap = kap["status"] == "zeker"
+    bovenste = onder_kap or kap["bovenste"] or "penthouse" in soort
+    # Alleen een uitdrukkelijke begane grond telt: of funda's "1e woonlaag" de begane grond is, is niet gemeten.
+    begane_grond = "begane grond" in kenm("Gelegen op") or "benedenwoning" in soort
+    tussen = not bovenste and not begane_grond and (
+        "tussenverdieping" in soort or bool(laag and laag >= 2 and bouwlagen and laag + woonlagen - 1 < bouwlagen))
+    hoek = bool(_HOEK.search(soort) or _HOEK.search(kenm("Ligging")) or _zonder_ontkenning(_HOEK, t))
+    bj = bouwjaar if isinstance(bouwjaar, (int, float)) and not isinstance(bouwjaar, bool) else None
+    if bj is None and isinstance(bag, dict):
+        bj = _getal(bag.get("bouwjaar"))
+    oud = bool(bj and bj < ISOLATIE_BOUWJAAR)
+    richting = buitenruimte(w or {}, ch, tekst)["richting"]
+    lu = _bron(verrijking, "lucht")
+    groen = lu[1].get("groen_pct") if lu[0] == "ok" and lu[1] and _is_getal(lu[1].get("groen_pct")) else None
+    geen_isolatie = "geen isolatie" in iso
+    deels_enkel = "gedeeltelijk dubbel glas" in iso or "gedeeltelijk dubbel glas" in t
+
+    # --- zomer
+    warm, koel = [], []
+    if onder_kap:
+        warm.append("woonruimte direct onder een schuin dak")
+    elif bovenste:
+        warm.append("bovenste woonlaag, direct onder het dak")
+    if bovenste and oud and iso and not _DAKISOLATIE.search(iso) and not _zonder_ontkenning(_DAKISOLATIE, t):
+        warm.append(f"bouwjaar {int(bj)} en geen dakisolatie genoemd")
+    if richting in _ZON_WARM:
+        warm.append(f"buitenruimte op het {richting.lower()}en: middag- en avondzon op die gevel")
+    if _zonder_ontkenning(_VEEL_GLAS, t):
+        warm.append("veel glas volgens de advertentie")
+    if groen is not None and groen < GROEN_WEINIG_PCT:
+        warm.append(f"weinig groen in de buurt ({nl(groen, 0)}% binnen 500 m)")
+    if genoemd(_DWARS, "Soort appartement", "Ligging"):
+        koel.append("ramen aan meer kanten (doorzon of hoek): 's avonds goed door te luchten")
+    if genoemd(_ZONWERING, "Voorzieningen"):
+        koel.append("zonwering, luiken of airco genoemd")
+    if tussen:
+        koel.append("tussenverdieping: geen dak direct boven de woning")
+    if richting in _ZON_KOEL:
+        koel.append(f"buitenruimte op het {richting.lower()}en: weinig middagzon op die gevel")
+    if groen is not None and groen >= GROEN_VEEL_PCT:
+        koel.append(f"veel groen in de buurt ({nl(groen, 0)}% binnen 500 m)")
+
+    # --- winter
+    koud, behaaglijk = [], []
+    if hoek and (begane_grond or bovenste):
+        koud.append(("begane grond" if begane_grond else "bovenste woonlaag") + " op een hoek: veel buitenvlak")
+    elif begane_grond:
+        koud.append("begane grond: koude vloer mogelijk")
+    elif bovenste:
+        koud.append("bovenste woonlaag: warmteverlies via het dak mogelijk")
+    elif hoek:
+        koud.append("hoekligging: een extra buitengevel")
+    if deels_enkel:
+        koud.append("gedeeltelijk dubbel glas, dus deels enkel glas")
+    elif genoemd(_ENKEL_GLAS, "Isolatie"):
+        koud.append("enkel glas genoemd")
+    if geen_isolatie:
+        koud.append("volgens de advertentie geen isolatie")
+    elif oud and iso and not _ISOLATIE.search(iso) and not _zonder_ontkenning(_ISOLATIE, t):
+        koud.append(f"bouwjaar {int(bj)} en geen dak-, muur- of vloerisolatie genoemd")
+    if _KACHEL.search(verw):
+        koud.append("verwarming met losse kachels, geen centrale verwarming")
+    if tussen:
+        behaaglijk.append("tussenverdieping: woningen erboven en eronder, weinig buitenvlak")
+    if not deels_enkel and genoemd(_GOED_GLAS, "Isolatie"):
+        behaaglijk.append("dubbel of HR-glas genoemd")
+    if _ISOLATIE.search(iso) or _zonder_ontkenning(_ISOLATIE, t):
+        behaaglijk.append("dak-, muur- of vloerisolatie genoemd")
+    if _COLLECTIEF.search(verw):
+        behaaglijk.append("stads- of blokverwarming: de kosten zitten dan vaak in de servicekosten")
+    # Het label: een bekend label is een aanwijzing; een aangenomen label alleen naast een andere aanwijzing.
+    reken = reken_label or label
+    if label in _LABEL_KOUD:
+        koud.append(f"energielabel {label}")
+    elif label in _LABEL_WARM:
+        behaaglijk.append(f"energielabel {label}")
+    elif label not in ENERGIE_PER_LABEL and (koud or behaaglijk):
+        if reken in _LABEL_KOUD:
+            koud.append(f"energielabel onbekend, gerekend als {reken}: een aanname, geen gegeven")
+        elif reken in _LABEL_WARM:
+            behaaglijk.append(f"energielabel onbekend, gerekend als {reken} op grond van het bouwjaar: een aanname")
+
+    uit: list[dict] = []
+    basis = "Een indicatie uit de advertentie en open kaarten; de temperatuur in huis is niet gemeten."
+    if warm or koel:
+        waarde = (f"kans op warmte: {_aanwijzingen(len(warm))}" if len(warm) > len(koel) else
+                  "aanwijzingen voor warm en koel" if len(warm) == len(koel) else f"eerder koel: {_aanwijzingen(len(koel))}")
+        uitleg = (basis + (" Warmer: " + "; ".join(warm) + "." if warm else "")
+                  + (" Koeler of beter af te koelen: " + "; ".join(koel) + "." if koel else ""))
+        uit.append(_item(BINNENKLIMAAT, "neutraal", "Zomer", waarde, "aanwijzingen, niet gemeten", kort="zomer: " + waarde.split(":")[0],
+                         vraag="Vraag bij de bezichtiging hoe warm het in de zomer wordt en of het 's avonds afkoelt.",
+                         uitleg=uitleg))
+    if koud or behaaglijk:
+        waarde = (f"kans op kou: {_aanwijzingen(len(koud))}" if len(koud) > len(behaaglijk) else
+                  "aanwijzingen voor warm en koud" if len(koud) == len(behaaglijk)
+                  else f"eerder warm: {_aanwijzingen(len(behaaglijk))}")
+        uitleg = (basis + (" Kouder: " + "; ".join(koud) + "." if koud else "")
+                  + (" Warmer: " + "; ".join(behaaglijk) + "." if behaaglijk else ""))
+        uit.append(_item(BINNENKLIMAAT, "neutraal", "Winter", waarde, "aanwijzingen, niet gemeten", kort="winter: " + waarde.split(":")[0],
+                         vraag="Vraag bij de bezichtiging naar tocht, koude vloeren en het energieverbruik van vorig jaar.",
+                         uitleg=uitleg))
+    return uit
+
+
 def _woning(d: dict, details: dict | None) -> dict:
     """Zoekresultaat en detail samen; detail vult aan en gaat voor, behalve de vraagprijs."""
     w = dict(d or {})
@@ -2044,6 +2199,10 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
     if isinstance(dagen, (int, float)) and dagen >= cfg["lang_op_funda_dagen"]:
         add(_item("kans", "kans", "Lang te koop", f"{int(dagen)} dagen", "eigen tracking", kort="lang te koop"))
 
+    # --- binnenklimaat: indicatie voor zomer en winter, informatief (verzoek eigenaar, 19 nov 2026)
+    for it in binnenklimaat(w, ch, tekst, bag if bag_st == "ok" else None, verrijking, label, reken_label, bj):
+        add(it)
+
     return _samenvatten(cfg, items, gate, twijfel_z, fin, verrijking)
 
 
@@ -2082,6 +2241,8 @@ def _samenvatten(cfg: dict, items: list[dict], gate: dict, twijfel: list[str], f
     info = [i for i in items if i["groep"] == "info"]
     vragen: list[str] = []
     for i in let_op + onbekend + plus + info:
+        if i["onderdeel"] == BINNENKLIMAAT:   # die vraag staat bij het item zelf; hier zou hij de vaste vragen verdringen
+            continue
         if i.get("vraag") and i["vraag"] not in vragen:
             vragen.append(i["vraag"])
     for v in VRAGEN_ALTIJD:

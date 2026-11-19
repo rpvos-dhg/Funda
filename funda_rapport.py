@@ -777,6 +777,9 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
         omgeving = [it for it in b.get("info") or [] if it.get("onderdeel") in funda_beoordeling.INFO_TONEN]
         if omgeving:
             lines.append(f"- Buurt en omgeving (telt niet mee in de score): {_punten_md(omgeving)}")
+        for it in b.get("info") or []:
+            if it.get("onderdeel") == funda_beoordeling.BINNENKLIMAAT:   # indicatie, geen meting; de aanwijzingen staan in de uitleg
+                lines.append(f"- {_md(it.get('label'))} (indicatie): {_md(it.get('waarde'))}. {_md(it.get('uitleg') or '')}")
         if b.get("zelf_nagaan"):
             lines.append("- Zelf nagaan:")
             lines.extend(f"  {n}. {_md(v)}" for n, v in enumerate(b["zelf_nagaan"], 1))
