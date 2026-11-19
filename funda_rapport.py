@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import hashlib
 import json
 import math
 import os
@@ -724,9 +725,12 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
 LEAFLET_VERSIE = "1.9.4"
 
 
-def map_head(prefix: str = "") -> str:
-    return (f'<link rel="stylesheet" href="{prefix}leaflet/leaflet.css">\n'
-            f'<script defer src="{prefix}leaflet/leaflet.js"></script>')
+def map_head(prefix: str = "", versies: dict | None = None) -> str:
+    """Leaflet in de <head>. Met versies (de PWA) krijgt elk bestand zijn `?v=`, net als in de wrapper."""
+    def url(naam: str) -> str:
+        return prefix + naam + (f"?v={versies[naam]}" if versies else "")
+    return (f'<link rel="stylesheet" href="{url("leaflet/leaflet.css")}">\n'
+            f'<script defer src="{url("leaflet/leaflet.js")}"></script>')
 
 
 def push_head() -> str:
@@ -782,7 +786,7 @@ def render_html(rijen: list[dict], meta: dict | None = None, is_pwa: bool = Fals
 <link rel="apple-touch-icon" sizes="180x180" href="{prefix}apple-touch-icon.png">
 <meta name="referrer" content="no-referrer">
 {pwa_head}
-{map_head(prefix)}
+{map_head(prefix, VERSIES if is_pwa else None)}
 <style>{funda_ui.UI_CSS}</style>
 </head>
 <body>
@@ -813,34 +817,65 @@ PWA_MANIFEST = json.dumps({
     ],
 }, indent=2, ensure_ascii=False) + "\n"
 
-# Cache ophogen is verplicht bij een nieuwe wrapper: anders blijft een geïnstalleerde PWA de oude tonen.
+# De service worker wordt afgeleid uit de bestanden (service_worker(), verderop): de lijst met versies
+# uit STATISCH en de cachenaam uit de gezamenlijke hash. Niets met de hand ophogen.
 # Alleen same-origin GET's komen in de cache; foto's en kaarttegels van buiten gaan er ongemoeid langs.
-PWA_SERVICE_WORKER = """// Woningrapport: service worker (network-first, cache als terugval)
-const CACHE = 'funda-shortlist-v7';
-const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png',
-  'app.css', 'slot.css', 'app.js', 'slot.js', 'push.js', 'leaflet/leaflet.js', 'leaflet/leaflet.css'];
+# Geen ignoreSearch: een bestand met `?v=` komt alleen uit de cache als de versie de huidige is en de
+# inhoud bij het bewaren die hash had. Elke andere vraag naar zo'n bestand (zonder `?v=`, of met een
+# oudere: een index.html van vóór de laatste update) gaat naar het netwerk en komt niet in de cache;
+# zonder netwerk krijgt hij de huidige versie, hetzelfde als wat het netwerk zou geven.
+_SW_SJABLOON = """// Woningrapport: service worker. Afgeleid uit de bestanden door funda_rapport.py; niet met de hand wijzigen.
+const CACHE = '__CACHE__';
+// Statische bestanden met hun versie: de eerste __LENGTE__ hextekens van de sha256 van de inhoud.
+const VERSIES = __VERSIES__;
+const LOS = __LOS__;
+const BASIS = new URL('./', self.location).pathname;
+const sleutel = p => p + '?v=' + VERSIES[p];
+async function klopt(resp, versie) {
+  const som = new Uint8Array(await crypto.subtle.digest('SHA-256', await resp.clone().arrayBuffer()));
+  return Array.from(som.slice(0, versie.length / 2), b => b.toString(16).padStart(2, '0')).join('') === versie;
+}
 self.addEventListener('install', e => {
   self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+  e.waitUntil(caches.open(CACHE).then(async c => {
+    await c.addAll(LOS);
+    // Een bestand waarvan de inhoud niet bij de versie past (update nog onderweg) blijft uit de cache.
+    await Promise.all(Object.keys(VERSIES).map(async p => {
+      const resp = await fetch(sleutel(p));
+      if (resp.ok && await klopt(resp, VERSIES[p])) await c.put(sleutel(p), resp);
+    }));
+  }));
 });
 self.addEventListener('activate', e => e.waitUntil(
   caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
     .then(() => self.clients.claim())
 ));
+async function antwoord(req, url) {
+  const c = await caches.open(CACHE);
+  const p = url.pathname.startsWith(BASIS) ? url.pathname.slice(BASIS.length) : '';
+  const vast = Object.prototype.hasOwnProperty.call(VERSIES, p);
+  const huidig = vast && url.searchParams.get('v') === VERSIES[p];
+  if (huidig) {
+    const r = await c.match(sleutel(p));
+    if (r) return r;
+  }
+  try {
+    const resp = await fetch(req);
+    if (resp.ok && resp.type === 'basic') {
+      if (!vast) c.put(req, resp.clone()).catch(()=>{});
+      else if (huidig && await klopt(resp, VERSIES[p])) c.put(sleutel(p), resp.clone()).catch(()=>{});
+    }
+    return resp;
+  } catch (_) {
+    const r = await c.match(vast ? sleutel(p) : req) || (req.mode === 'navigate' ? await c.match('index.html') : null);
+    return r || Response.error();
+  }
+}
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
-  e.respondWith(
-    fetch(e.request).then(resp => {
-      if (resp.ok && resp.type === 'basic') {
-        const clone = resp.clone();
-        caches.open(CACHE).then(c => c.put(e.request, clone)).catch(()=>{});
-      }
-      return resp;
-    }).catch(() => caches.match(e.request).then(r =>
-      r || (e.request.mode === 'navigate' ? caches.match('index.html') : Response.error())))
-  );
+  e.respondWith(antwoord(e.request, url));
 });
 self.addEventListener('push', e => {
   let data = {};
@@ -972,13 +1007,50 @@ STATISCH = {
     "leaflet/leaflet.js": "leaflet/leaflet.js", "leaflet/leaflet.css": "leaflet/leaflet.css",
     "leaflet/LICENSE": "leaflet/LICENSE",
 }
+ZONDER_VERSIE = ("leaflet/LICENSE",)   # geen pagina verwijst ernaar, dus niet in de service worker
+VERSIE_LENGTE = 10                     # hextekens van de sha256; even, want de service worker rekent in bytes
+# Wat de service worker bij het installeren zonder versie ophaalt: de pagina zelf en wat schrijf_statisch maakt.
+SW_LOS = ("./", "index.html", "manifest.json", "icon.svg", "favicon.svg", "apple-touch-icon.png", "icon-512.png")
+
+
+def statisch_versies(ui_dir: Path | None = None) -> dict[str, str]:
+    """Per statisch bestand een korte hash van de inhoud: de `?v=` in de wrapper en in de service worker.
+
+    De markup zit in index.html, de code in losse bestanden. Met de hash in de URL hoort bij nieuwe
+    markup altijd de code van dezelfde versie, ook als de browser of GitHub Pages het oude bestand nog
+    tien minuten bewaart."""
+    ui_dir = ui_dir or funda_ui.UI_DIR
+    return {doel: hashlib.sha256((ui_dir / bron).read_bytes()).hexdigest()[:VERSIE_LENGTE]
+            for doel, bron in STATISCH.items() if doel not in ZONDER_VERSIE}
+
+
+def cache_naam(versies: dict[str, str]) -> str:
+    """De cachenaam uit alles wat de service worker bewaart of zelf is. Een gewijzigd bestand geeft zo
+    vanzelf een nieuwe cache; de oude ruimt de service worker op bij activate."""
+    h = hashlib.sha256()
+    for deel in (json.dumps(versies, sort_keys=True), PWA_MANIFEST, PWA_ICON_SVG, PWA_FAVICON_SVG, _SW_SJABLOON):
+        h.update(deel.encode("utf-8") + b"\0")
+    return "funda-shortlist-" + h.hexdigest()[:VERSIE_LENGTE]
+
+
+def service_worker(versies: dict[str, str]) -> str:
+    """De service worker met de versies en de cachenaam ingevuld."""
+    js = json.dumps(versies, indent=2, sort_keys=True).replace('"', "'")
+    return (_SW_SJABLOON.replace("__CACHE__", cache_naam(versies)).replace("__LENGTE__", str(VERSIE_LENGTE))
+            .replace("__VERSIES__", js).replace("__LOS__", json.dumps(list(SW_LOS)).replace('"', "'")))
+
+
+VERSIES = statisch_versies()
+PWA_SERVICE_WORKER = service_worker(VERSIES)
 
 
 def schrijf_statisch(pwa_dir: Path) -> None:
     """Alles in docs/ behalve index.html: manifest, service worker, iconen, CSS, JavaScript en Leaflet.
 
-    Hangt niet van de woningen of het wachtwoord af. Een oude index.html (alles inline) blijft naast
-    deze bestanden gewoon werken."""
+    Hangt niet van de woningen of het wachtwoord af. Een oude index.html (zonder `?v=` in de URL's)
+    blijft naast deze bestanden gewoon werken. De kopieën in de repo (docs/) horen gelijk te zijn aan
+    wat hier geschreven wordt: test_funda_pwa.py vergelijkt ze, zodat een wijziging in ui/ niet zonder
+    kopie en nieuwe versie blijft."""
     pwa_dir.mkdir(parents=True, exist_ok=True)
     (pwa_dir / "manifest.json").write_text(PWA_MANIFEST, encoding="utf-8")
     (pwa_dir / "service-worker.js").write_text(PWA_SERVICE_WORKER, encoding="utf-8")
@@ -1079,14 +1151,15 @@ def beveilig_html(html: str, password: str, gz: bool = True) -> str:
     pakt dan niets uit).
 
     De wrapper bevat geen CSS of JavaScript meer: die staan als bestanden in docs/ (schrijf_statisch),
-    en de CSP in de wrapper staat alleen die toe. Het pakket staat als JSON in #slot-data.
+    en de CSP in de wrapper staat alleen die toe. Elk van die bestanden krijgt zijn versie als `?v=`
+    in de URL (statisch_versies). Het pakket staat als JSON in #slot-data.
     """
     pakket = json.dumps(versleutel(html, password, gz), separators=(",", ":"))
     return funda_ui.vul_slot({
         "__CSP__": funda_ui.h(CSP),
         "__PUSH_META__": push_head(),
         "__PAKKET__": pakket,
-    })
+    }, versies=VERSIES)
 
 
 def _pwa_wachtwoord() -> str:

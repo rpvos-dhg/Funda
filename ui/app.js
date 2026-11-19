@@ -1,5 +1,7 @@
-/* Woningrapport: filteren, sorteren, nieuw, bewaren, verbergen, vergelijken, kaart. Geen netwerk; opslag
-   in localStorage. Het slotscherm roept na het ontsleutelen window.fundaAfterReportLoad() aan. */
+/* Woningrapport: filteren, sorteren, nieuw, bewaren, verbergen, vergelijken, kaart. Geen netwerk, behalve
+   de kaarttegels na "Toon kaart". Opslag in localStorage: achter het slotscherm versleuteld, in het
+   lokale rapport zonder slotscherm leesbaar. Het slotscherm roept na het ontsleutelen
+   window.fundaAfterReportLoad() aan. */
 (function(){
 'use strict';
 var OPSLAG = 'funda_rapport_v1';
@@ -8,8 +10,63 @@ var POORT_CLS = {'PAST':'PAST','KRAP':'KRAP','PAST NIET':'NIET','PRIJS ONBEKEND'
 var POORT_IC = {'PAST':'check','KRAP':'warn','PAST NIET':'x','PRIJS ONBEKEND':'info'};
 var STANDAARD = {sort:'aanbevolen', snel:'alles', poort:[], stad:[], maxLasten:'', minM2:'', zonderTwijfel:false, toonVerborgen:false};
 
-function lees(){ try { return JSON.parse(localStorage.getItem(OPSLAG)) || {}; } catch(e){ return {}; } }
-function schrijf(s){ try { localStorage.setItem(OPSLAG, JSON.stringify(s)); } catch(e){} }
+
+/* Opslag op het apparaat. Achter het slotscherm (window.fundaApparaat) staat de staat versleuteld onder
+   OPSLAG_VEILIG: AES-256-GCM met de sleutel die ui/slot.js uit de hoofdsleutel afleidt, een verse IV per
+   schrijfactie, opgevuld tot een veelvoud van OPSLAG_BLOK tekens. Zonder wachtwoord of onthouden sleutel
+   is hij niet te lezen. Een oude leesbare staat (OPSLAG) wordt één keer ingelezen en daarna gewist.
+   Het lokale rapport zonder slotscherm heeft geen sleutel en houdt de leesbare opslag. */
+var OPSLAG_VEILIG = 'funda_rapport_v2', OPSLAG_BLOK = 512;
+var ONLEESBAAR = 'Je bewaarde en verborgen woningen op dit apparaat zijn niet meer te lezen. Bewaar ze opnieuw.';
+var GEEN_OPSLAG = 'Opslaan op dit apparaat lukt nu niet. Wat je bewaart of verbergt, geldt tot je het rapport sluit.';
+var veilig = false, sleutel = null, schrijfBezig = false, schrijfWacht = false;
+function ruw(naam){ try { return localStorage.getItem(naam); } catch(e){ return null; } }
+function wisRuw(naam){ try { localStorage.removeItem(naam); } catch(e){} }
+function ontleed(tekst){ try { var o = JSON.parse(tekst); return o && typeof o === 'object' && !Array.isArray(o) ? o : null; } catch(e){ return null; } }
+function naarB64(a){ var t = ''; for(var i = 0; i < a.length; i++) t += String.fromCharCode(a[i]); return btoa(t); }
+function vanB64(t){ var b = atob(t), a = new Uint8Array(b.length); for(var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+function versleutel(tekst){
+  while(tekst.length % OPSLAG_BLOK) tekst += ' ';
+  var iv = crypto.getRandomValues(new Uint8Array(12));
+  return crypto.subtle.encrypt({name:'AES-GCM', iv:iv}, sleutel, new TextEncoder().encode(tekst)).then(function(ct){
+    return JSON.stringify({v:1, iv:naarB64(iv), ct:naarB64(new Uint8Array(ct))});
+  });
+}
+function ontsleutel(pak){
+  return Promise.resolve().then(function(){
+    var p = JSON.parse(pak);
+    return crypto.subtle.decrypt({name:'AES-GCM', iv:vanB64(p.iv)}, sleutel, vanB64(p.ct));
+  }).then(function(pt){
+    var o = ontleed(new TextDecoder().decode(pt));
+    if(!o) throw new Error('geen staat');
+    return o;
+  });
+}
+/* Eén keer, vóór de app start. Geeft {staat, melding}; faalt nooit. */
+function leesOpslag(){
+  var a = window.fundaApparaat, kaal = ontleed(ruw(OPSLAG));
+  veilig = !!a; sleutel = (a && a.opslagSleutel) || null;
+  if(!veilig) return Promise.resolve({staat: kaal || {}});
+  if(!sleutel) return Promise.resolve({staat: kaal || {}, melding: GEEN_OPSLAG});
+  var pak = ruw(OPSLAG_VEILIG);
+  if(pak == null) return Promise.resolve({staat: kaal || {}});   // eerste keer, of migratie: schrijf() wist de leesbare
+  return ontsleutel(pak).then(function(staat){ wisRuw(OPSLAG); return {staat: staat}; },
+    function(){ return kaal ? {staat: kaal} : {staat: {}, melding: ONLEESBAAR}; });
+}
+/* Schrijfacties na elkaar, de laatste stand wint: tijdens het versleutelen wacht er hooguit één, en die
+   neemt de staat van dat moment. De leesbare versie gaat pas weg als de versleutelde er staat. */
+function schrijf(){
+  if(!veilig){ try { localStorage.setItem(OPSLAG, JSON.stringify(opslag)); } catch(e){} return; }
+  if(!sleutel) return;
+  if(schrijfBezig){ schrijfWacht = true; return; }
+  schrijfBezig = true;
+  versleutel(JSON.stringify(opslag)).then(function(pak){
+    try { localStorage.setItem(OPSLAG_VEILIG, pak); localStorage.removeItem(OPSLAG); } catch(e){}
+  }, function(){}).then(function(){
+    schrijfBezig = false;
+    if(schrijfWacht){ schrijfWacht = false; schrijf(); }
+  });
+}
 function $(s, r){ return (r||document).querySelector(s); }
 function $$(s, r){ return Array.prototype.slice.call((r||document).querySelectorAll(s)); }
 // € met een harde spatie (U+00A0)
@@ -20,21 +77,34 @@ function finTekst(t){ t = String(t || ''); return t.charAt(0).toLowerCase() + t.
 
 var app, data, opslag, stand, nieuwIds, kaart = null;
 
+/* De staat komt asynchroon (ontsleutelen); tot die er is blijft de app uit beeld, zodat een verborgen
+   woning niet even opflitst. */
 function init(){
   app = $('#app');
   if(!app || app.dataset.klaar) return;
   app.dataset.klaar = '1';
   try { data = JSON.parse($('#woning-data').textContent); } catch(e){ data = {woningen:[]}; }
-  opslag = lees();
+  app.hidden = true;
+  leesOpslag().then(function(r){
+    try { start(r.staat); } finally { app.hidden = false; }
+    snelRand();
+    if(r.melding) toast(r.melding);
+  });
+}
+function lijst(x){ return Array.isArray(x) ? x : []; }
+function start(staat){
+  opslag = staat;
   stand = Object.assign({}, STANDAARD, opslag.stand || {});
-  opslag.bewaard = opslag.bewaard || [];
-  opslag.verborgen = opslag.verborgen || [];
+  stand.poort = lijst(stand.poort); stand.stad = lijst(stand.stad);
+  opslag.bewaard = lijst(opslag.bewaard);
+  opslag.verborgen = lijst(opslag.verborgen);
+  opslag.gezien = lijst(opslag.gezien);
   bepaalNieuw();
   koppel();
   zetFormulier();
   toepassen();
   apparaat();
-  if(window.matchMedia('(min-width:64rem)').matches) startKaart();
+  kaartVraag();
 }
 
 /* Nieuw sinds je vorige bezoek (anders: volgens de run). Gezien na een seconde half in beeld tussen
@@ -55,17 +125,19 @@ function bepaalNieuw(){
   try { sessionStorage.setItem(sessieSleutel, JSON.stringify({ids:nieuwIds, bron:bron})); } catch(e){}
   // Alleen woningen uit deze run bewaren: zo groeit de lijst niet.
   ids.forEach(function(id){ if(nieuwIds.indexOf(id) < 0 && gezien.indexOf(id) < 0) gezien.push(id); });
-  opslag.gezien = gezien; schrijf(opslag);
+  opslag.gezien = gezien;
   var kop = $('#nieuw-titel');
   if(kop) kop.textContent = bron === 'bezoek' ? 'Nieuw sinds je vorige bezoek' : 'Nieuw sinds de vorige update';
   var leeg = $('#nieuw-leeg');
   if(leeg && opslag.laatsteBezoek) leeg.textContent = 'Geen nieuwe woningen sinds je vorige bezoek (' + opslag.laatsteBezoek + ').';
+  /* Ook meteen bij het openen: versleuteld schrijven is asynchroon, en bij het sluiten is dat niet zeker af. */
   function bezoek(){
     var nu = new Date();
     opslag.laatsteBezoek = nu.toLocaleDateString('nl-NL', {day:'numeric', month:'short'}) + ', ' +
       nu.toLocaleTimeString('nl-NL', {hour:'2-digit', minute:'2-digit'});
     schrijf(opslag);
   }
+  bezoek();
   document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'hidden'){ bezoek(); volgGezien.stop(); } });
   window.addEventListener('pagehide', bezoek);
   volgGezien(nieuwIds.filter(function(id){ return gezien.indexOf(id) < 0; }));
@@ -286,6 +358,7 @@ function koppel(){
       stand.snel = snel; zetFormulier(); toepassen();
     }
     else if(el.matches('[data-view]')){ zetView(el.dataset.view); }
+    else if(el.matches('[data-actie="toon-kaart"]')){ kiesKaart(); }
     else if(el.matches('#toon-verborgen')){ stand.toonVerborgen = !stand.toonVerborgen; zetFormulier(); toepassen(); }
     else if(el.matches('[data-naar]')){ naarKaart(el.dataset.naar); }
     else if(el.matches('[data-actie="vergeet"]')){ vergeetApparaat(el); }
@@ -314,6 +387,7 @@ function apparaat(){
 }
 function vergrendel(knop){
   var a = window.fundaApparaat; if(!a || !a.vergrendel) return;
+  try { sessionStorage.removeItem(KAART_GEKOZEN); } catch(e){}
   knop.disabled = true; a.vergrendel();
 }
 function vergeetApparaat(knop){
@@ -329,7 +403,7 @@ function vergeetApparaat(knop){
 function zetView(v){
   app.dataset.view = v;
   $$('[data-view]').forEach(function(b){ b.setAttribute('aria-pressed', b.dataset.view === v ? 'true' : 'false'); });
-  if(v === 'kaart'){ startKaart(); setTimeout(function(){ if(kaart) kaart.invalidateSize(); }, 50); }
+  if(v === 'kaart'){ kiesKaart(); setTimeout(function(){ if(kaart) kaart.invalidateSize(); }, 50); }
   window.scrollTo(0, 0);
 }
 
@@ -375,7 +449,29 @@ function vergelijkHtml(ws){
 
 function vulVergelijk(){ $('#vergelijk-tabel').innerHTML = vergelijkHtml(bewaardZichtbaar().map(woningVan).filter(Boolean)); }
 
-/* Kaart: Leaflet, pins naar poort, nieuw als ring. Lazy: pas bij openen (mobiel). */
+/* Kaart: Leaflet, pins naar poort, nieuw als ring. De kaart en de tegels laden pas als je de kaart kiest
+   ("Kaart" in de onderbalk, of "Toon kaart" in het vlak op een breed scherm): eerder krijgt de tegelserver
+   het zoekgebied niet te zien. De keuze geldt voor deze sessie (sessionStorage) en vervalt bij vergrendelen.
+   Het vlak komt uit JavaScript, zodat het er ook staat bij een index.html van vóór deze versie. */
+var KAART_GEKOZEN = 'funda_rapport_kaart';
+function kaartVraag(){
+  var paneel = $('.kaart-paneel'), gekozen = false;
+  if(!paneel || $('#kaart-vraag')) return;
+  try { gekozen = sessionStorage.getItem(KAART_GEKOZEN) === '1'; } catch(e){}
+  if(gekozen && window.matchMedia('(min-width:64rem)').matches){ startKaart(); return; }
+  var vlak = document.createElement('div');
+  vlak.id = 'kaart-vraag'; vlak.className = 'kaart-vraag';
+  vlak.innerHTML = '<p>De kaart haalt tegels op bij OpenStreetMap.</p>' +
+    '<button type="button" class="knop knop-sec" data-actie="toon-kaart">Toon kaart</button>';
+  paneel.appendChild(vlak); paneel.classList.add('is-wacht');
+}
+function kiesKaart(){
+  try { sessionStorage.setItem(KAART_GEKOZEN, '1'); } catch(e){}
+  var vlak = $('#kaart-vraag'), paneel = $('.kaart-paneel');
+  if(vlak) vlak.parentNode.removeChild(vlak);
+  if(paneel) paneel.classList.remove('is-wacht');
+  startKaart();
+}
 function startKaart(){
   if(kaart) return;
   var doos = $('#kaart'); if(!doos) return;
@@ -429,6 +525,9 @@ window.fundaRapportInit = init;
 // Sorteren zonder DOM (tests)
 window.fundaRapportSorteer = function(lijst, sleutel){ return lijst.slice().sort(SORT[sleutel] || SORT.aanbevolen); };
 window.fundaRapportVergelijk = vergelijkHtml;
+// De opslag zonder DOM (tests): lees de staat, wijzig hem, schrijf
+window.fundaRapportOpslag = {lees: function(){ return leesOpslag().then(function(r){ opslag = r.staat; return r; }); },
+  schrijf: function(staat){ opslag = staat; schrijf(); }, bezig: function(){ return schrijfBezig; }};
 window.fundaAfterReportLoad = init;
 window.fundaRapportZetView = function(v){ zetView(v); };
 if(document.readyState !== 'loading') init(); else document.addEventListener('DOMContentLoaded', init);

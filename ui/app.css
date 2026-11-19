@@ -415,6 +415,11 @@ details.groep[open]>.sectie-kop .chev{transform:rotate(180deg)}
 .kaart-legenda span{display:inline-flex;align-items:center;gap:var(--spacing-50)}
 .kaart-melding{position:absolute;inset:0;display:grid;place-items:center;padding:var(--spacing-300);text-align:center;
   font:var(--paragraph-body-small);color:var(--foreground-color-subtle)}
+/* Vóór "Toon kaart": een rustig vlak, geen kaart en geen tegels */
+.kaart-vraag{position:absolute;inset:0;z-index:600;display:grid;place-content:center;justify-items:center;gap:var(--spacing-150);
+  padding:var(--spacing-300);text-align:center;background:var(--background-color-inset)}
+.kaart-vraag p{font:var(--paragraph-body-small);color:var(--foreground-color-subtle);max-width:16rem}
+.kaart-paneel.is-wacht .kaart-legenda{display:none}
 .pin-raak{display:grid;place-items:center}
 .pin{display:inline-flex;align-items:center;justify-content:center;gap:var(--spacing-25);min-width:2.5rem;height:2rem;
   padding:0 var(--spacing-75) 0 var(--spacing-50);border-radius:var(--radius-pill);
