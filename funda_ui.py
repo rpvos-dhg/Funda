@@ -9,6 +9,7 @@ Publieke API
   THEME_COLOR, ACHTERGROND     kleur van de topbalk en van de pagina (licht), voor manifest en theme-color
   THEME_COLOR_DONKER           kleur van de topbalk in donker (theme-color met prefers-color-scheme)
   UI_CSS, UI_JS, SLOT_HTML     inhoud van ui/app.css, ui/app.js en ui/slot.html
+  SLOT_CSS, SLOT_JS, PUSH_JS   inhoud van ui/slot.css, ui/slot.js en ui/push.js (in docs/ als losse bestanden)
   SLOT_PLACEHOLDERS            de placeholders die ui/slot.html precies één keer bevat
   render_report_body(rijen, meta) -> str
                                de body: sprite, topbalk, lijst, voet, kaart, sheets en #woning-data
@@ -48,7 +49,10 @@ UI_DIR = Path(__file__).resolve().parent / "ui"
 UI_CSS = (UI_DIR / "app.css").read_text(encoding="utf-8")
 UI_JS = (UI_DIR / "app.js").read_text(encoding="utf-8")
 SLOT_HTML = (UI_DIR / "slot.html").read_text(encoding="utf-8")
-SLOT_PLACEHOLDERS = ("__APP_CSS__", "__MAP_HEAD__", "__APP_SCRIPTS__", "__GZ__", "__SALT__", "__IV__", "__CT__", "__ITERS__")
+SLOT_CSS = (UI_DIR / "slot.css").read_text(encoding="utf-8")
+SLOT_JS = (UI_DIR / "slot.js").read_text(encoding="utf-8")
+PUSH_JS = (UI_DIR / "push.js").read_text(encoding="utf-8")
+SLOT_PLACEHOLDERS = ("__CSP__", "__PUSH_META__", "__PAKKET__")
 
 # Palet "Inkt en blauw" (ui/app.css, .interface-design/system.md): topbalk en pagina in licht, voor het manifest en
 # <meta name="theme-color">; THEME_COLOR_DONKER is de topbalk in donker (theme-color met media query).
@@ -75,7 +79,19 @@ GROEP_UITLEG = {"PAST": "", "KRAP": "Woonlasten net boven je grens of eigen geld
                 "PAST NIET": "Te weinig leenruimte of eigen geld, of woonlasten ruim boven je grens.",
                 "PRIJS ONBEKEND": "Geen vraagprijs, dus geen leentoets."}
 RENTE_BRON = {"handmatig": "handmatig ingesteld", "ASN": "ASN Bank", "DNB": "DNB, rente op nieuwe hypotheken",
-              "standaard": "standaardwaarde uit de code"}
+              "standaard": "standaardrente van dit rapport"}
+# De bron onder elk punt in gewone taal (audit schrijfstijl en componenten, nov 2026). Het model houdt zijn
+# eigen, precieze bron (contract en golden file); hier alleen de weergave. Een onbekende bron blijft zoals hij is.
+BRON_TEKST = {
+    "kenmerken": "advertentie", "kenmerken en tekst": "advertentie", "advertentietekst": "tekst van de advertentie",
+    "niet vermeld": "staat niet in de advertentie", "berekening": "zelf berekend",
+    "berekening, kosten koper ≈": "zelf berekend, kosten koper geschat", "aanname": "aanname van dit rapport",
+    "route": "fietsroute over de weg", "funda-buurtcijfer": "buurtcijfer van funda",
+    "funda prijshistorie": "prijshistorie op funda", "eigen tracking": "bijgehouden door dit rapport",
+    "eigen waarneming": "eerder gezien door dit rapport", "jouw lijst": "je eigen lijst", "BAG": "Kadaster (BAG)",
+    "RCE": "Rijksdienst voor het Cultureel Erfgoed", "Leefbaarometer 3.0": "Leefbaarometer",
+    "Klimaateffectatlas, buurtniveau": "Klimaateffectatlas, per buurt",
+}
 MAAND_KORT = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
 MAAND_LANG = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober",
               "november", "december"]
@@ -86,6 +102,19 @@ def h(s) -> str:
     """HTML-escape. '€ ' wordt '€' plus harde spatie, zodat het teken nooit los van het bedrag afbreekt
     (ook in teksten die funda_beoordeling met een gewone spatie opbouwt)."""
     return _html.escape(str(s if s is not None else ""), quote=True).replace("€ ", "€\u00a0")
+
+
+def bron_tekst(bron) -> str:
+    """De bron van een punt in gewone taal: "kenmerk 'Gelegen op'" wordt "advertentie, bij Gelegen op"."""
+    b = str(bron or "").strip()
+    if b in BRON_TEKST:
+        return BRON_TEKST[b]
+    m = re.fullmatch(r"kenmerk '(.+)'", b)
+    if m:
+        return f"advertentie, bij {m.group(1)}"
+    if b.startswith("schatting (hemelsbreed"):
+        return "geschat uit de afstand in een rechte lijn"
+    return b
 
 
 def nl(n) -> str:
@@ -146,6 +175,7 @@ SPRITE = """<svg class="sprite" aria-hidden="true" focusable="false">
 <symbol id="i-vergelijk" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1"/><rect x="14" y="4" width="7" height="16" rx="1"/></symbol>
 <symbol id="i-sluit" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
 <symbol id="i-bel" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
+<symbol id="i-slot" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></symbol>
 <symbol id="i-oog" viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 6.1A10 10 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-2.6 3.2M6.4 7.6A16 16 0 0 0 3 12s4 6 9 6a9 9 0 0 0 3.5-.7"/></symbol>
 </svg>"""
 
@@ -162,11 +192,23 @@ def card_id(sleutel: str) -> str:
 
 
 def funda_url(d: dict) -> str:
-    """Volledige funda-link uit detail_url of url (een pad krijgt https://www.funda.nl ervoor)."""
+    """Volledige funda-link uit detail_url of url, of "" als het geen link naar www.funda.nl is.
+
+    Een pad krijgt https://www.funda.nl ervoor. Een volledige URL mag alleen https://www.funda.nl/... zijn
+    (http wordt https); elk ander schema of elke andere host valt weg, zodat de knop "Bekijk op funda" nooit
+    ergens anders heen wijst (javascript:, data:, een host die op funda lijkt)."""
     url = d.get("detail_url") or d.get("url") or ""
-    if url and not url.startswith("http"):
-        url = "https://www.funda.nl" + url
-    return url
+    if not isinstance(url, str):
+        return ""
+    url = url.strip()
+    if not url or re.search(r"[\x00-\x20\\]", url):
+        return ""
+    m = re.match(r"(?i)https?://www\.funda\.nl(/.*)?$", url)
+    if m:
+        return "https://www.funda.nl" + (m.group(1) or "/")
+    if re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", url) or url.startswith("//"):
+        return ""
+    return "https://www.funda.nl/" + url.lstrip("/")
 
 
 def _getal(x):
@@ -225,6 +267,13 @@ def _woning(rij: dict, meta: dict) -> dict:
         "poort": poort, "twijfel": [_zin(t) for t in (b.get("twijfel") or []) if str(t).strip()],
         "score": _getal(b.get("score")) or 0.0, "onderdelen": b.get("onderdelen") or {},
         "let_op": b.get("let_op") or [], "plus": b.get("pluspunten") or [], "onbekend": b.get("onbekend") or [],
+        # Informatieve items zonder punten uit de open bronnen: een eigen blok. De overige neutrale items
+        # staan al in de kerncijfers en kenmerken.
+        "omgeving": [x for x in (b.get("info") or []) if x.get("onderdeel") in funda_beoordeling.INFO_TONEN],
+        # "Schuin dak: mogelijk" en "Eerder zonder prijs": over de woning zelf, dus in het blok Woning.
+        "bij_woning": [x for x in (b.get("info") or []) if x.get("onderdeel") in funda_beoordeling.INFO_WONING],
+        # Zomer en winter: een indicatie over de woning zelf, daarom in het blok Woning en niet bij de buurt.
+        "binnenklimaat": [x for x in (b.get("info") or []) if x.get("onderdeel") == funda_beoordeling.BINNENKLIMAAT],
         "kansen": kansen, "zelf": (b.get("zelf_nagaan") or [])[:6], "fin": f, "routes": routes,
         "foto": rij.get("foto_url"), "fotos": fotos, "lat": _getal(rij.get("lat")), "lon": _getal(rij.get("lon")),
         "ch": ch, "woz": woz, "aangeboden": det.get("offered_since") or d.get("offered_since"),
@@ -262,8 +311,8 @@ def redenen_kort(w) -> list[tuple[float, str]]:
 def reis_tekst(w) -> str:
     delen = []
     for i, r in enumerate(w["routes"]):
-        naam = "" if i == 0 else f"{r['label']} "
-        delen.append(f"{naam}≈ {r['min']} min")
+        # "9 min fietsen · werk B 49 min": de eerste route is je gewone werkplek, de volgende krijgen hun naam.
+        delen.append(f"{r['min']} min fietsen" if i == 0 else " ".join(f"werk {r['label']} {r['min']} min".split()))
     return " · ".join(delen)
 
 
@@ -285,23 +334,23 @@ def _placeholder_lasten(woningen: list[dict]) -> str:
     """Placeholder voor Max. woonlasten: je eigen grens (netto) als die er is, anders geen."""
     grens = next((w["fin"].get("grens") for w in woningen if w["fin"].get("grens") is not None
                   and w["fin"].get("grens_soort") != "bruto norm"), None)
-    return f'placeholder="bijv. {int(round(grens))}"' if _getal(grens) else ""
+    return f'placeholder="bijvoorbeeld {int(round(grens))}"' if _getal(grens) else ""
 
 
 # ── HTML ─────────────────────────────────────────────────────────────────────
-def punt_html(it, met_punten=True) -> str:
+def punt_html(it, met_punten=True, met_uitleg=False) -> str:
     o = it.get("oordeel") or "neutraal"
     ptxt = punten(it.get("punten") or 0)
     pcls = "pt-plus" if ptxt.startswith("+") else "pt-min" if ptxt.startswith("−") else "pt-nul"
     pt = f'<span class="pt {pcls}">{ptxt if ptxt != "0" else ""}</span>' if met_punten else "<span></span>"
     # Geen voorvoegsel: de vraagzinnen beginnen zelf al met "Vraag ..." of een eigen label ("Kleine VvE: ...").
     vraag = f'<span class="vraag">{ic("vraag", "ic ic-s")}<span>{h(it["vraag"])}</span></span>' if it.get("vraag") else ""
-    uitleg = (f'<span class="uitleg">{h(it["uitleg"])}</span>' if it.get("uitleg") and o in ("sterk", "let_op")
-              and it.get("onderdeel") != "woonlasten" else "")
+    uitleg = (f'<span class="uitleg">{h(it["uitleg"])}</span>'
+              if it.get("uitleg") and (o in ("sterk", "let_op") or met_uitleg) and it.get("onderdeel") != "woonlasten" else "")
     return (f'<li class="punt">{ic(OORDEEL_IC.get(o, "info"), "ic o-" + o)}'
             f'<span class="punt-tekst"><b>{h(it.get("label"))}</b>: {h(it.get("waarde"))}'
             f'<span class="vh"> ({OORDEEL_TEKST.get(o, o)})</span>'
-            f'<span class="bron">{h(it.get("bron") or "")}</span>{uitleg}{vraag}</span>{pt}</li>')
+            f'<span class="bron">{h(bron_tekst(it.get("bron")))}</span>{uitleg}{vraag}</span>{pt}</li>')
 
 
 def opbouw_score(w, basis=5.0) -> str:
@@ -344,7 +393,7 @@ def opbouw_lasten(w) -> str:
         r.append(("VvE-bijdrage", "≈ " + eur(vve), "niet gevonden, geschat"))
     else:
         r.append(("VvE-bijdrage", eur(vve), "uit " + str(o.get("vve_bron") or "de advertentie")
-                  + (", incl. stookkosten" if o.get("stook_in_vve") else "")))
+                  + (", inclusief stookkosten" if o.get("stook_in_vve") else "")))
     r.append(("Energie", "≈ " + eur(energie), f"schatting voor label {w['label'] or 'onbekend'}"
               + (", alleen elektra" if o.get("stook_in_vve") else "")))
     r.append(("Gemeente, water, inboedel", "≈ " + eur(overig), "vaste aanname"))
@@ -400,7 +449,7 @@ def financiering(w, meta: dict | None = None) -> str:
     eigen = ("genoeg" if tekort <= 0 else
              (f"{eur(tekort)} tekort, binnen de marge van de schatting" if tekort <= kk else f"{eur(tekort)} tekort"))
     marge = f.get("marge_lenen") or 0
-    rij = [("Max. hypotheek", eur(f["max_hypotheek"])),
+    rij = [("Hoogste hypotheek", eur(f["max_hypotheek"])),
            ("Leenruimte", f"{eur(marge)} over" if marge >= 0 else f"{eur(-marge)} te weinig")]
     if f.get("kosten_koper") is not None:
         rij.append(("Kosten koper", f"≈ {eur(f['kosten_koper'])}"
@@ -411,7 +460,7 @@ def financiering(w, meta: dict | None = None) -> str:
         rij.append(("Je grens", f"{eur(f['grens'])} {soort}"))
     for s in f.get("scenarios") or []:
         oordeel = "past" if s.get("past") else "past niet"
-        extra = f", max. koopsom {eur(s['max_koopsom'])}" if _getal(s.get("max_koopsom")) else ""
+        extra = f", koopsom tot {eur(s['max_koopsom'])}" if _getal(s.get("max_koopsom")) else ""
         plan = " (planning)" if s.get("id") == f.get("planning") else ""
         rij.append((str(s.get("label") or s.get("id")) + plan, oordeel + extra))
     return f'<dl class="kenmerken">{"".join(f"<dt>{h(a)}</dt><dd>{h(b)}</dd>" for a, b in rij)}</dl>'
@@ -450,7 +499,7 @@ def kaart_html(w, meta: dict | None = None) -> str:
     feit = ([f"{w['m2']} m²"] if w["m2"] else []) + ([f"{w['kamers']} kamers"] if w["kamers"] else []) + [
         f"label {w['label'] or 'onbekend'}"]
     reis = reis_tekst(w)
-    reis_html = (f'<p class="w-reis">{ic("fiets", "ic ic-s")}<span><span class="vh">Fietstijd naar werk: </span>{h(reis)}</span></p>'
+    reis_html = (f'<p class="w-reis">{ic("fiets", "ic ic-s")}<span><span class="vh">Naar werk: </span>{h(reis)}</span></p>'
                  if reis else "")
     twijfel = "".join(f'<p class="w-twijfel">{ic("warn")}<span>{h(t)} Onderaan gezet.</span></p>' for t in w["twijfel"])
     red_html = "".join(f'<span class="r {"r-plus" if pt > 0 else "r-min"}"><span class="vh">{"plus" if pt > 0 else "min"}: </span>{h(t)}</span>'
@@ -482,20 +531,36 @@ def kaart_html(w, meta: dict | None = None) -> str:
     if onb or kans:
         blokken.append(f'<section class="blok"><h4>{ic("vraag", "ic o-onbekend")}Onbekend en kansen</h4><ul class="punten">{onb}{kans}</ul>'
                        f'<p class="punt-tekst gesch mt-100">Telt niet mee in de score.</p></section>')
+    if w["omgeving"]:
+        omg = "".join(punt_html(x, False, True) for x in w["omgeving"])
+        blokken.append(f'<section class="blok"><details class="opbouw omgeving"><summary>Buurt en omgeving '
+                       f'<span class="waarde">{len(w["omgeving"])}</span>{ic("chev", "ic chev")}</summary>'
+                       f'<ul class="punten">{omg}</ul>'
+                       f'<p class="punt-tekst gesch mt-100">Uit open bronnen. Telt nog niet mee in de score.</p></details></section>')
     if w["beoordeeld"]:
         blokken.append(f'<section class="blok">{opbouw_score(w)}</section>')
     blokken.append(f'<section class="blok"><h4>Geld</h4><div class="geld-blok">{opbouw_lasten(w)}{financiering(w, meta)}</div></section>')
-    blokken.append(f'<section class="blok"><h4>Woning</h4><dl class="kenmerken">{kenmerken(w)}</dl></section>')
+    klimaat = ""
+    if w["binnenklimaat"]:
+        klimaat = (f'<details class="opbouw binnenklimaat"><summary>Warmte en kou in huis <span class="waarde">indicatie</span>'
+                   f'{ic("chev", "ic chev")}</summary><ul class="punten">'
+                   f'{"".join(punt_html(x, False, True) for x in w["binnenklimaat"])}</ul>'
+                   f'<p class="punt-tekst gesch mt-100">Telt niet mee in de score.</p></details>')
+    bij_woning = ""
+    if w["bij_woning"]:
+        bij_woning = (f'<ul class="punten">{"".join(punt_html(x, False, True) for x in w["bij_woning"])}</ul>'
+                      '<p class="punt-tekst gesch mt-100">Telt niet mee in de score.</p>')
+    blokken.append(f'<section class="blok"><h4>Woning</h4><dl class="kenmerken">{kenmerken(w)}</dl>{bij_woning}{klimaat}</section>')
     if zelf:
         blokken.append(f'<section class="blok"><h4>Zelf nagaan</h4><ol class="vragen">{zelf}</ol></section>')
     if fotos:
         blokken.append(f'<section class="blok breed"><h4>Foto\'s</h4><div class="fotostrip">{fotos}</div></section>')
     url = h(w["url"])
     if url:
-        blokken.append(f'<div class="acties breed"><a class="knop knop-sec knop-vol" href="{url}" target="_blank" rel="noopener" '
+        blokken.append(f'<div class="acties breed"><a class="knop knop-sec knop-vol" href="{url}" target="_blank" rel="noopener noreferrer" '
                        f'aria-label="Bekijk {t} op funda (opent nieuw venster)">Bekijk op funda {ic("extern", "ic ic-s")}</a></div>')
-        funda_knop = (f'<a class="icoonknop" href="{url}" target="_blank" rel="noopener" aria-label="Bekijk {t} op funda '
-                      f'(opent nieuw venster)" title="Bekijk op funda">{ic("extern")}</a>')
+        funda_knop = (f'<a class="icoonknop met-label" href="{url}" target="_blank" rel="noopener noreferrer" aria-label="Bekijk {t} op funda '
+                      f'(opent nieuw venster)">{ic("extern")}<span class="knop-label">Op funda</span></a>')
     else:
         funda_knop = ""
     scenario = f'<span class="w-scenario">{h(scenario_regel(w["scenario_tekst"]))}</span>' if w["scenario_tekst"] else ""
@@ -514,7 +579,7 @@ def kaart_html(w, meta: dict | None = None) -> str:
 <span class="vh">, details van {t}</span>{ic('chev', 'ic chev')}</summary>
 <div class="w-laag2">{''.join(blokken)}</div></details>
 <div class="w-acties">{funda_knop}
-<button type="button" class="icoonknop" data-actie="verberg" aria-label="Verberg {t}" title="Verberg">{ic('oog')}</button></div></div>
+<button type="button" class="icoonknop met-label" data-actie="verberg" aria-label="Verberg {t}">{ic('oog')}<span class="knop-label">Verberg</span></button></div></div>
 </article>"""
 
 
@@ -527,7 +592,7 @@ def js_data(w) -> dict:
             "netto": w["fin"].get("netto"), "prijs": w["prijs"], "m2": w["m2"], "score": w["score"],
             "score_tekst": komma(w["score"]), "twijfel": bool(w["twijfel"]), "gedaald": w["gedaald"],
             "dagen": w["dagen"], "reis_min": r0["min"] if r0 else None,
-            "reis_tekst": (f"fiets ≈ {r0['min']} min" if r0 else ""),   # popup; de vergelijking gebruikt reis_min
+            "reis_tekst": (f"{r0['min']} min fietsen" if r0 else ""),   # popup; de vergelijking gebruikt reis_min
             "top_plus": f"{top_plus.get('label')}: {top_plus.get('waarde')}" if top_plus else "",
             "top_let_op": f"{top_lo.get('label')}: {top_lo.get('waarde')}" if top_lo else "",
             "lat": w["lat"], "lon": w["lon"], "nieuw_run": w["nieuw_run"]}
@@ -585,7 +650,7 @@ def rente_melding(r: dict) -> str:
     else:
         return ""
     return (f'<a class="melding rente-melding" id="rente-melding" href="#budget" data-actie="budget">{ic("warn")}'
-            f'<span>{h(tekst)} <u>Meer weten</u></span></a>')
+            f'<span>{h(tekst)} <u>Bekijk de aannames</u></span></a>')
 
 
 def _scenarios_budget(meta: dict, woningen: list[dict]) -> tuple[list[tuple[str, str, bool]], str | None]:
@@ -636,8 +701,8 @@ def _budget_html(meta: dict, woningen: list[dict], r: dict, nu: datetime) -> str
     sc_html = ""
     if sc:
         sc_dl = "".join(f"<dt>{h(label)}{' (planning)' if plan else ''}</dt><dd>{h(tekst)}</dd>" for label, tekst, plan in sc)
-        uitleg = (f" De groepen Past, Krap en Past niet volgen het scenario &quot;{h(plan_label)}&quot;." if plan_label else "")
-        sc_html = (f'<p>Max. koopsom per scenario. De spreiding komt van energielabel en erfpacht.{uitleg}</p>'
+        uitleg = (f" De groepen Past, Krap en Past niet volgen het scenario '{h(plan_label)}'." if plan_label else "")
+        sc_html = (f'<p>Hoogste koopsom per scenario. De spreiding komt van energielabel en erfpacht.{uitleg}</p>'
                    f'<dl class="kenmerken">{sc_dl}</dl>')
     melding = ""
     if r["melding"]:
@@ -651,26 +716,29 @@ def _budget_html(meta: dict, woningen: list[dict], r: dict, nu: datetime) -> str
 {melding}<dl class="kenmerken">{dl}</dl>
 {sc_html}
 <ul><li>Woonlasten zijn netto, jaar 1: hypotheek min belastingvoordeel, plus VvE, energie, gemeente en erfpacht.</li>
-<li>Een bedrag met ≈ is een schatting. Staat er "geschat" bij de VvE, dan is de bijdrage niet gevonden.</li>
+<li>Een bedrag met ≈ is een schatting. Staat er 'geschat' bij de VvE, dan is de bijdrage niet gevonden.</li>
 <li>Score 0 tot 10. 5 betekent: voldoet aan je eisen. Onbekend en kansen tellen niet mee.</li></ul>
-<p>Een vaste rente, je grens en de scenario's zet je in je instellingen (funda_personal.json).</p></div></details>"""
+<p>Een vaste rente, je grens en de scenario's zet je in je instellingen.</p></div></details>"""
 
 
 def _push_html(meta: dict) -> str:
     if not meta.get("push_beschikbaar") or meta.get("push_ingesteld"):
         return ""
     return f"""<details class="opbouw" id="meldingen"><summary>Meldingen op deze iPhone{ic('chev', 'ic chev')}</summary><div class="tekst">
-<p>Krijg een melding als er nieuwe woningen zijn. Dit werkt alleen in de app op je beginscherm (iOS 16.4 of nieuwer).</p>
-<div class="acties"><button type="button" class="knop knop-ter" id="push-subscribe-btn">{ic('bel', 'ic ic-s')} Meldingen aanzetten</button>
+<p>Krijg een melding als er nieuwe woningen zijn. Dat werkt alleen als het rapport op je beginscherm staat (iOS 16.4 of nieuwer).</p>
+<div class="acties"><button type="button" class="knop knop-ter" id="push-subscribe-btn">{ic('bel', 'ic ic-s')} Zet meldingen aan</button>
 <button type="button" class="knop knop-ter" id="push-copy-btn" hidden>Kopieer het abonnement</button></div>
-<p>Zet het abonnement daarna als GitHub-secret WEB_PUSH_SUBSCRIPTION.</p>
-<textarea id="push-subscription-output" class="push-uitvoer" readonly hidden spellcheck="false" aria-label="Web Push-abonnement"></textarea>
+<p>Plak het abonnement daarna in de instelling WEB_PUSH_SUBSCRIPTION. De stappen staan in de installatiehandleiding.</p>
+<textarea id="push-subscription-output" class="push-uitvoer" readonly hidden spellcheck="false" aria-label="Abonnement voor meldingen"></textarea>
 <p id="push-status" class="push-status" role="status"></p></div></details>"""
 
 
+# Alleen zichtbaar achter het slotscherm (ui/app.js, apparaat()): het blok, en "Vergeet" alleen met een bewaarde sleutel.
 APPARAAT_HTML = f"""<details class="opbouw" id="apparaat" hidden><summary>Dit apparaat{ic('chev', 'ic chev')}</summary><div class="tekst">
-<p>Dit apparaat onthoudt een sleutel voor het rapport, niet je wachtwoord. Vergeet hem als je dit apparaat deelt of wegdoet.</p>
-<div class="acties"><button type="button" class="knop knop-ter" data-actie="vergeet">Vergeet dit apparaat</button></div></div></details>"""
+<p>Vergrendel sluit het rapport en wist de sleutel die dit apparaat onthoudt. Daarna vraagt het weer om je wachtwoord.</p>
+<p id="apparaat-onthoudt" hidden>Dit apparaat onthoudt een sleutel voor het rapport, niet je wachtwoord. Vergeet hem als je dit apparaat deelt of wegdoet.</p>
+<div class="acties"><button type="button" class="knop knop-ter" data-actie="vergrendel">{ic('slot', 'ic ic-s')} Vergrendel</button>
+<button type="button" class="knop knop-ter" data-actie="vergeet" hidden>Vergeet dit apparaat</button></div></div></details>"""
 
 
 def render_report_body(rijen: list[dict], meta: dict | None = None) -> str:
@@ -701,10 +769,10 @@ def render_report_body(rijen: list[dict], meta: dict | None = None) -> str:
                      chip("past", "Past", tel["PAST"]), chip("krap", "Krap", tel["KRAP"]),
                      chip("gedaald", "Prijs gedaald", gedaald), chip("bewaard", "Bewaard", 0)])
     secties = [f"""<section id="nieuw" class="sectie" aria-labelledby="nieuw-titel">
-<h2 class="sectie-kop"><span id="nieuw-titel">Nieuw sinds de vorige run</span> <span class="tel">{len(nieuw) or ''}</span></h2>
-<p id="nieuw-leeg" class="sectie-leeg"{' hidden' if nieuw else ''}>Geen nieuwe woningen sinds de vorige run.</p>
+<h2 class="sectie-kop"><span id="nieuw-titel">Nieuw sinds de vorige update</span> <span class="tel">{len(nieuw) or ''}</span></h2>
+<p id="nieuw-leeg" class="sectie-leeg"{' hidden' if nieuw else ''}>Geen nieuwe woningen sinds de vorige update.</p>
 <div class="kaarten">{''.join(kaart_html(w, meta) for w in nieuw)}</div></section>""",
-               '<p id="eerder" class="groep-uitleg eerder-kop">Eerder gezien, op volgorde van financiering en score.</p>']
+               '<p id="eerder" class="groep-uitleg eerder-kop">Eerder gezien, op volgorde van status en score.</p>']
     for p in POORTEN:
         ws = groepen[p]
         n = len(ws)
@@ -727,11 +795,13 @@ def render_report_body(rijen: list[dict], meta: dict | None = None) -> str:
     stad_html = "".join(f'<label class="keuze" for="c-{i}"><input type="checkbox" name="stad" id="c-{i}" value="{h(s)}">'
                         f'<span>{stad_naam(s)} <small>({sum(1 for w in woningen if w["stad"] == s)})</small></span></label>'
                         for i, s in enumerate(steden))
-    data = json.dumps({"woningen": [js_data(w) for w in woningen]}, ensure_ascii=False).replace("</", "<\\/")
+    data = json.dumps({"woningen": [js_data(w) for w in woningen]}, ensure_ascii=False)
+    # In een <script>-blok: geen <, > of & letterlijk (ook niet "<!--" of "<script"), wel geldige JSON.
+    data = data.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     run_iso = nu.strftime("%Y-%m-%dT%H:%M")
     actions = meta.get("actions_url")
-    run_knop = (f'<a class="icoonknop" href="{h(actions)}" target="_blank" rel="noopener" '
-                f'aria-label="Nieuwe run starten op GitHub (opent nieuw venster)" title="Nieuwe run">{ic("vernieuw")}</a>'
+    run_knop = (f'<a class="icoonknop" href="{h(actions)}" target="_blank" rel="noopener noreferrer" '
+                f'aria-label="Ververs het rapport: opent de startpagina in een nieuw venster" title="Ververs het rapport">{ic("vernieuw")}</a>'
                 if actions else "")
     volgende = volgende_run(nu, meta.get("run_cron_utc"))
     legenda = "".join(f'<span><i class="lp p-{POORT_CLS[p]}">{ic(POORT_IC[p])}</i>{POORT_NAAM[p]}</span>' for p in POORTEN)
@@ -754,7 +824,7 @@ def render_report_body(rijen: list[dict], meta: dict | None = None) -> str:
 <p id="leeg-tekst">Zet een filter uit of wis ze allemaal. Verborgen woningen tellen niet mee.</p>
 <button type="button" class="knop knop-ter" data-actie="wis">Wis filters</button></section>
 <footer class="voet">
-<p id="verborgen-regel" class="verborgen-regel" hidden><span id="verborgen-tekst"></span><button type="button" class="linkknop" id="toon-verborgen">Toon ze</button></p>
+<p id="verborgen-regel" class="verborgen-regel" hidden><span id="verborgen-tekst"></span><button type="button" class="linkknop" id="toon-verborgen">Toon verborgen woningen</button></p>
 {_budget_html(meta, woningen, r, nu)}
 {_push_html(meta)}
 {APPARAAT_HTML}
@@ -775,14 +845,14 @@ Klimaateffectatlas, RIVM-geluidkaarten, Leefbaarometer 3.0, RIVM-gezondheidsmoni
 <button type="button" data-view="kaart" aria-pressed="false">{ic('kaart', 'ic ic-s')} Kaart</button></div>
 </div></nav>
 <dialog id="filters" class="sheet" aria-labelledby="filters-titel"><form id="filterform" method="dialog" class="h-erf">
-<div class="sheet-kop"><h2 id="filters-titel">Filter en sorteer</h2><button type="button" class="icoonknop" data-actie="sluit" aria-label="Sluiten">{ic('sluit')}</button></div>
+<div class="sheet-kop"><h2 id="filters-titel">Filter en sorteer</h2><button type="button" class="icoonknop" data-actie="sluit" aria-label="Sluit">{ic('sluit')}</button></div>
 <div class="sheet-body">
 <fieldset><legend>Sorteren</legend>{sort_html}</fieldset>
-<fieldset><legend>Financiering</legend>{poort_html}</fieldset>
+<fieldset><legend>Status</legend>{poort_html}</fieldset>
 <fieldset><legend>Plaats</legend>{stad_html}</fieldset>
 <fieldset><legend>Grenzen</legend><div class="velden">
-<div class="veld"><label for="f-maxlasten">Max. woonlasten</label><input id="f-maxlasten" type="number" inputmode="numeric" min="0" step="50" {_placeholder_lasten(woningen)}></div>
-<div class="veld"><label for="f-minm2">Min. oppervlak (m²)</label><input id="f-minm2" type="number" inputmode="numeric" min="0" step="5" placeholder="bijv. 60"></div></div></fieldset>
+<div class="veld"><label for="f-maxlasten">Woonlasten tot</label><input id="f-maxlasten" type="number" inputmode="numeric" min="0" step="50" {_placeholder_lasten(woningen)}></div>
+<div class="veld"><label for="f-minm2">Oppervlak vanaf (m²)</label><input id="f-minm2" type="number" inputmode="numeric" min="0" step="5" placeholder="bijvoorbeeld 60"></div></div></fieldset>
 <fieldset><legend>Tonen</legend>
 <label class="schakel" for="f-twijfel"><span>Twijfel verbergen <small class="gesch">(buurt, stad of leefbaarheid onduidelijk)</small></span><input id="f-twijfel" type="checkbox" role="switch"></label>
 <label class="schakel" for="f-verborgen"><span>Verborgen woningen tonen</span><input id="f-verborgen" type="checkbox" role="switch"></label></fieldset>
@@ -790,21 +860,21 @@ Klimaateffectatlas, RIVM-geluidkaarten, Leefbaarometer 3.0, RIVM-gezondheidsmoni
 <div class="sheet-voet"><button type="button" class="knop knop-ter" data-actie="wis">Wis filters</button>
 <button type="submit" class="knop knop-sec" id="sheet-toon">Toon {len(woningen)} {'woning' if len(woningen) == 1 else 'woningen'}</button></div></form></dialog>
 <dialog id="vergelijk" class="sheet" aria-labelledby="vergelijk-titel">
-<div class="sheet-kop"><h2 id="vergelijk-titel">Bewaarde woningen naast elkaar</h2><button type="button" class="icoonknop" data-actie="sluit" aria-label="Sluiten">{ic('sluit')}</button></div>
+<div class="sheet-kop"><h2 id="vergelijk-titel">Bewaarde woningen naast elkaar</h2><button type="button" class="icoonknop" data-actie="sluit" aria-label="Sluit">{ic('sluit')}</button></div>
 <div class="sheet-body"><div class="vergelijk-wrap"><table id="vergelijk-tabel" class="vergelijk"></table></div>
-<p class="groep-uitleg">"Beste" is per regel de gunstigste waarde. Bewaren en vergelijken blijft op dit apparaat.</p></div></dialog>
-<div id="toast" class="toast context-strong" role="status" hidden><span id="toast-tekst"></span><button type="button" class="linkknop" id="toast-knop">Ongedaan maken</button></div>
+<p class="groep-uitleg">'Beste' is per regel de gunstigste waarde. Bewaren en vergelijken blijft op dit apparaat.</p></div></dialog>
+<div id="toast" class="toast context-strong" role="status" hidden><span id="toast-tekst"></span><button type="button" class="linkknop" id="toast-knop">Maak ongedaan</button>
+<button type="button" class="icoonknop" id="toast-sluit" aria-label="Sluit melding">{ic('sluit')}</button></div>
 </div>
 <script type="application/json" id="woning-data">{data}</script>"""
 
 
 def vul_slot(waarden: dict) -> str:
-    """ui/slot.html met elke placeholder vervangen. waarden: {"__APP_CSS__": ..., "__GZ__": "1", ...}."""
+    """ui/slot.html met elke placeholder vervangen. waarden: {"__CSP__": ..., "__PUSH_META__": ..., "__PAKKET__": ...}."""
     ontbreekt = [p for p in SLOT_PLACEHOLDERS if p not in waarden]
     if ontbreekt:
         raise ValueError("placeholders zonder waarde: " + ", ".join(ontbreekt))
     uit = SLOT_HTML
-    # Eerst de korte waarden, dan pas CSS en scripts: zo kan een placeholdernaam in de CSS of JS niets kapotmaken.
-    for p in ("__GZ__", "__SALT__", "__IV__", "__CT__", "__ITERS__", "__MAP_HEAD__", "__APP_SCRIPTS__", "__APP_CSS__"):
+    for p in SLOT_PLACEHOLDERS:   # het pakket als laatste: alleen base64 en JSON, daar staat geen placeholder in
         uit = uit.replace(p, str(waarden[p]), 1)
     return uit

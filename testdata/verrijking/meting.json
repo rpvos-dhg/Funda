@@ -49,5 +49,20 @@
    "niet": "de PDOK Locatieserver (robots.txt Disallow /bzk/locatieserver/*) en nominatim.openstreetmap.org (robots.txt Disallow /search)"
   }
  },
- "verzoeken": "52 bij de meting (verrijking en rente samen) plus 1 controle met curl; daarna 21 bij de live-controle van de modules; voor de geocoding op 7 nov 2026: robots.txt, de queryables van adres en 2 verzoeken op de postcode van het stadhuis, en bij de review 2 (limit=10 en limit=1)"
+ "verzoeken": "52 bij de meting (verrijking en rente samen) plus 1 controle met curl; daarna 21 bij de live-controle van de modules; voor de geocoding op 7 nov 2026: robots.txt, de queryables van adres en 2 verzoeken op de postcode van het stadhuis, en bij de review 2 (limit=10 en limit=1)",
+ "meting_2026_11_18": {
+  "_doc": "Tweede meting, 18 nov 2026, zelfde werkwijze (Sessie van de verrijking: robots.txt eerst, eerlijke user-agent, pauze). Meetpunt: het Plein in Den Haag (52.07945, 4.31330); voor de monumentpunten een punt bij het Mauritshuis. Nooit een woonadres.",
+  "robots": {
+   "api.pdok.nl": "200: Allow /, Disallow /bzk/locatieserver/*",
+   "dataderden.cbs.nl": "404 (geen robots.txt)",
+   "data.rivm.nl": "404 (geen robots.txt)",
+   "cas.cloud.sogelink.com": "404 (geen robots.txt)",
+   "data.geo.cultureelerfgoed.nl": "404 (geen robots.txt); host niet in gebruik"
+  },
+  "kerncijfers": "PDOK CBS wijken-en-buurten-2024, collectie buurten: 244 velden; gelezen worden alleen KERN_PDOK en gemeentecode. Missend = -99997. Collectie gemeenten met ?gemeentecode=GM0518 gaf 2 features (land en water, 439 kB met geometrie); woningvoorraad 272242.",
+  "politie": "47018NED (misdrijven per jaar, 2012-2025, gewijzigd 16 nov 2026) en 47024NED (overlast, 2012-2026 per maand en jaar). Sleutels zes tekens breed ('1.1.1 '), regio tien ('GM0518    '). Eén verzoek met (WijkenEnBuurten eq 'BU..' or startswith(WijkenEnBuurten,'GM0518')) geeft buurt en gemeente. 47022NED (per maand) niet gebruikt.",
+  "lucht": "data.rivm.nl/geo/alo/wms GetFeatureInfo op rivm_nsl_20260401_gm_NO22024, rivm_nsl_20260401_gm_PM252024 en groenkaart_cjp_2022_500m: drie features met GRAY_INDEX (18,33; 8,66; 16). Legenda NO2: 'NO2 conc. (microgram/m3)'. Legenda groen: 'Gemiddeld oppervlak groen (%) binnen 500 meter'.",
+  "klimaat": "KEA_WMS GetFeatureInfo op vijf lagen. wateroverlast: pandvlak met waterdiepte_klasse (tekst; legenda geeft de klassenaam), overstromingskans: GRAY_INDEX 0 op het meetpunt (legenda kent 1 tot 5; 0 = geen klasse), grondwater: gridcode 1 tot 5. hitteeiland (GRAY_INDEX 2,325) en gevoelstemperatuur_2022 (RED_BAND 46): eenheid niet uit de legenda af te leiden, niet opgenomen.",
+  "erfgoed": "api.pdok.nl/rce/beschermde-gebieden-cultuurhistorie: rce_inspire_polygons gaf op het punt het beschermde gezicht (namespace nlps-stadsendorpsgezichten, text = naam, legalfoundationdate); rijksmonumenten staan alleen in rce_inspire_points (namespace nlps-rijksmonumenten). De WFS data.geo.cultureelerfgoed.nl/openbaar/wfs gaf met een bbox op het Plein 0 features voor rijksmonumentpunten en -contouren; niet verder uitgezocht en niet gebruikt."
+ }
 }

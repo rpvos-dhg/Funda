@@ -1,0 +1,35 @@
+{
+ "Legend": [
+  {
+   "layerName": "kans_grondwateroverlast_2050hoog",
+   "title": "kans_grondwateroverlast_2050hoog",
+   "rules": [
+    {
+     "name": "Kleine kans door lage grondwaterstand",
+     "title": "Kleine kans door lage grondwaterstand",
+     "filter": "[gridcode = '5']"
+    },
+    {
+     "name": "Kleine toename kans",
+     "title": "Kleine toename kans",
+     "filter": "[gridcode = '1']"
+    },
+    {
+     "name": "Aanmerkelijke toename kans",
+     "title": "Aanmerkelijke toename kans",
+     "filter": "[gridcode = '2']"
+    },
+    {
+     "name": "Grote toename kans",
+     "title": "Grote toename kans",
+     "filter": "[gridcode = '3']"
+    },
+    {
+     "name": "Zeer grote toename kans",
+     "title": "Zeer grote toename kans",
+     "filter": "[gridcode = '4']"
+    }
+   ]
+  }
+ ]
+}

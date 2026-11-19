@@ -28,35 +28,46 @@ concurrency:
   group: funda-daily
   cancel-in-progress: false
 
-permissions:
-  contents: write   # nodig om het versleutelde docs/ rapport terug te pushen
+# Standaard niets; de job hieronder krijgt alleen wat hij nodig heeft.
+permissions: {}
+
+# Acties staan vast op een commit-SHA (de tag erachter is alleen voor de lezer):
+# een tag kan verzet worden, een commit niet. Bijwerken: de SHA opzoeken met
+# `git ls-remote https://github.com/actions/<naam> refs/tags/<tag>`.
 
 jobs:
   rapport:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # nodig om het versleutelde docs/ rapport terug te pushen
     # Normaal ~5 minuten (inclusief 90 s wachten op Pages). Een hangend
     # detail-endpoint stopt de run zelf al (time-outs tellen als storing, en het
     # verkennen heeft een tijdsbudget); dit is het vangnet daarachter.
     timeout-minutes: 45
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+        with:
+          # Het token blijft niet in .git/config staan: alleen de stap die docs/
+          # publiceert krijgt het (zie daar).
+          persist-credentials: false
 
       - name: Python opzetten
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
         with:
           python-version: "3.11"
 
       - name: Dependencies installeren
         run: |
-          python -m pip install --upgrade pip
-          # requirements.txt is de enige plek waar versies staan (pyfunda-pin!).
-          pip install -r requirements.txt
+          # requirements.txt is de enige plek waar versies staan (pyfunda-pin!):
+          # exacte versies met hashes, gegenereerd uit requirements.in. pip
+          # weigert alles wat niet in de lijst staat of een andere hash heeft.
+          pip install --require-hashes -r requirements.txt
 
       # State terughalen uit vorige run. Bevat geen persoonlijke gegevens van jou,
       # wel je werk-coordinaten, daarom in de cache en niet in de publieke repo.
       - name: State terughalen (cache)
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: |
             funda_seen_ids.json
@@ -117,8 +128,19 @@ jobs:
       # niet bij een lage belasting. De ::error van de run zelf noemt de oorzaak;
       # verder diagnosticeren gaat met de handmatige workflow "Funda API debug".
 
+      # De enige stap met het schrijf-token. Het gaat als header mee met de pull
+      # en de push van deze stap en komt niet in .git/config, dus de stappen
+      # hiervoor (pip, de run zelf) en hierna (npm, de push-notificatie) kunnen
+      # er niet bij.
       - name: Versleuteld rapport publiceren
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          met_token() {
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" "$@"
+          }
           git config user.name "funda-bot"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/
@@ -129,14 +151,23 @@ jobs:
             # main kan tijdens de run veranderd zijn (een gemergde PR); dan werd
             # de push geweigerd en ging het rapport verloren (run 42290940091).
             # docs/ wijzigt alleen deze bot, dus rebasen is veilig.
-            git pull --rebase origin main
-            git push
+            met_token pull --rebase origin main
+            met_token push
           fi
 
       # GitHub Pages heeft typisch 30-90s nodig om docs/ te deployen na de push.
       # Wacht zodat het rapport online staat voordat de iOS-notificatie aankomt.
       - name: Wachten op Pages-deploy
         run: sleep 90
+
+      # web-push en alles eronder staan vast in package-lock.json (versie en
+      # hash); --ignore-scripts draait geen installatiescripts van pakketten.
+      # Een eigen stap zonder secrets in de omgeving.
+      # Lukt het installeren niet (storing bij de registry), dan vervalt alleen
+      # de melding: het rapport is dan al gepubliceerd en de run blijft groen.
+      - name: Push-pakket installeren
+        continue-on-error: true
+        run: npm ci --ignore-scripts
 
       - name: Push-notificatie bij nieuwe woningen
         env:
@@ -149,13 +180,16 @@ jobs:
             echo "Web Push secrets ontbreken; notificatie overgeslagen."
             exit 0
           fi
-          npm install --no-save --no-package-lock web-push@3
+          if [ ! -d node_modules/web-push ]; then
+            echo "::warning::Push-pakket niet geinstalleerd; notificatie overgeslagen."
+            exit 0
+          fi
           node scripts/send_web_push.cjs
 
       # State bewaren voor de run van morgen (rollende cache-sleutel).
       - name: State bewaren (cache)
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: |
             funda_seen_ids.json

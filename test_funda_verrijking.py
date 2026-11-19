@@ -67,14 +67,19 @@ class NepWeb:
         self.geluid: dict[str, list] = {}                  # global_id -> 4 waarden
         self.pand: dict[str, int] = {}                     # global_id -> aantal_verblijfsobjecten
         self.lbm_extra = None
+        self.gezicht: set[str] = set()                     # global_id's in een beschermd gezicht
+        self.monument: dict[str, int] = {}                 # global_id -> rijksmonumenten op het punt
+        self.klimaat: dict[str, tuple] = {}                # global_id -> (waterdiepte_klasse, kans, gridcode)
+        self.lucht: dict[str, list] = {}                   # global_id -> [no2, pm25, groen]
+        self.politie_leeg = False                          # buurt zonder rij in de politietabellen
         buurten = sorted({w.get("neighbourhood") or "" for w in ws})
         self.code = {b: f"BU9{i:07d}" for i, b in enumerate(buurten)}
 
-    def aantal(self, host: str | None = None, pad: str | None = None) -> int:
+    def aantal(self, host: str | None = None, pad: str | None = None, bevat: str | None = None) -> int:
         n = 0
         for u in self.calls:
             d = urllib.parse.urlparse(u)
-            if (host is None or d.hostname == host) and (pad is None or pad in d.path):
+            if (host is None or d.hostname == host) and (pad is None or pad in d.path) and (bevat is None or bevat in u):
                 n += 1
         return n
 
@@ -128,7 +133,7 @@ class NepWeb:
             p["properties"]["aantal_verblijfsobjecten"] = self.pand.get(gid, 12)
             p["properties"]["gebruiksdoel"] = "woonfunctie"
             return 200, json.dumps(p).encode()
-        if host == "api.pdok.nl" and "/wijken-en-buurten-2024/" in pad:
+        if host == "api.pdok.nl" and "/wijken-en-buurten-2024/" in pad and pad.endswith("/buurten/items"):
             b = fixture("pdok_buurt.json")
             w = self._midden(q)
             if w is None:
@@ -139,6 +144,49 @@ class NepWeb:
                 pr["buurtnaam"] = w.get("neighbourhood")
                 pr["gemeentenaam"] = self._gemeente(w)
             return 200, json.dumps(b).encode()
+        if host == "api.pdok.nl" and pad.endswith("/gemeenten/items"):
+            g = fixture("pdok_gemeente.json")
+            for f in g["features"]:
+                f["properties"]["gemeentecode"] = q["gemeentecode"][0]
+            return 200, json.dumps(g).encode()
+        if host == "api.pdok.nl" and pad.endswith("/rce_inspire_polygons/items"):
+            r = fixture("rce_polygons.json")
+            w = self._midden(q)
+            if not (w and str(w["global_id"]) in self.gezicht):
+                r["features"] = []
+            return 200, json.dumps(r).encode()
+        if host == "api.pdok.nl" and pad.endswith("/rce_inspire_points/items"):
+            r = fixture("rce_points.json")
+            w = self._midden(q)
+            n = self.monument.get(str(w["global_id"]), 0) if w else 0
+            r["features"] = r["features"][:n]
+            for f in r["features"]:
+                f["geometry"]["coordinates"] = [w["longitude"] + 0.0001, w["latitude"]]     # ~7 m verderop
+            return 200, json.dumps(r).encode()
+        if host == "cas.cloud.sogelink.com" and v.KEA_KLIMAAT_LAGEN["wateroverlast"] in q["layers"][0]:
+            k = fixture("kea_klimaat_getfeatureinfo.json")
+            w = self._midden(q)
+            diepte, kans, grond = self.klimaat.get(str(w["global_id"]), ("0 tot 2 cm", 0, 5)) if w else ("0 tot 2 cm", 0, 5)
+            k["features"][0]["properties"]["waterdiepte_klasse"] = diepte
+            k["features"][1]["properties"]["GRAY_INDEX"] = kans
+            k["features"][2]["properties"]["gridcode"] = grond
+            return 200, json.dumps(k).encode()
+        if host == "data.rivm.nl" and "rivm_nsl_" in q["layers"][0]:
+            r = fixture("rivm_lucht_getfeatureinfo.json")
+            w = self._midden(q)
+            waarden = self.lucht.get(str(w["global_id"]), [14.2, 7.9, 31]) if w else [14.2, 7.9, 31]
+            for f, x in zip(r["features"], waarden):
+                f["properties"]["GRAY_INDEX"] = x
+            return 200, json.dumps(r).encode()
+        if host == "dataderden.cbs.nl" and ("/47018NED/" in pad or "/47024NED/" in pad):
+            c = fixture("cbs_47018ned_buurt.json" if "/47018NED/" in pad else "cbs_47024ned_buurt.json")
+            code = re.search(r"WijkenEnBuurten eq '([^']+)'", q["$filter"][0]).group(1)
+            for r in c["value"]:
+                if r["WijkenEnBuurten"].startswith("BU"):
+                    r["WijkenEnBuurten"] = code
+            if self.politie_leeg:
+                c["value"] = [r for r in c["value"] if not r["WijkenEnBuurten"].startswith("BU")]
+            return 200, json.dumps(c).encode()
         if host == "cas.cloud.sogelink.com":
             k = fixture("kea_getfeatureinfo.json")
             w = self._midden(q)
@@ -228,6 +276,237 @@ def test_parsers() -> bool:
     return ok
 
 
+def test_nieuwe_parsers() -> bool:
+    print("Parsers van de bronnen van 18 nov 2026 op de gemeten antwoorden")
+    ok = True
+    kern = v.pdok_kern_parse(fixture("pdok_buurt.json"), "BU05182812")
+    ok &= check("kerncijfers: WOZ, koop en huur, afstanden, aantal woningen, gemeentecode",
+                kern["woz"] == 523 and kern["koop_pct"] == 27 and kern["huur_pct"] == 72 and kern["corporatie_pct"] == 8
+                and kern["meergezins_pct"] == 87 and kern["stadsverwarming_pct"] == 10 and kern["aardgasvrij_pct"] == 11
+                and kern["supermarkt_km"] == 0.6 and kern["treinstation_km"] == 1.3 and kern["huisarts_km"] == 1
+                and kern["woningen"] == 1911 and kern["gemeentecode"] == "GM0518", str(kern))
+    ok &= check("kerncijfers: alleen de allowlist", set(kern) == set(v.VELDEN["kerncijfers"]))
+    mist = fixture("pdok_buurt.json")
+    mist["features"][0]["properties"].update({"gemiddelde_woningwaarde": -99997, "percentage_koopwoningen": -99995})
+    k2 = v.pdok_kern_parse(mist)
+    ok &= check("missende waarde (-99997 en verwante codes) = None", k2["woz"] is None and k2["koop_pct"] is None
+                and k2["huur_pct"] == 72)
+    for veld in v.KERN_PDOK.values():
+        mist["features"][0]["properties"][veld] = -99997
+    ok &= check("alles missend = fout (onbekend)", _gooit(lambda: v.pdok_kern_parse(mist), v.BronFout))
+    ok &= check("andere buurt dan gevraagd = fout", _gooit(lambda: v.pdok_kern_parse(fixture("pdok_buurt.json"), "BU00000000"), v.BronFout))
+    ok &= check("gemeente: grootste geldige woningvoorraad (het watervlak telt niet)",
+                v.pdok_gemeente_parse(fixture("pdok_gemeente.json"), "GM0518") == {"woningen": 272242})
+    md = v.politie_parse(fixture("cbs_47018ned_buurt.json"), "SoortMisdrijf", "GeregistreerdeMisdrijven_1",
+                         v.MISDRIJF_CODES, "BU05182812")
+    ok &= check("47018NED: buurt en gemeente uit één antwoord",
+                md == {"jaar": 2025, "misdrijven": 952, "gem_misdrijven": 39880, "woninginbraak": 2,
+                       "gem_woninginbraak": 617, "vernieling": 79, "gem_vernieling": 3617}, str(md))
+    ov = v.politie_parse(fixture("cbs_47024ned_buurt.json"), "Overlast", "GeregistreerdeOverlast_1",
+                         v.OVERLAST_CODES, "BU05182812")
+    ok &= check("47024NED: totaal overlast, de andere soorten worden niet gelezen",
+                ov == {"jaar": 2025, "overlast": 444, "gem_overlast": 22833}, str(ov))
+    soorten = {r["Key"].strip(): r["Title"] for r in fixture("cbs_47018ned_soortmisdrijf.json")["value"]}
+    ok &= check("codes van de misdrijven kloppen met de metadata",
+                soorten["0.0.0"] == "Totaal misdrijven" and "inbraak woning" in soorten["1.1.1"]
+                and "Vernieling" in soorten["2.2.1"] and set(v.MISDRIJF_CODES) <= set(soorten))
+    overlast = {r["Key"].strip(): r["Title"] for r in fixture("cbs_47024ned_overlast.json")["value"]}
+    ok &= check("code van de overlast klopt met de metadata", overlast["0.0.0"] == "Totaal registraties overlast")
+    url = v._politie_url(v.CBS_MISDRIJVEN, "SoortMisdrijf", "GeregistreerdeMisdrijven_1", v.MISDRIJF_CODES,
+                         "BU05182812", "GM0518")
+    ok &= check("politie-URL: buurt, gemeente, jaar 2025 en sleutels van zes tekens",
+                all(t in urllib.parse.unquote(url) for t in ("WijkenEnBuurten eq 'BU05182812'", "startswith(WijkenEnBuurten,'GM0518')",
+                                                             "Perioden eq '2025JJ00'", "SoortMisdrijf eq '1.1.1 '")), url)
+    lu = v.lucht_parse(fixture("rivm_lucht_getfeatureinfo.json"))
+    ok &= check("RIVM lucht en groen: NO2 18,3, PM2,5 8,7, groen 16%", lu == {"no2": 18.3, "pm25": 8.7, "groen_pct": 16}, str(lu))
+    r = fixture("rivm_lucht_getfeatureinfo.json")
+    r["features"][0]["properties"]["GRAY_INDEX"] = -9999
+    ok &= check("lucht: buiten de kaart = None voor die laag", v.lucht_parse(r)["no2"] is None and v.lucht_parse(r)["pm25"] == 8.7)
+    ok &= check("lucht: te weinig lagen = fout", _gooit(lambda: v.lucht_parse({"features": r["features"][:2]}), v.BronFout))
+    groen = [e["label"] for e in fixture("rivm_legenda_groen.json")["Legend"][0]["rules"][0]["symbolizers"][0]["Raster"]["colormap"]["entries"]]
+    ok &= check("legenda groen: percentage binnen 500 meter", groen[:2] == ["Gemiddeld oppervlak groen (%)", "binnen 500 meter"])
+    kl = v.klimaat_parse(fixture("kea_klimaat_getfeatureinfo.json"))
+    ok &= check("klimaat: wateroverlast zeer hoog, overstromingskans 0 = geen klasse, grondwater 5",
+                kl == {"wateroverlast": "zeer hoog", "waterdiepte": "meer dan 30 cm", "overstromingskans": None,
+                       "grondwater": 5}, str(kl))
+    ok &= check("klimaat: geen pand op het punt = None, geen fout",
+                v.klimaat_parse({"features": []}) == {k: None for k in v.VELDEN["klimaat"]})
+    ok &= check("klimaat: antwoord zonder features = fout", _gooit(lambda: v.klimaat_parse({"fout": 1}), v.BronFout))
+    regels = fixture("kea_legenda_wateroverlast.json")["Legend"][0]["rules"]
+    legenda = {re.search(r"= '([^']+)'", x["filter"]).group(1): x["name"].lower() for x in regels}
+    legenda.pop("Onbekend")
+    legenda["0 tot 2 cm"] = "geen"                      # legenda: "Geen hinderlijke waterdiepte"
+    ok &= check("legenda wateroverlast: klassen gelijk aan de code", legenda == v.KEA_WATERDIEPTE, str(legenda))
+    kansen = fixture("kea_legenda_overstromingskans.json")["Legend"][0]["rules"][0]["symbolizers"][0]["Raster"]["colormap"]["entries"]
+    ok &= check("legenda overstromingskans: klassen 1 tot 5, van extreem klein naar groot",
+                [e["quantity"] for e in kansen] == ["1", "2", "3", "4", "5"] and kansen[0]["label"].startswith("Extreem kleine kans")
+                and kansen[4]["label"].startswith("Grote kans"))
+    gw = {re.search(r"'(\d)'", x["filter"]).group(1): x["name"] for x in fixture("kea_legenda_grondwater.json")["Legend"][0]["rules"]}
+    ok &= check("legenda grondwater: gridcode 1 tot 5", gw["1"] == "Kleine toename kans" and gw["4"] == "Zeer grote toename kans"
+                and gw["5"].startswith("Kleine kans"))
+    ok &= check("beschermd gezicht: naam en jaar van aanwijzing",
+                v.gezicht_parse(fixture("rce_polygons.json")) == {"gezicht": "'s-Gravenhage - Binnenhof e.o.", "gezicht_sinds": 1971})
+    ok &= check("geen gezicht op het punt", v.gezicht_parse({"features": []}) == {"gezicht": None, "gezicht_sinds": None})
+    pts = fixture("rce_points.json")
+    ok &= check("rijksmonumenten: alleen punten binnen 25 m tellen",
+                v.monument_parse(pts, 52.08043555, 4.31445058) == 1 and v.monument_parse(pts, 52.0804, 4.3142) == 3
+                and v.monument_parse(pts, 52.09, 4.31) == 0)
+    return ok
+
+
+def test_nieuwe_bronnen_run() -> bool:
+    print("Nieuwe bronnen door verrijk(): goed antwoord, missende waarde, weigering, time-out")
+    ws = woningen()[:3]
+    gid = [str(w["global_id"]) for w in ws]
+    web = NepWeb(ws)
+    web.gezicht.add(gid[0])
+    web.monument[gid[0]] = 2
+    web.klimaat[gid[1]] = ("20 tot 30 cm", 4, 3)
+    web.lucht[gid[2]] = [-9999, -9999, -9999]
+    cache: dict = {}
+    uit = v.verrijk(ws, cache, cfg(), VANDAAG, http=web, ua=UA, log=STIL)
+    a, b, c = (uit[g] for g in gid)
+    vh = a["veiligheid"]["data"]
+    ok = check("veiligheid: per 1.000 woningen, buurt en gemeente",
+               vh == {"jaar": 2025, "misdrijven_per_1000": 498.2, "woninginbraak_per_1000": 1.0, "vernieling_per_1000": 41.3,
+                      "overlast_per_1000": 232.3, "gem_misdrijven_per_1000": 146.5, "gem_woninginbraak_per_1000": 2.3,
+                      "gem_vernieling_per_1000": 13.3, "gem_overlast_per_1000": 83.9}, str(vh))
+    ok &= check("kerncijfers: met jaar, zonder aantal woningen en gemeentecode",
+                a["kerncijfers"]["data"]["woz"] == 523 and a["kerncijfers"]["data"]["jaar"] == 2024
+                and "woningen" not in a["kerncijfers"]["data"] and "gemeentecode" not in a["kerncijfers"]["data"])
+    ok &= check("lucht ok met drie waarden", a["lucht"]["data"] == {"no2": 14.2, "pm25": 7.9, "groen_pct": 31})
+    ok &= check("lucht: alles buiten de kaart = onbekend met reden",
+                c["lucht"]["status"] == "onbekend" and "kaartwaarde" in (c["lucht"]["reden"] or ""))
+    ok &= check("klimaat: klassen uit het antwoord",
+                b["klimaat"]["data"] == {"wateroverlast": "hoog", "waterdiepte": "20 tot 30 cm", "overstromingskans": 4,
+                                         "grondwater": 3}, str(b["klimaat"]["data"]))
+    ok &= check("erfgoed: gezicht en monumenten, of geen van beide",
+                a["erfgoed"]["data"] == {"gezicht": "'s-Gravenhage - Binnenhof e.o.", "gezicht_sinds": 1971, "monumenten_dichtbij": 2}
+                and b["erfgoed"]["data"] == {"gezicht": None, "gezicht_sinds": None, "monumenten_dichtbij": 0})
+    ok &= check("cachesleutels: buurtgegevens per buurtcode, puntgegevens per gehasht punt",
+                all(re.fullmatch(r"BU\d{8}", k) for s_ in ("kerncijfers", "misdrijven", "overlast") for k in cache[s_])
+                and all(re.fullmatch(r"pt:[0-9a-f]{20}", k) for s_ in ("lucht", "klimaat", "erfgoed") for k in cache[s_])
+                and list(cache["gemeente"]) == ["GM0518"])
+    # Oude cache: buurtcode van voor 18 nov 2026, zonder kerncijfers. Eén PDOK-verzoek per buurt haalt ze op.
+    oud = {"buurtcode": copy.deepcopy(cache["buurtcode"]), "robots": copy.deepcopy(cache["robots"])}
+    web_oud = NepWeb(ws)
+    uit_oud = v.verrijk(ws, oud, cfg(bronnen={"lucht": False, "klimaat": False, "erfgoed": False, "bag": False,
+                                              "geluid": False, "fundering": False}), VANDAAG, http=web_oud, ua=UA, log=STIL)
+    ok &= check("oude buurtcode in de cache: kerncijfers alsnog opgehaald, één verzoek per buurt",
+                {x["kerncijfers"]["status"] for x in uit_oud.values()} == {"ok"}
+                and web_oud.aantal("api.pdok.nl", "/buurten/items") == len(oud["kerncijfers"]))
+    # Buurt zonder rij in de politietabellen
+    web2 = NepWeb(ws)
+    web2.politie_leeg = True
+    uit2 = v.verrijk(ws, {}, cfg(), VANDAAG, http=web2, ua=UA, log=STIL)
+    ok &= check("geen politiecijfers voor de buurt = onbekend, de rest ok",
+                {x["veiligheid"]["status"] for x in uit2.values()} == {"onbekend"}
+                and {x["kerncijfers"]["status"] for x in uit2.values()} == {"ok"})
+    # Te weinig woningen: geen cijfer per 1.000
+    klein = fixture("pdok_buurt.json")
+    web3 = NepWeb(ws)
+    orig3 = web3.__call__
+
+    def kleine_buurt(url, timeout=None, headers=None):
+        st, body = orig3(url, timeout=timeout, headers=headers)
+        if "/buurten/items" in url:
+            d = json.loads(body)
+            for f in d["features"]:
+                f["properties"]["woningvoorraad"] = 40
+            body = json.dumps(d).encode()
+        return st, body
+    uit3 = v.verrijk(ws, {}, cfg(), VANDAAG, http=kleine_buurt, ua=UA, log=STIL)
+    ok &= check("minder dan 100 woningen: veiligheid onbekend, geen verzoek naar de politietabellen",
+                {x["veiligheid"]["status"] for x in uit3.values()} == {"onbekend"} and web3.aantal(bevat="47018NED") == 0
+                and klein is not None)
+    # Weigering: 403 van dataderden stopt de host; kerncijfers (PDOK) blijven.
+    web4 = NepWeb(ws)
+    web4.status["dataderden.cbs.nl"] = 403
+    c4: dict = {}
+    uit4 = v.verrijk(ws, c4, cfg(), VANDAAG, http=web4, ua=UA, log=STIL)
+    ok &= check("403: veiligheid onbekend, één verzoek, weigering een dag bewaard",
+                {x["veiligheid"]["status"] for x in uit4.values()} == {"onbekend"}
+                and web4.aantal("dataderden.cbs.nl") - web4.aantal("dataderden.cbs.nl", "/robots.txt") == 1
+                and c4["verrijking_weigering"]["dataderden.cbs.nl"]["status"] == 403)
+    ok &= check("403: geen woning minder, kerncijfers ok", len(uit4) == len(ws)
+                and {x["kerncijfers"]["status"] for x in uit4.values()} == {"ok"})
+    for code in (401, 429, 500):
+        webx = NepWeb(ws)
+        webx.status["cas.cloud.sogelink.com"] = code
+        uitx = v.verrijk(ws, {}, cfg(), VANDAAG, http=webx, ua=UA, log=STIL)
+        ok &= check(f"{code} van de Klimaateffectatlas: klimaat onbekend na één verzoek",
+                    {x["klimaat"]["status"] for x in uitx.values()} == {"onbekend"}
+                    and webx.aantal("cas.cloud.sogelink.com", "/public/") == 1)
+    # Time-out: onbekend, fout in de cache, de run gaat door.
+    web5 = NepWeb(ws)
+    web5.time_out.add("data.rivm.nl")
+    c5: dict = {"robots": {"data.rivm.nl": {"fetched": VANDAAG, "data": {"regels": []}}}}
+    uit5 = v.verrijk(ws, c5, cfg(bronnen={"geluid": False}), VANDAAG, http=web5, ua=UA, log=STIL)
+    ok &= check("time-out: lucht onbekend, fout in de cache, erfgoed en klimaat ok",
+                {x["lucht"]["status"] for x in uit5.values()} == {"onbekend"} and any(e.get("fout") for e in c5["lucht"].values())
+                and {x["erfgoed"]["status"] for x in uit5.values()} == {"ok"} == {x["klimaat"]["status"] for x in uit5.values()})
+    # robots.txt die de politietabellen verbiedt: geen verzoek, nooit omzeilen.
+    web6 = NepWeb(ws)
+    web6.robots["dataderden.cbs.nl"] = (200, b"User-agent: *\nDisallow: /ODataApi/\n")
+    uit6 = v.verrijk(ws, {}, cfg(bronnen={"tevredenheid": False}), VANDAAG, http=web6, ua=UA, log=STIL)
+    ok &= check("robots.txt verbiedt het pad: geen verzoek, veiligheid onbekend",
+                web6.aantal("dataderden.cbs.nl") == 1 and {x["veiligheid"]["status"] for x in uit6.values()} == {"onbekend"})
+    # Laagnaam verdwenen: de WMS geeft XML in plaats van JSON.
+    web7 = NepWeb(ws)
+    orig7 = web7.__call__
+
+    def laag_weg(url, timeout=None, headers=None):
+        if "rivm_nsl_" in url:
+            web7.calls.append(url)
+            return 200, b"<ServiceExceptionReport>LayerNotDefined</ServiceExceptionReport>"
+        return orig7(url, timeout=timeout, headers=headers)
+    uit7 = v.verrijk(ws, {}, cfg(), VANDAAG, http=laag_weg, ua=UA, log=STIL)
+    ok &= check("verdwenen jaargang van een RIVM-laag: lucht onbekend, geluid gewoon ok",
+                {x["lucht"]["status"] for x in uit7.values()} == {"onbekend"} and {x["geluid"]["status"] for x in uit7.values()} == {"ok"})
+    return ok
+
+
+def test_geen_bevolkingsveld() -> bool:
+    print("Geen bevolkingskenmerk in cache, uitvoer of beoordeling; het aantal woningen alleen als noemer")
+    import funda_beoordeling as fb
+    ws = woningen()
+    web = NepWeb(ws)
+    cache: dict = {}
+    logs: list[str] = []
+    uit = v.verrijk(ws, cache, cfg(), VANDAAG, http=web, ua=UA, log=logs.append)
+    buurt = fixture("pdok_buurt.json")["features"][0]["properties"]
+    gem = fixture("pdok_gemeente.json")["features"][0]["properties"]
+    verboden = [k for k in list(buurt) + list(gem) if re.search(
+        r"herkomst|inkomen|inwoner|opleiding|huishoud|uitkering|personen|geb_buiten|kinderen", k)]
+    ok = check("de fixtures bevatten bevolkingsvelden (anders test dit niets)", len(verboden) >= 9, str(verboden))
+    ok &= check("geen van die velden staat in KERN_PDOK", not set(verboden) & set(v.KERN_PDOK.values()))
+    beoordelingen = [fb.beoordeel({"title": "Teststraat 1", "city": "Den Haag", "price": 250000, "living_area": 70},
+                                  None, [], [], {"bruto_jaar": 62000, "eigen_inleg": 20000, "leeftijd": 30}, None, x,
+                                  vandaag=VANDAAG) for x in uit.values()]
+    # Van de beoordeling de items die uit de verrijking komen (de woonlasten noemen het eigen inkomen als norm).
+    items = [i for b in beoordelingen for groep in ("let_op", "pluspunten", "info", "onbekend") for i in b[groep]
+             if i["onderdeel"] in (fb.OMGEVING, "buurt", "geluid", "vve", "fundering")]
+    ok &= check("de beoordelingen bevatten items uit de nieuwe bronnen",
+                sum(1 for i in items if i["onderdeel"] == fb.OMGEVING) >= 10 * len(ws))
+    tekst = json.dumps(cache) + json.dumps(uit) + json.dumps(items, default=str) + "\n".join(logs)
+    for woord in ("herkomst", "inkomen", "inwoner", "opleiding", "huishoud", "uitkering", "personen_", "geb_buiten",
+                  "kinderen", "identificatie_bag", "leeftijd", "nationaliteit"):
+        ok &= check(f"'{woord}' nergens", woord not in tekst)
+    ok &= check("het aantal woningen staat alleen in de cache (kerncijfers en gemeente), niet in de uitvoer",
+                all("woningen" not in (x["kerncijfers"]["data"] or {}) and "woningen" not in (x["veiligheid"]["data"] or {})
+                    for x in uit.values())
+                and all("woningen" in e["data"] for e in cache["kerncijfers"].values()))
+    rapport = json.dumps(beoordelingen, default=str) + "\n".join(logs)
+    ok &= check("het aantal woningen (1911, 272242) staat niet in de beoordeling of de log",
+                "1911" not in rapport and "1.911" not in rapport and "272242" not in rapport and "272.242" not in rapport)
+    for sectie in ("kerncijfers", "gemeente", "misdrijven", "overlast", "lucht", "klimaat", "erfgoed"):
+        ok &= check(f"cache {sectie} binnen de allowlist",
+                    all(set(e["data"]) <= set(v.VELDEN[sectie]) for e in cache[sectie].values() if isinstance(e.get("data"), dict)))
+    ok &= check("cache_schrijf weigert een bevolkingsveld in de kerncijfers",
+                _gooit(lambda: v.cache_schrijf({}, "kerncijfers", "BU1", VANDAAG, data={"woz": 1, "aantal_inwoners": 2}), ValueError))
+    return ok
+
+
 def test_gray_index() -> bool:
     print("GRAY_INDEX -9999 is onder de kaartgrens, geen fout")
     r = fixture("rivm_getfeatureinfo.json")
@@ -271,8 +550,17 @@ def test_volledige_run() -> bool:
     ok &= check("fundering ok of niet nodig", st["fundering"] <= {"ok", "niet_nodig"}, str(st))
     nieuw = [w for w in ws if (w.get("construction_year") or 0) >= 1970]
     ok &= check("geen KEA-verzoek voor panden van na 1970",
-                web.aantal("cas.cloud.sogelink.com", "/wms") == len(ws) - len(nieuw))
-    ok &= check("13 nieuwe woningen: tussen 60 en 90 verzoeken", 60 <= len(web.calls) <= 90, str(len(web.calls)))
+                web.aantal("cas.cloud.sogelink.com", "/wms", "risicopaalrot") == len(ws) - len(nieuw))
+    ok &= check("13 nieuwe woningen: tussen 140 en 175 verzoeken", 140 <= len(web.calls) <= 175, str(len(web.calls)))
+    ok &= check("nieuwe bronnen ok", all(st[b] == {"ok"} for b in ("kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed")),
+                str(st))
+    buurten = len({w.get("neighbourhood") or "" for w in ws})
+    ok &= check("politiecijfers: twee verzoeken per buurt, niet per woning",
+                web.aantal("dataderden.cbs.nl", "/47018NED/") == buurten == web.aantal("dataderden.cbs.nl", "/47024NED/"))
+    ok &= check("kerncijfers: geen eigen verzoek (zelfde antwoord als de buurtcode)",
+                web.aantal("api.pdok.nl", "/buurten/items") == len(ws))
+    ok &= check("aantal woningen van de gemeente: één verzoek per gemeentecode",
+                web.aantal("api.pdok.nl", "/gemeenten/items") == 1)
     ok &= check("Leefbaarometer: één verzoek per gemeente",
                 web.aantal("geo.leefbaarometer.nl", "/lbm3/") == len({NepWeb._gemeente(w) for w in ws}))
     ok &= check("robots.txt één keer per host", all(web.aantal(h, "/robots.txt") == 1 for h in
@@ -368,19 +656,19 @@ def test_fout_opnieuw() -> bool:
     ok &= check("fout in de cache", any(e.get("fout") for e in cache["geluid"].values()))
     web2 = NepWeb(ws)
     uit2 = v.verrijk(ws, cache, cfg(), VANDAAG, http=web2, ua=UA, log=STIL)
-    ok &= check("zelfde dag: niet opnieuw", web2.aantal("data.rivm.nl", "/geo/") == 0
+    ok &= check("zelfde dag: niet opnieuw", web2.aantal("data.rivm.nl", "/geo/", "Geluid_lden") == 0
                 and "vorige poging" in (uit2[gid]["geluid"]["reden"] or ""))
     web3 = NepWeb(ws)
     uit3 = v.verrijk(ws, cache, cfg(), dag(1), http=web3, ua=UA, log=STIL)
-    ok &= check("na een dag: opnieuw en ok", web3.aantal("data.rivm.nl", "/geo/") == len(ws)
+    ok &= check("na een dag: opnieuw en ok", web3.aantal("data.rivm.nl", "/geo/", "Geluid_lden") == len(ws)
                 and uit3[gid]["geluid"]["status"] == "ok")
     web4 = NepWeb(ws)
     v.verrijk(ws, cache, cfg(), dag(1 + 365), http=web4, ua=UA, log=STIL)
-    ok &= check("binnen 365 dagen: geluid uit de cache", web4.aantal("data.rivm.nl", "/geo/") == 0)
+    ok &= check("binnen 365 dagen: geluid uit de cache", web4.aantal("data.rivm.nl", "/geo/", "Geluid_lden") == 0)
     ok &= check("BAG (180 dagen) wel opnieuw", web4.aantal("api.pdok.nl", "/verblijfsobject/") >= 1)
     web5 = NepWeb(ws)
     v.verrijk(ws, cache, cfg(), dag(1 + 366), http=web5, ua=UA, log=STIL)
-    ok &= check("na 365 dagen: geluid opnieuw", web5.aantal("data.rivm.nl", "/geo/") == len(ws))
+    ok &= check("na 365 dagen: geluid opnieuw", web5.aantal("data.rivm.nl", "/geo/", "Geluid_lden") == len(ws))
     # Time-outs op rij: na drie stopt de host deze run.
     ws13 = woningen()
     web6 = NepWeb(ws13)
@@ -428,7 +716,7 @@ def test_allowlist() -> bool:
 
 
 def test_budget() -> bool:
-    print("Budget van 60 verzoeken, Past en Krap eerst")
+    print("Budget van 120 verzoeken, Past en Krap eerst")
     basis = woningen()
     ws = []
     for i in range(30):                        # 30 fictieve woningen, elk op een eigen punt
@@ -441,9 +729,9 @@ def test_budget() -> bool:
         ws.append(w)
     web = NepWeb(ws)
     cache: dict = {}
-    uit = v.verrijk(ws, cache, cfg(max_calls_per_run=60), VANDAAG, http=web, ua=UA, log=STIL)
-    ok = check("hooguit 60 verzoeken", len(web.calls) <= 60, str(len(web.calls)))
-    ok &= check("budget opgemaakt (60 verzoeken)", len(web.calls) == 60, str(len(web.calls)))
+    uit = v.verrijk(ws, cache, cfg(max_calls_per_run=120), VANDAAG, http=web, ua=UA, log=STIL)
+    ok = check("hooguit 120 verzoeken", len(web.calls) <= 120, str(len(web.calls)))
+    ok &= check("budget opgemaakt (120 verzoeken)", len(web.calls) == 120, str(len(web.calls)))
     statussen = [x["geluid"]["status"] for x in uit.values()]
     ok &= check("een deel krijgt 'budget'", "budget" in statussen and "ok" in statussen)
     past_ok = [uit[str(w["global_id"])]["geluid"]["status"] == "ok" for w in ws if w["_beoordeling"]["poort"] == "PAST"]
@@ -455,7 +743,7 @@ def test_budget() -> bool:
     volgorde = [str(w["global_id"]) for w in ws]
     ok &= check("uitvoer in de volgorde van de invoer", list(uit) == volgorde)
     web2 = NepWeb(ws)
-    uit2 = v.verrijk(ws, cache, cfg(max_calls_per_run=60), VANDAAG, http=web2, ua=UA, log=STIL)
+    uit2 = v.verrijk(ws, cache, cfg(max_calls_per_run=120), VANDAAG, http=web2, ua=UA, log=STIL)
     ok &= check("volgende run gaat verder", sum(x["geluid"]["status"] == "ok" for x in uit2.values())
                 > sum(x["geluid"]["status"] == "ok" for x in uit.values()))
     web3 = NepWeb(ws)
@@ -473,12 +761,25 @@ def test_uit() -> bool:
     ok &= check("alles 'uit'", {x[b]["status"] for x in uit.values() for b in v.BRONNEN} == {"uit"})
     web2 = NepWeb(ws)
     uit2 = v.verrijk(ws, {}, cfg(bronnen={"geluid": False, "tevredenheid": False}), VANDAAG, http=web2, ua=UA, log=STIL)
-    ok &= check("geluid uit: geen RIVM-verzoek", web2.aantal("data.rivm.nl") == 0
+    ok &= check("geluid uit: geen verzoek naar de geluidkaart", web2.aantal("data.rivm.nl", bevat="Geluid_lden") == 0
                 and {x["geluid"]["status"] for x in uit2.values()} == {"uit"})
-    ok &= check("tevredenheid uit: geen CBS-verzoek, buurt wel ok", web2.aantal("dataderden.cbs.nl") == 0
+    ok &= check("tevredenheid uit: geen verzoek naar 50150NED, buurt wel ok", web2.aantal("dataderden.cbs.nl", "/50150NED/") == 0
                 and {x["buurt"]["status"] for x in uit2.values()} == {"ok"})
     ok &= check("standaard staat de verrijking aan", v.instellingen({})[0]["aan"] is True
-                and v.instellingen({})[0]["max_calls_per_run"] == 60)
+                and v.instellingen({})[0]["max_calls_per_run"] == 90)
+    nieuw = {"kerncijfers": False, "veiligheid": False, "lucht": False, "klimaat": False, "erfgoed": False}
+    web3 = NepWeb(ws)
+    uit3 = v.verrijk(ws, {}, cfg(bronnen=nieuw), VANDAAG, http=web3, ua=UA, log=STIL)
+    ok &= check("nieuwe bronnen elk apart uit: status 'uit' en geen verzoek",
+                {x[b]["status"] for x in uit3.values() for b in nieuw} == {"uit"}
+                and not any(web3.aantal(bevat=t) for t in ("47018NED", "47024NED", "rivm_nsl_", "fcab", "/rce/", "/gemeenten/")))
+    web4 = NepWeb(ws)
+    uit4 = v.verrijk(ws, {}, cfg(bronnen={"groen": False, "buurt": False}), VANDAAG, http=web4, ua=UA, log=STIL)
+    ok &= check("groen uit: geen percentage groen in de uitvoer, lucht wel",
+                all(x["lucht"]["data"]["groen_pct"] is None and x["lucht"]["data"]["no2"] is not None for x in uit4.values()))
+    ok &= check("buurt uit: kerncijfers en veiligheid blijven werken",
+                {x["buurt"]["status"] for x in uit4.values()} == {"uit"}
+                and {x["veiligheid"]["status"] for x in uit4.values()} == {"ok"} and web4.aantal("geo.leefbaarometer.nl") == 0)
     return ok
 
 
@@ -650,6 +951,18 @@ def test_log() -> bool:
     ok &= check("geen straatnamen", not any(s and s in tekst for s in straten))
     ok &= check("geen buurtnamen", not any((w.get("neighbourhood") or "~") in tekst for w in ws))
     ok &= check("gestopte host gemeld met status", "dataderden.cbs.nl deze run gestopt" in tekst and "403" in tekst)
+    ok &= check("nieuwe bronnen in de log, per status geteld",
+                all(re.search(rf"{b} \d+ (ok|onbekend|budget|uit)", tekst) for b in ("kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed")), tekst)
+    web2 = NepWeb(ws)
+    for w in ws:
+        web2.gezicht.add(str(w["global_id"]))
+    logs2: list[str] = []
+    v.verrijk(ws, {}, cfg(), VANDAAG, http=web2, ua=UA, log=logs2.append)
+    tekst2 = "\n".join(logs2)
+    ok &= check("geen naam van een beschermd gezicht, buurt of gemeente en geen buurtcode in de log",
+                not any(t in tekst2 for t in ("Binnenhof", "Gravenhage", "Voorburg", "BU9", "GM0518"))
+                and not any((w.get("neighbourhood") or "~") in tekst2 for w in ws), tekst2)
+    ok &= check("alleen regels die met [verrijking] beginnen", all(r.startswith("[verrijking] ") for r in logs2))
     return ok
 
 
@@ -711,7 +1024,8 @@ def test_vorm() -> bool:
     ok = check("bronnen", set(w) >= {"bag", "fundering", "geluid", "buurt"})
     ok &= check("status zoals het model hem leest",
                 {b: st for b, (st, _, _) in gelezen.items()}
-                == {"bag": "ok", "fundering": w["fundering"]["status"], "geluid": "onbekend", "buurt": "ok"})
+                == {"bag": "ok", "fundering": w["fundering"]["status"], "geluid": "onbekend", "buurt": "ok",
+                    "kerncijfers": "ok", "veiligheid": "ok", "lucht": "onbekend", "klimaat": "ok", "erfgoed": "ok"})
     ok &= check("bag: bouwjaar en aantal_vbo_pand", {"bouwjaar", "aantal_vbo_pand"} <= set(gelezen["bag"][1] or {}))
     ok &= check("geluid kapot: geen data, wel een reden",
                 gelezen["geluid"][1] is None and bool(gelezen["geluid"][2]))
@@ -772,7 +1086,7 @@ def test_een_bron() -> bool:
                 and vcfg["bewaar_dagen"] == v.STANDAARD["bewaar_dagen"], str(vcfg))
     ok &= check("override werkt ook op de hele persoonlijke config", v.instellingen(eigen)[0] == vcfg)
     ok &= check("override drempels werkt", dr["geluid_rustig_lden"] == 45)
-    ok &= check("standaard ongewijzigd na een override", v.STANDAARD["max_calls_per_run"] == 60
+    ok &= check("standaard ongewijzigd na een override", v.STANDAARD["max_calls_per_run"] == 90
                 and v.STANDAARD["bronnen"]["geluid"] is True)
     ok &= check("LBM_KLASSE en FUND_KLASSE zijn die van funda_beoordeling",
                 v.LBM_KLASSE is fb.LBM_KLASSE and v.FUND_KLASSE is fb.FUND_KLASSE)
@@ -1045,7 +1359,7 @@ def test_geocode_gedeelde_stand() -> bool:
 
 
 def main() -> int:
-    resultaten = [test_parsers(), test_gray_index(), test_volledige_run(), test_bron_faalt(), test_weigering(),
+    resultaten = [test_parsers(), test_nieuwe_parsers(), test_nieuwe_bronnen_run(), test_geen_bevolkingsveld(), test_gray_index(), test_volledige_run(), test_bron_faalt(), test_weigering(),
                   test_fout_opnieuw(), test_allowlist(), test_budget(), test_uit(), test_signalen(), test_robots(), test_robots_een_dag(),
                   test_log(), test_bag_matching(), test_vorm(), test_ua(), test_een_bron(), test_doorverwijzing(), test_geocode(), test_geocode_gedeelde_stand()]
     print()

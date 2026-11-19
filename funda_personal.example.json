@@ -81,17 +81,23 @@
     },
     "verrijking": {
       "aan": true,
-      "max_calls_per_run": 60,
+      "max_calls_per_run": 90,
       "bronnen": {
         "bag": true,
         "fundering": true,
         "geluid": true,
         "buurt": true,
-        "tevredenheid": true
+        "tevredenheid": true,
+        "kerncijfers": true,
+        "veiligheid": true,
+        "lucht": true,
+        "groen": true,
+        "klimaat": true,
+        "erfgoed": true
       }
     }
   },
-  "_doc_beoordeling_verrijking": "Verrijking uit open bronnen (BAG via PDOK, Klimaateffectatlas, RIVM-geluidkaarten, Leefbaarometer, RIVM-gezondheidsmonitor via CBS). Fail-soft, robots.txt per host, eerlijke user-agent, hooguit max_calls_per_run verzoeken per run; cache in funda_enrichment_cache.json. aan: false = geen enkel verzoek.",
+  "_doc_beoordeling_verrijking": "Verrijking uit open bronnen (BAG via PDOK, Klimaateffectatlas, RIVM-geluidkaarten, Leefbaarometer, RIVM-gezondheidsmonitor via CBS; sinds 18 nov 2026 ook CBS-kerncijfers per buurt, politiecijfers via CBS, RIVM-luchtkwaliteit en groen, wateroverlast en overstromingskans, en erfgoed van de RCE: die tellen nog niet mee in de score). Elke bron apart aan of uit. Fail-soft, robots.txt per host, eerlijke user-agent, hooguit max_calls_per_run verzoeken per run; cache in funda_enrichment_cache.json. aan: false = geen enkel verzoek.",
   "financien": {
     "alleenstaand": true,
     "starter_tot": null,

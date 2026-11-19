@@ -232,6 +232,45 @@ def test_prijs_onbekend() -> bool:
 RENTE_TEST = {"pct": 4.11, "bron": "standaard", "datum": "2026-07-06", "oud": True, "melding": None}
 
 
+def test_markdown_living_area() -> bool:
+    """render_markdown met een living_area die geen getal is (funda gaf tekst): geen crash, geen prijs per m²."""
+    print("test: markdown met een niet-numerieke living_area")
+    import funda_rapport as fr
+    b = {"status_kort": "Past", "score": 6.0}
+    rijen = [{"d": {"global_id": 1, "title": "Teststraat 1", "city": "Den Haag", "price": 250000, "living_area": lv},
+              "beoordeling": b} for lv in ("ca. 60 m²", "60", 62, 0, None, [60], float("nan"))]
+    try:
+        md = fr.render_markdown(rijen, {})
+    except Exception as exc:  # noqa: BLE001
+        return check("render_markdown gooit niet", False, f"{type(exc).__name__}: {exc}")
+    blokken = md.split("### ")[1:]
+    ok = check("zeven woningen in de markdown", len(blokken) == 7, str(len(blokken)))
+    ok &= check("tekst zonder getal: geen prijs per m², de tekst blijft staan",
+                "per m²" not in blokken[0] and "ca. 60 m² m²" in blokken[0])
+    ok &= check("een getal als tekst of als getal: wel een prijs per m²",
+                "€ 4.167 per m²" in blokken[1] and "€ 4.032 per m²" in blokken[2])
+    ok &= check("0, leeg, een lijst en NaN: geen prijs per m²", all("per m²" not in x for x in blokken[3:]))
+    # Informatieve items uit de open bronnen en het prijs-signaal: een eigen regel, zonder punten.
+    import funda_beoordeling as fb
+    info = fb.omgeving_items({"lucht": {"status": "ok", "data": {"no2": 18.3, "pm25": None, "groen_pct": 16}}})
+    info.append(fb._item("financiering", "neutraal", "Leenruimte", "€ 1 over", "leentoets 2026"))
+    info.append(fb._item("prijsverloop", "neutraal", "Eerder zonder prijs", "gezien, datum onbekend", "eigen waarneming"))
+    info.append(fb._item("schuin_dak", "neutraal", "Schuin dak", "mogelijk onder schuin dak", "kenmerk 'Soort dak'"))
+    md2 = fr.render_markdown([{"d": {"global_id": 1, "title": "Teststraat 1", "city": "Den Haag", "price": 250000,
+                                     "living_area": 60}, "beoordeling": dict(b, info=info)}], {})
+    regel = next((r for r in md2.splitlines() if r.startswith("- Buurt en omgeving")), "")
+    ok &= check("markdown: regel 'Buurt en omgeving' met de items uit de open bronnen, zonder de overige info",
+                "Stikstofdioxide (NO2): 18,3 µg/m³, boven WHO-advies (RIVM 2024)" in regel and "Groen binnen 500 m: 16%" in regel
+                and "Leenruimte" not in regel and "telt niet mee" in regel and "Schuin dak" not in regel
+                and "Eerder zonder prijs" not in regel, regel)
+    regel = next((r for r in md2.splitlines() if r.startswith("- Over de woning")), "")
+    ok &= check("markdown: 'Schuin dak: mogelijk' en 'Eerder zonder prijs' in de regel over de woning, net als op de kaart",
+                "Eerder zonder prijs: gezien, datum onbekend" in regel and "Schuin dak: mogelijk onder schuin dak" in regel
+                and "telt niet mee" in regel and "Stikstofdioxide" not in regel, regel)
+    ok &= check("markdown: zonder zulke items geen regel", "Buurt en omgeving" not in md and "Over de woning" not in md)
+    return ok
+
+
 def test_prijs_onbekend_rapport() -> bool:
     """Geen vraagprijs: niet als € 0 bovenaan met budget PAST.
 
@@ -448,6 +487,11 @@ def test_rapport_testdata() -> bool:
             ok &= check("log: kenmerklabels en aantallen per poort",
                         any(r.startswith("[rapport] Kenmerklabels") and "Bijdrage VvE" in r for r in logregels)
                         and any(r.startswith("[rapport] Per poort: Past ") for r in logregels))
+            ph = next((r for r in logregels if r.startswith("[rapport] Prijshistorie: ")), "")
+            ok &= check("log: prijshistorie met statuswaarden en regels zonder bedrag, alleen aantallen",
+                        bool(re.fullmatch(r"\[rapport\] Prijshistorie: \d+ regels bij \d+ van 13 woningen; status "
+                                          r"(?:[a-z_]+ \d+(?:, )?)+; zonder bedrag \d+(?: \((?:[a-z_]+ \d+(?:, )?)+\))?"
+                                          r"; eerder zonder prijs gezien \d+\.", ph)) and "asking_price" in ph, ph)
             ok &= check("log: geen adressen of postcodes",
                         not any(t in r for r in logregels for t in titels + postcodes))
             cache = json.loads((tmp / "cache.json").read_text(encoding="utf-8"))
@@ -690,9 +734,13 @@ def test_geocoding() -> bool:
                         [urllib.parse.urlparse(u).path for u in calls][0] == "/robots.txt"
                         and adresvragen() == ["1013AB", "9999ZZ"], str(calls))
             bewaard = json.loads(fr.WERK_CACHE.read_text(encoding="utf-8"))
-            ok &= check("gevonden punt voorgoed in funda_werk_coords.json, oude regels blijven",
-                        bewaard == {"1011AB": [51.0, 5.0], "1012AB": [52.5, 4.5], "0000XX": [52.0, 4.0],
-                                    "1013AB": [52.39, 4.88]}, str(bewaard))
+            hs = fv.postcode_sleutel
+            ok &= check("gevonden punt voorgoed in funda_werk_coords.json, oude regels blijven (sleutels gehasht)",
+                        bewaard == {hs("1011AB"): [51.0, 5.0], hs("1012AB"): [52.5, 4.5], hs("0000XX"): [52.0, 4.0],
+                                    hs("1013AB"): [52.39, 4.88]}, str(bewaard))
+            ok &= check("migratie: geen leesbare postcode meer in het bestand, sleutel in de vorm pc:<hash>",
+                        not any(pc in fr.WERK_CACHE.read_text(encoding="utf-8") for pc in ("1011AB", "1012AB", "1013AB", "0000XX"))
+                        and all(re.fullmatch(r"pc:[0-9a-f]{20}", k) for k in bewaard), str(list(bewaard)))
             tekst = uit.getvalue()
             ok &= check("::warning:: met aantallen, zonder postcode of label",
                         "::warning::" in tekst and "1 van 4" in tekst and "9999" not in tekst
@@ -719,8 +767,18 @@ def test_geocoding() -> bool:
             fz._THUIS.clear()
             nieuwe_run()
             ok &= check("thuis: via PDOK", fz.thuis_coords() == (52.37, 4.9) and adresvragen()[-1] == "1011AB")
-            ok &= check("thuis: in funda_thuis_coords.json, zelfde vorm",
-                        json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {"1011AB": [52.37, 4.9]})
+            ok &= check("thuis: in funda_thuis_coords.json, onder de hash van de postcode",
+                        json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {fv.postcode_sleutel("1011AB"): [52.37, 4.9]})
+            # Een oud bestand met de leesbare postcode: bij het laden omgezet en zo teruggeschreven.
+            fz.THUIS_CACHE.write_text(json.dumps({"1011 ab": [52.37, 4.9], "rommel": [1, 2], "1012AB": "x"}), encoding="utf-8")
+            fz._THUIS.clear()
+            nieuwe_run()
+            n_voor = len(calls)
+            ok &= check("thuis: oud bestand met leesbare postcode werkt zonder verzoek",
+                        fz.thuis_coords() == (52.37, 4.9) and len(calls) == n_voor)
+            ok &= check("thuis: daarna alleen de gehashte sleutel in het bestand",
+                        json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {fv.postcode_sleutel("1011AB"): [52.37, 4.9]},
+                        fz.THUIS_CACHE.read_text(encoding="utf-8"))
             fz._THUIS.clear()
             nieuwe_run()
             n = len(calls)
@@ -730,6 +788,13 @@ def test_geocoding() -> bool:
             fz._PERSONAL["thuis_coords"] = [52.1, 4.2]
             ok &= check("thuis: thuis_coords in de config gaat voor", fz.thuis_coords() == (52.1, 4.2)
                         and len(calls) == n)
+            # Ook dan wordt een oud bestand omgezet: de leesbare postcode blijft niet in de cache staan.
+            fz._THUIS.clear()
+            fz.THUIS_CACHE.write_text(json.dumps({"1011 AB": [52.37, 4.9]}), encoding="utf-8")
+            ok &= check("thuis: punt uit de config, en het oude bestand is toch omgezet (geen leesbare postcode meer)",
+                        fz.thuis_coords() == (52.1, 4.2) and len(calls) == n
+                        and json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {fv.postcode_sleutel("1011AB"): [52.37, 4.9]},
+                        fz.THUIS_CACHE.read_text(encoding="utf-8"))
             del fz._PERSONAL["thuis_coords"]
             fz._THUIS.clear()
             fz.POSTCODE = "9999ZZ"
@@ -738,7 +803,7 @@ def test_geocoding() -> bool:
                 thuis = fz.thuis_coords()
             ok &= check("thuis: niet te vinden = None, ::warning:: zonder postcode, cache onaangeroerd",
                         thuis is None and "::warning::" in uit.getvalue() and "9999" not in uit.getvalue()
-                        and json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {"1011AB": [52.37, 4.9]},
+                        and json.loads(fz.THUIS_CACHE.read_text(encoding="utf-8")) == {fv.postcode_sleutel("1011AB"): [52.37, 4.9]},
                         uit.getvalue().strip())
             ok &= check("thuis: zonder punt geen afstandsfilter",
                         fz.buiten_zoekcriteria({"price": 280_000, "latitude": 51.0, "longitude": 4.0}, thuis,
@@ -1035,8 +1100,8 @@ def test_pushtekst() -> bool:
     data = json.loads(uit.stdout)
     r = data["r"]
     ok = check("nieuwe vorm", r[0] == "Teststraat 1, Den Haag · Past · 8,3", r[0])
-    ok &= check("zonder beoordeling: geen vraagprijs", r[1] == "Teststraat 2, Den Haag · 68 m2", r[1])
-    ok &= check("prijs op aanvraag zonder beoordeling", r[2] == "Teststraat 3, Den Haag · prijs op aanvraag · 70 m2", r[2])
+    ok &= check("zonder beoordeling: geen vraagprijs", r[1] == "Teststraat 2, Den Haag · 68 m²", r[1])
+    ok &= check("prijs op aanvraag zonder beoordeling", r[2] == "Teststraat 3, Den Haag · prijs op aanvraag · 70 m²", r[2])
     ok &= check("oude samenvatting: alleen het poortwoord", r[3:7] == [
         "Teststraat 4, Den Haag · Past · 7,0", "Teststraat 5, Den Haag · Krap · 7,2",
         "Teststraat 6, Den Haag · Past niet · 7,4", "Teststraat 7, Den Haag · Prijs onbekend · 6,0"], str(r[3:7]))
@@ -2281,7 +2346,7 @@ def test_pool_in_run() -> bool:
 
 def main() -> int:
     resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(), test_prijs_onbekend(),
-                  test_prijs_onbekend_rapport(), test_rapport_testdata(), test_rapport_rente_cache_ua(), test_geocoding(), test_verrijking_ruwe_velden(), test_twijfel_naar_rapport(), test_vul_summary_aan(),
+                  test_prijs_onbekend_rapport(), test_markdown_living_area(), test_rapport_testdata(), test_rapport_rente_cache_ua(), test_geocoding(), test_verrijking_ruwe_velden(), test_twijfel_naar_rapport(), test_vul_summary_aan(),
                   test_push_volgorde(), test_pushtekst(), test_auto_keten(), test_buurtfilter(), test_stadfilter(),
                   test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),

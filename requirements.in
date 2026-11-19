@@ -1,0 +1,20 @@
+# Losse eisen. requirements.txt is hieruit gegenereerd, met exacte versies en
+# hashes; werk daar niet met de hand in. Opnieuw genereren (bewust, en lees de
+# diff):
+#   uv pip compile requirements.in --universal --python-version 3.11 --generate-hashes -o requirements.txt
+# --universal neemt ook de wheels en markers voor Windows en macOS mee; 3.11 is
+# de Python van de workflows.
+
+# Pin pyfunda op 2.9.0: v3+ heeft een andere API (geen search_listing/.data).
+# Van PyPI en niet meer van de git-tag: een tag kan verzet worden, een bestand
+# op PyPI niet, en alleen zo kan er een hash bij (git+https gaat niet samen met
+# --require-hashes). De wheel is op 18 nov 2026 bestand voor bestand vergeleken
+# met commit 1bbe5d3291474d11f92a4af7490b84689fbe48ca (tag v2.9.0 van
+# github.com/0xMH/pyfunda): identiek.
+pyfunda==2.9.0
+cryptography>=42
+# Voor de HTML-zoekfallback (komt ook met pyfunda mee, hier expliciet).
+curl-cffi>=0.7
+# Voor de rentemodule (funda_rente.py): ASN publiceert de tarieven als PDF.
+# Gemeten met 6.17; zonder pypdf valt de rente terug op het DNB-cijfer.
+pypdf>=6.17,<7

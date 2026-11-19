@@ -1,0 +1,21 @@
+{
+ "odata.metadata": "https://dataderden.cbs.nl/ODataApi/OData/47018NED/$metadata#Cbs.OData.WebAPI.SoortMisdrijf",
+ "value": [
+  {
+   "Key": "0.0.0 ",
+   "Title": "Totaal misdrijven"
+  },
+  {
+   "Key": "1.1.1 ",
+   "Title": "1.1.1 Diefstal/inbraak woning"
+  },
+  {
+   "Key": "1.1.2 ",
+   "Title": "1.1.2 Diefstal/inbraak box/garage/schuur"
+  },
+  {
+   "Key": "2.2.1 ",
+   "Title": "2.2.1 Vernieling cq. zaakbeschadiging"
+  }
+ ]
+}

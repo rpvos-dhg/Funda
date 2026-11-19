@@ -1,0 +1,10 @@
+{
+  "name": "funda-push",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Alleen voor scripts/send_web_push.cjs (de Web Push van de dagelijkse workflow). Installeren: npm ci --ignore-scripts",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "web-push": "3.6.7"
+  }
+}

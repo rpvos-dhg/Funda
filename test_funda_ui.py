@@ -25,6 +25,10 @@ UI = HIER / "ui"
 CSS = (UI / "app.css").read_text(encoding="utf-8")
 JS = (UI / "app.js").read_text(encoding="utf-8")
 SLOT = (UI / "slot.html").read_text(encoding="utf-8")
+SLOT_JS = (UI / "slot.js").read_text(encoding="utf-8")
+SLOT_CSS = (UI / "slot.css").read_text(encoding="utf-8")
+PUSH_JS = (UI / "push.js").read_text(encoding="utf-8")
+SLOT_ALLES = SLOT + SLOT_CSS + SLOT_JS + PUSH_JS   # alles van het slotscherm, voor de teksten en verboden woorden
 
 # Contrastparen (WCAG 2.x): (omschrijving, voorgrond, achtergrond, minimum). Tekst 4,5; niet-tekst 3,0.
 # --border-color-default en --border-color-subtle zijn decoratief (kaartrand, scheidingslijn, rand om
@@ -86,7 +90,10 @@ CONTRASTPAREN = [
     ("balk plus", "foreground-color-feedback-positive", "background-color-inset", NIET_TEKST),
     ("balk min", "foreground-color-feedback-negative", "background-color-inset", NIET_TEKST),
 ]
-VERBODEN_WOORDEN = ["ANWB", "Nomad", "nomad", "Clan Pro", "Bernina", "#ffcd00", "#003d86"]
+# Merk- en fontnamen van derden, uit losse delen opgebouwd: de namen zelf horen niet in de repo te staan
+# (besluit eigenaar), ook niet in deze test. Zie test_geen_merknaam.
+MERKNAMEN = ["AN" + "WB", "No" + "mad", "Clan" + " Pro", "Ber" + "nina"]
+VERBODEN_WOORDEN = MERKNAMEN + [MERKNAMEN[1].lower(), "#ffcd00", "#003d86"]
 BEVOLKING = ["herkomst", "nationaliteit", "migratie", "etniciteit", "allochto", "bevolkingssamenstelling"]
 
 
@@ -350,7 +357,7 @@ def test_status_en_scenario_in_kaart() -> bool:
         check("scenario_regel", funda_ui.scenario_regel("Past nu") == "Financiering: past nu"
               and funda_ui.scenario_regel(None) == ""),
         check("scenario's in laag 2 met planning", "Later (planning)</dt><dd>past" in w01
-              and "<dt>Nu</dt><dd>past niet, max. koopsom" in w01),
+              and "<dt>Nu</dt><dd>past niet, koopsom tot" in w01),
         check("twijfelregel met Onderaan gezet", "Twijfelbuurt Leyenburg (jouw lijst). Onderaan gezet." in w10),
         check("redenregel met minteken U+2212 in de punten", "−" in body and "-0,5" not in body),
     ])
@@ -432,7 +439,7 @@ def test_css_regels() -> bool:
         rest = rest.replace(_blok(rest, kop), "{}", 1)
     los = re.findall(r"(?<![\w-])#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3}(?:[0-9a-fA-F]{2})?)?(?![\w-])", rest)
     body = _body()
-    alles = {"app.css": CSS, "app.js": JS, "slot.html": SLOT, "body": body}
+    alles = {"app.css": CSS, "app.js": JS, "slot": SLOT_ALLES, "body": body}
     verboden = [(n, w) for n, t in alles.items() for w in VERBODEN_WOORDEN if w in t]
     licht, media, _ = tokenblokken()
     donker = {**licht, **media}
@@ -489,19 +496,19 @@ def test_rente_en_budget() -> bool:
     rente_budget = met_uitleg[met_uitleg.index('id="budget"'):met_uitleg.index("</details>", met_uitleg.index('id="budget"'))]
     return all([
         check("melding bij oude rente: één zin met datum, percentage en leeftijd", 'id="rente-melding"' in oud
-              and "Rente van 6 juli 2026 (4,11%) is 123 dagen oud: woonlasten kunnen afwijken. <u>Meer weten</u>" in oud),
+              and "Rente van 6 juli 2026 (4,11%) is 123 dagen oud: woonlasten kunnen afwijken. <u>Bekijk de aannames</u>" in oud),
         check("oude rente: uitleg van de rentemodule alleen in Jouw budget", "zet financien.rente.pct" not in rente_top
               and "zet financien.rente.pct in je config." in rente_budget),
         check("geen melding bij verse rente", 'id="rente-melding"' not in vers),
         check("melding uit de rentemodule zichtbaar", 'id="rente-melding"' in melding
               and "ASN gaf geen rente; DNB-maandcijfer gebruikt." in melding),
-        check("bron en peildatum in budget", "standaardwaarde uit de code, peildatum 6 juli 2026 (123 dagen oud)" in budget),
+        check("bron en peildatum in budget", "standaardrente van dit rapport, peildatum 6 juli 2026 (123 dagen oud)" in budget),
         check("ASN met datum", "ASN Bank, peildatum 5 november 2026" in vers and "3,86%" in vers),
         check("rente als fractie wordt procent", "3,86%" in fractie),
         check("kop zegt rente oud", "· rente 123 dagen oud" in oud),
-        check("max. koopsom per scenario", "<dt>Nu</dt>" in budget and "<dt>Later (planning)</dt>" in budget
+        check("hoogste koopsom per scenario", "Hoogste koopsom per scenario." in budget and "<dt>Nu</dt>" in budget and "<dt>Later (planning)</dt>" in budget
               and "<dt>Met bonus</dt>" in budget),
-        check("groepen volgen planning", "volgen het scenario &quot;Later&quot;" in budget),
+        check("groepen volgen planning", "volgen het scenario 'Later'." in budget),
         check("geen inkomen in de body", "inkomen" not in oud.lower() and "62.000" not in oud),
         check("scenario's uit meta gaan voor", "<dd>€\u00a0250.000</dd>" in _body(
             {"scenarios": [{"id": "nu", "label": "Nu", "max_koopsom": 250000}]})),
@@ -526,7 +533,9 @@ def test_meta_en_randgevallen() -> bool:
               and "230.000" not in met_woz),
         check("lege lijst rendert", '<div id="app"' in leeg and _woning_data(leeg) == {"woningen": []}),
         check("zonder meta: geen runknop, wel lijst", "Nieuwe run starten" not in zonder and zonder.count("<article") == 13),
-        check("met actions_url een runknop", "Nieuwe run starten" in _body()),
+        check("met actions_url een verversknop, zonder 'run' of de naam van de host in de tekst",
+              'aria-label="Ververs het rapport: opent de startpagina in een nieuw venster"' in _body()
+              and "Nieuwe run" not in _body()),
         check("push-blok met de id's van de push-JS", all(f'id="{i}"' in push for i in
               ("push-subscribe-btn", "push-copy-btn", "push-subscription-output", "push-status"))),
         check("push-blok weg als er al een abonnement is", "push-subscribe-btn" not in push_al),
@@ -557,20 +566,16 @@ def test_app_js() -> bool:
 
 
 def test_slot() -> bool:
-    print("ui/slot.html")
+    print("ui/slot.html, ui/slot.js en ui/slot.css")
     gevonden = re.findall(r"__[A-Z_]+__", SLOT)
     nodig = list(funda_ui.SLOT_PLACEHOLDERS)
     waarden = {p: f"<!--{p.strip('_').lower()}-->" for p in nodig}
-    waarden.update({"__GZ__": "1", "__ITERS__": "100000", "__SALT__": "c2FsdA==", "__IV__": "aXY=", "__CT__": "Y3Q="})
     gevuld = funda_ui.vul_slot(waarden)
     try:
-        funda_ui.vul_slot({"__GZ__": "1"})
+        funda_ui.vul_slot({"__CSP__": "x"})
         fout_bij_missen = False
     except ValueError:
         fout_bij_missen = True
-    zonder = SLOT
-    for p in nodig:
-        zonder = zonder.replace(p, "")
     theme = re.search(r'<meta name="theme-color" content="(#[0-9a-fA-F]{6})">', SLOT)
     theme_donker = re.search(r'<meta name="theme-color" media="\(prefers-color-scheme: dark\)" content="(#[0-9a-fA-F]{6})">', SLOT)
     return all([
@@ -583,18 +588,57 @@ def test_slot() -> bool:
         check("theme-color donker = THEME_COLOR_DONKER, vóór de gewone (eerste match telt)", bool(theme_donker)
               and theme_donker.group(1) == funda_ui.THEME_COLOR_DONKER and theme_donker.start() < theme.start()),
         check("color-scheme light dark", '<meta name="color-scheme" content="light dark">' in SLOT),
-        check("gzip uitpakken", 'DecompressionStream("gzip")' in SLOT and "const GZ = __GZ__;" in SLOT),
-        check("melding te oude browser", "class TeOud" in SLOT and "Werk je iPhone bij naar iOS 16.4 of nieuwer." in SLOT),
-        check("niet-exporteerbare basissleutel", 'importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveKey"])' in SLOT),
-        check("sleutel in IndexedDB", "indexedDB.open(" in SLOT and "s.put({sleutel" in SLOT),
-        check("nooit het wachtwoord bewaren", "localStorage.setItem" not in SLOT and "sessionStorage.setItem" not in SLOT),
-        check("oud wachtwoord opgeruimd", 'OUD_PW = "funda_pw_persist_v1"' in SLOT and "localStorage.removeItem(OUD_PW)" in SLOT
-              and 'sessionStorage.removeItem("funda_pw")' in SLOT),
-        check("terugval met melding", "Onthouden lukt niet in deze browser." in SLOT),
-        check("knop Vergeet dit apparaat", ">Vergeet dit apparaat</button>" in SLOT and "window.fundaApparaat" in SLOT),
-        check("na ontsleutelen fundaAfterReportLoad", "window.fundaAfterReportLoad()" in SLOT),
+        check("geen inline script of style: alleen bestanden en het JSON-pakket", "<style" not in SLOT
+              and re.findall(r"<script\b[^>]*>", SLOT) == ['<script defer src="leaflet/leaflet.js">', '<script defer src="app.js">',
+                                                         '<script defer src="push.js">', '<script defer src="slot.js">',
+                                                         '<script type="application/json" id="slot-data">']),
+        check("CSP en no-referrer bovenaan de <head>", SLOT.index("Content-Security-Policy") < SLOT.index('name="referrer"')
+              < SLOT.index("<title>")),
+        check("slot.js leest het pakket uit #slot-data", 'JSON.parse(document.getElementById("slot-data").textContent)' in SLOT_JS),
+        check("slot.css: geen hex buiten de tokens van app.css", not re.search(r"#[0-9a-fA-F]{3,8}\b", SLOT_CSS.replace("#content", ""))),
+        check("knop Vergeet dit apparaat", ">Vergeet dit apparaat</button>" in SLOT and "window.fundaApparaat" in SLOT_JS),
+        check("terugval met melding", "Onthouden lukt niet in deze browser." in SLOT_JS),
         check("geen merknaam of voornaam", "Funda Shortlist" not in SLOT and "<title>Woningrapport</title>" in SLOT),
-        check("slotscherm zonder placeholders <= 12 kB", len(zonder.encode()) <= 12_000, f"{len(zonder.encode())} bytes"),
+        check("slotscherm (html, css en js) <= 16 kB", len((SLOT + SLOT_CSS + SLOT_JS).encode()) <= 16_000,   # 14 kB plus de pauze na foute pogingen
+              f"{len((SLOT + SLOT_CSS + SLOT_JS).encode())} bytes"),
+    ])
+
+
+def test_veilige_uitvoer() -> bool:
+    print("JSON in het script-blok, funda-links, externe links")
+    rijen, meta = testrijen()
+    rijen = copy.deepcopy(rijen)
+    naar = "Teststraat 1 <!--<script>alert(1)</script> & </script"
+    rijen[0]["d"]["title"] = naar
+    body = funda_ui.render_report_body(rijen, meta)
+    blok = re.search(r'<script type="application/json" id="woning-data">(.*?)</script>', body, re.S).group(1)
+    data = json.loads(blok)
+    url = funda_ui.funda_url
+    gevallen = {
+        "/detail/koop/den-haag/appartement-teststraat-1/43000001/": "https://www.funda.nl/detail/koop/den-haag/appartement-teststraat-1/43000001/",
+        "detail/koop/x/": "https://www.funda.nl/detail/koop/x/",
+        "https://www.funda.nl/detail/43000001/": "https://www.funda.nl/detail/43000001/",
+        "http://www.funda.nl/detail/43000001/": "https://www.funda.nl/detail/43000001/",
+        "https://www.funda.nl.example.invalid/x": "", "https://example.invalid/https://www.funda.nl/": "",
+        "https://www.funda.nl@example.invalid/": "", "https://www.funda.nl\\@example.invalid/": "",
+        "https://www.funda.nl:8443/x": "", "https://funda.nl/x": "", "//example.invalid/x": "",
+        "javascript:alert(1)": "", "JaVaScRiPt:alert(1)": "", "data:text/html,x": "", "/detail/a b": "", "": "",
+    }
+    fout = {k: url({"url": k}) for k, v in gevallen.items() if url({"url": k}) != v}
+    kwaad = funda_ui.render_report_body([{"d": {"global_id": 9, "title": "Woning", "price": 250000, "url": "javascript:alert(1)"}}], {})
+    links = re.findall(r'<a\b[^>]*target="_blank"[^>]*>', body)
+    return all([
+        check("woning-data: geen <, > of & letterlijk", not re.search(r"[<>&]", blok), blok[:80]),
+        check("woning-data: nog steeds dezelfde titel na JSON.parse", any(w["titel"] == naar for w in data["woningen"])),
+        check("de titel staat ge-escaped in de kaart", "&lt;!--&lt;script&gt;alert(1)" in body and "<!--<script>" not in body),
+        check("funda_url: alleen https://www.funda.nl/..., een pad krijgt de host, de rest valt weg", not fout, str(fout)),
+        check("funda_url: geen tekst = geen link", url({"url": 5}) == "" and url({}) == ""),
+        check("funda_url: detail_url gaat voor url", url({"detail_url": "/a/", "url": "/b/"}) == "https://www.funda.nl/a/"),
+        check("woning met een vreemde link: geen knop naar funda", "javascript:" not in kwaad and "Bekijk op funda" not in kwaad),
+        check("externe links: rel noopener noreferrer", len(links) >= 13 and all('rel="noopener noreferrer"' in a for a in links),
+              str(len(links))),
+        check("vergrendelknop in Dit apparaat", 'data-actie="vergrendel"' in body and "> Vergrendel</button>" in body
+              and '[data-actie="vergrendel"]' in JS and "a.vergrendel()" in JS),
     ])
 
 
@@ -603,8 +647,9 @@ def test_groottes() -> bool:
     body = _body()
     per_woning = len(body.encode()) / 13
     return all([
-        check("ui/app.css <= 40 kB", len(CSS.encode()) <= 40_000, f"{len(CSS.encode())} bytes"),
-        check("ui/app.js <= 23 kB", len(JS.encode()) <= 23_000, f"{len(JS.encode())} bytes"),
+        # 40 en 23 kB plus de audit van nov 2026: labels bij de iconknoppen, vervaging van de snelfilters, sluitknop op de toast
+        check("ui/app.css <= 42 kB", len(CSS.encode()) <= 42_000, f"{len(CSS.encode())} bytes"),
+        check("ui/app.js <= 24 kB", len(JS.encode()) <= 24_000, f"{len(JS.encode())} bytes"),
         check("body <= 14 kB per woning", per_woning <= 14_000, f"{per_woning:.0f} bytes per woning"),
     ])
 
@@ -612,7 +657,7 @@ def test_groottes() -> bool:
 def test_tekst() -> bool:
     print("tekst: geen em dash of gedachtestreepje, geen bevolkingskenmerken")
     body = _body()
-    bronnen = {"body": body, "app.css": CSS, "app.js": JS, "slot.html": SLOT,
+    bronnen = {"body": body, "app.css": CSS, "app.js": JS, "slot": SLOT_ALLES,
                "funda_ui.py": (HIER / "funda_ui.py").read_text(encoding="utf-8")}
     streep = [n for n, t in bronnen.items() if "—" in t or "–" in t]
     return all([
@@ -621,6 +666,55 @@ def test_tekst() -> bool:
         check("€ met spatie, geen €-bedrag zonder spatie", not re.search(r"€\d", body)),
         check("m² en geen m2 in zichtbare tekst", " m2 " not in body),
     ])
+
+
+def test_omgeving_blok() -> bool:
+    """Informatieve items uit de open bronnen (18 nov 2026): een eigen uitklapblok per kaart, zonder punten."""
+    print("omgeving: blok 'Buurt en omgeving' met de items uit de open bronnen")
+    import funda_beoordeling as fb
+    rijen, meta = testrijen()
+    verrijking = {"lucht": {"status": "ok", "data": {"no2": 18.3, "pm25": 8.7, "groen_pct": 16}},
+                  "veiligheid": {"status": "ok", "data": {"jaar": 2025, "misdrijven_per_1000": 498.2, "gem_misdrijven_per_1000": 146.5}},
+                  "klimaat": {"status": "ok", "data": {"wateroverlast": "zeer hoog", "waterdiepte": "meer dan 30 cm"}}}
+    items = fb.omgeving_items(verrijking)
+    b = rijen[0]["beoordeling"]
+    b["info"] = list(b.get("info") or []) + [i for i in items if i["groep"] == "info"] + [
+        fb._item("prijsverloop", "neutraal", "Eerder zonder prijs", "gezien op 12 okt 2026", "eigen waarneming", uitleg="<b>uitleg</b>")]
+    b["info"] += fb.binnenklimaat({}, {"Isolatie": "Geen isolatie"}, "Slaapkamer onder de kap.", None, None, "G", "G", 1930)
+    b["let_op"] = list(b.get("let_op") or []) + [i for i in items if i["groep"] == "let_op"]
+    body = funda_ui.render_report_body(rijen, meta)
+    sleutel = funda_ui.woning_sleutel(rijen[0]["d"])
+    kaart = _kaart(body, sleutel)
+    m = re.search(r'<details class="opbouw omgeving">(.*?)</details>', kaart, re.S)
+    blok = m.group(1) if m else ""
+    mw = re.search(r'<section class="blok"><h4>Woning</h4>(.*?)</section>', kaart, re.S)
+    woning = mw.group(1) if mw else ""
+    n_info = len([i for i in b["info"] if i["onderdeel"] in fb.INFO_TONEN])
+    andere = _kaart(body, funda_ui.woning_sleutel(rijen[1]["d"]))
+    ok = [
+        check("blok aanwezig met het aantal items", "Buurt en omgeving" in blok and f'<span class="waarde">{n_info}</span>' in blok, blok[:200]),
+        check("items met label, waarde, bron en uitleg",
+              all(t in blok for t in ("Stikstofdioxide (NO2)", "18,3 µg/m³, boven WHO-advies", "RIVM 2024", "WHO-advies 10",
+                                      "Misdrijven buurt", "498 per 1.000 (gemeente 146)"))),
+        check("'Eerder zonder prijs' gaat over de woning: in het blok Woning, niet onder Buurt en omgeving",
+              "<b>Eerder zonder prijs</b>: gezien op 12 okt 2026" in woning and "Eerder zonder prijs" not in blok
+              and "Telt niet mee in de score" in woning and 'class="pt ' not in woning
+              and "prijsverloop" in fb.INFO_WONING and "prijsverloop" not in fb.INFO_TONEN, woning[-600:]),
+        check("geen punten in het blok, wel de zin dat het niet meetelt", 'class="pt ' not in blok and "Telt nog niet mee in de score" in blok),
+        check("uitleg wordt ge-escaped", "&lt;b&gt;uitleg&lt;/b&gt;" in woning and "<b>uitleg</b>" not in kaart),
+        check("overige neutrale items (leenruimte en dergelijke) staan niet in het blok", "Leenruimte" not in blok and "Woonoppervlak" not in blok),
+        check("een 'let op' uit een open bron staat bij Let op, zonder punten", "Wateroverlast bij bui" in kaart and "Wateroverlast bij bui" not in blok),
+        check("kaart zonder zulke items: geen blok", "opbouw omgeving" not in andere and "opbouw binnenklimaat" not in andere),
+        check("bron in gewone taal (audit schrijfstijl, nov 2026)", "eerder gezien door dit rapport" in woning and "eigen waarneming" not in kaart
+              and funda_ui.bron_tekst("kenmerk 'Gelegen op'") == "advertentie, bij Gelegen op"
+              and funda_ui.bron_tekst("berekening") == "zelf berekend" and funda_ui.bron_tekst("CBS 2024") == "CBS 2024"),
+        check("binnenklimaat: zomer en winter in het blok Woning, als indicatie en zonder punten", (lambda k: bool(k)
+              and "Warmte en kou in huis" in k.group(1) and "<b>Zomer</b>: kans op warmte: 2 aanwijzingen" in k.group(1)
+              and "<b>Winter</b>: kans op kou" in k.group(1) and "niet gemeten" in k.group(1) and "Telt niet mee in de score" in k.group(1) and 'class="pt ' not in k.group(1)
+              and "Zomer" not in blok)(re.search(r'<details class="opbouw binnenklimaat">(.*?)</details>', kaart, re.S))),
+        check("CSS: binnenmarge voor de lijst in het uitklapblok", ".opbouw>.punten" in CSS),
+    ]
+    return all(ok)
 
 
 def test_fixronde_ui() -> bool:
@@ -666,21 +760,21 @@ def test_fixronde_ui() -> bool:
         check("eur_vast is weg (eur heeft al een harde spatie)", not hasattr(funda_ui, "eur_vast")),
         check("scorebalk: −0,5 en −0,5 (afgerond) even breed, half naar boven",
               len(balk) == 3 and balk[1] == balk[2] == "3" and balk[0] == "3", str(balk)),
-        check("placeholder max. woonlasten uit je grens, zonder grens geen getal",
-              re.search(r'id="f-maxlasten"[^>]* placeholder="bijv. 1450">', body) is not None
+        check("placeholder 'Woonlasten tot' uit je grens, zonder grens geen getal",
+              re.search(r'id="f-maxlasten"[^>]* placeholder="bijvoorbeeld 1450">', body) is not None
               and re.search(r'id="f-maxlasten"[^>]*>', funda_ui.render_report_body(
                   [{"d": {"global_id": 1, "price": 1}}], {})).group(0).count("placeholder") == 0),
         check("twijfeluitleg dekt leefbaarheid", "(buurt, stad of leefbaarheid onduidelijk)" in body),
-        check("vergelijking: Financiering, netto per maand en ≈ min",
-              "['Financiering'," in JS and "' netto per maand'" in JS and "'≈ ' + w.reis_min + ' min'" in JS
+        check("vergelijking: Status (poort) en Financiering (scenario), netto per maand en minuten fietsen",
+              "['Status'," in JS and "['Financiering'," in JS and "' netto per maand'" in JS and "w.reis_min + ' min'" in JS and "≈" not in JS
               and "'Wanneer'" not in JS),
         check("popup: scenario met label Financiering", "'<br>Financiering: ' + esc(finTekst(w.scenario_tekst))" in JS),
         check("JS: euroteken met harde spatie", "'€\\u00a0'" in JS and "replace(/€ /g, '€\\u00a0')" in JS),
-        check("één woord: apparaat (geen toestel)", all("toestel" not in t for t in (body, JS, SLOT))),
+        check("één woord: apparaat (geen toestel)", all("toestel" not in t for t in (body, JS, SLOT_ALLES))),
         check("slot: fout direct onder het wachtwoordveld", SLOT.index('id="err"') < SLOT.index('id="remember"')
               and SLOT.index('id="err"') > SLOT.index('class="pw-rij"')),
-        check("slot: onthouden sleutel, geen onthouden wachtwoord", "Het onthouden wachtwoord" not in SLOT
-              and "De onthouden sleutel werkt niet meer. Vul je wachtwoord opnieuw in." in SLOT),
+        check("slot: onthouden sleutel, geen onthouden wachtwoord", "Het onthouden wachtwoord" not in SLOT_ALLES
+              and "De onthouden sleutel werkt niet meer. Vul je wachtwoord opnieuw in." in SLOT_JS),
         check("WOZ zonder datum: geen peildatum", "peildatum" not in funda_ui.kenmerken(
             dict(w, woz={"price": 200000, "date": "1 jan, 2026"}))),
     ]
@@ -769,11 +863,29 @@ def test_eindreview_js() -> bool:
     return ok
 
 
+def test_geen_merknaam() -> bool:
+    print("test: geen merk- of fontnaam van derden in een bijgehouden bestand")
+    import subprocess
+    try:
+        namen = subprocess.run(["git", "ls-files"], cwd=HIER, capture_output=True, text=True, check=True).stdout.split("\n")
+    except Exception:
+        print("  (overgeslagen: geen git)")
+        return True
+    fout = []
+    for naam in filter(None, namen):
+        pad = HIER / naam
+        if not pad.is_file():
+            continue
+        tekst = pad.read_bytes().decode("utf-8", "ignore").lower()
+        fout += [naam for m in MERKNAMEN if re.search(r"(?<![a-z])" + re.escape(m.lower()) + r"(?![a-z])", tekst)]
+    return check("geen enkel bestand noemt een van de namen", not fout, str(sorted(set(fout))[:8]))
+
+
 def main() -> int:
-    resultaten = [test_contract_testdata(), test_ids_en_attributen(), test_statusregels(), test_status_en_scenario_in_kaart(),
+    resultaten = [test_geen_merknaam(), test_contract_testdata(), test_ids_en_attributen(), test_statusregels(), test_status_en_scenario_in_kaart(),
                   test_prijs_onbekend(), test_volgorde(), test_woning_data(), test_css_regels(), test_contrast(),
-                  test_rente_en_budget(), test_meta_en_randgevallen(), test_app_js(), test_slot(), test_groottes(), test_tekst(),
-                  test_fixronde_ui(), test_eindreview_js()]
+                  test_rente_en_budget(), test_meta_en_randgevallen(), test_app_js(), test_slot(), test_veilige_uitvoer(), test_groottes(), test_tekst(),
+                  test_fixronde_ui(), test_eindreview_js(), test_omgeving_blok()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

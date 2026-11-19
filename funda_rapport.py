@@ -15,7 +15,8 @@ rente uit de config, en laat de run nooit falen. De funda-checks die een run met
 zitten in funda_zoek.main() en veranderen hier niet.
 
 De UI (lijst, kaart, sheets) staat in funda_ui.py en ui/; het slotscherm is ui/slot.html. De body
-wordt eerst met gzip ingepakt en daarna versleuteld (AES-256-GCM, PBKDF2-SHA256 100.000x).
+wordt eerst met gzip ingepakt, opgevuld en daarna versleuteld (AES-256-GCM; sleutel via PBKDF2-SHA256
+600.000x en HKDF, zie beveilig_html).
 Met FUNDA_REQUIRE_ENCRYPTION=1 (CI) komt er nooit een onversleuteld rapport in docs/.
 """
 
@@ -24,6 +25,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import time
 import urllib.request
 from collections import Counter
@@ -130,27 +132,24 @@ def geocodeer_postcode(postcode: str) -> tuple[tuple[float, float] | None, str |
 def get_werk_coords() -> dict[str, tuple[float, float]]:
     """Punt per werkpostcode uit de config: {postcode: (lat, lon)}.
 
-    Per postcode: `werk_coords` in de config gaat voor, dan funda_werk_coords.json (zelfde vorm:
-    {postcode: [lat, lon]}), dan één poging via PDOK; een gevonden punt komt voorgoed in dat bestand.
+    Per postcode: `werk_coords` in de config gaat voor, dan funda_werk_coords.json ({hash van de
+    postcode: [lat, lon]}, funda_verrijking.postcode_sleutel), dan één poging via PDOK; een gevonden punt komt voorgoed in dat bestand.
     Lukt het niet, dan een ::warning:: met alleen aantallen en geen route naar dat adres: de
     reisafstand is dan onbekend (geen minpunt)."""
     vast = _PERSONAL.get("werk_coords")
     vast = vast if isinstance(vast, dict) else {}
-    try:
-        cache = json.loads(WERK_CACHE.read_text(encoding="utf-8")) if WERK_CACHE.exists() else {}
-    except Exception:  # noqa: BLE001
-        cache = {}
-    cache = cache if isinstance(cache, dict) else {}
+    # De sleutels in het bestand zijn gehasht; een oude leesbare postcode wordt bij het laden omgezet.
+    cache, nieuw = funda_verrijking.coords_cache_lees(WERK_CACHE)
     postcodes = _werk_postcodes()
     coords: dict[str, tuple[float, float]] = {}
     redenen: Counter[str] = Counter()
-    nieuw = False
     for pc, _ in postcodes:
-        punt = funda_verrijking.coord_paar(vast.get(pc)) or funda_verrijking.coord_paar(cache.get(pc))
+        sleutel = funda_verrijking.postcode_sleutel(pc)
+        punt = funda_verrijking.coord_paar(vast.get(pc)) or funda_verrijking.coord_paar(cache.get(sleutel))
         if punt is None:
             punt, reden = geocodeer_postcode(pc)
-            if punt:
-                cache[pc] = list(punt)
+            if punt and sleutel:
+                cache[sleutel] = list(punt)
                 nieuw = True
             else:
                 redenen[reden or "onbekend"] += 1
@@ -158,7 +157,7 @@ def get_werk_coords() -> dict[str, tuple[float, float]]:
             coords[pc] = punt
     if nieuw:
         try:
-            WERK_CACHE.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+            funda_verrijking.coords_cache_schrijf(WERK_CACHE, cache)
         except Exception as exc:  # noqa: BLE001
             print(f"[rapport] Werkcoördinaten niet bewaard ({type(exc).__name__}).")
     if redenen:
@@ -528,6 +527,23 @@ def log_aantallen(rijen: list[dict]) -> None:
     print("[rapport] Per poort: " + ", ".join(f"{naam} {tel.get(p, 0)}"
                                              for p, naam in funda_beoordeling.POORT_NAAM.items())
           + f"; met twijfel {twijfel}.")
+    # Meting voor "eerder zonder prijs aangeboden": welke statuswaarden funda's prijshistorie geeft en
+    # hoeveel regels geen bedrag hebben. Alleen aantallen.
+    ph = funda_beoordeling.log_prijshistorie([r.get("d") for r in rijen])
+    zonder = sum(ph["zonder_bedrag"].values())
+    print(f"[rapport] Prijshistorie: {ph['regels']} regels bij {ph['woningen']} van {len(rijen)} woningen; status "
+          + (", ".join(f"{k} {n}" for k, n in ph["status"].items()) or "geen")
+          + f"; zonder bedrag {zonder}"
+          + (" (" + ", ".join(f"{k} {n}" for k, n in ph["zonder_bedrag"].items()) + ")" if zonder else "")
+          + f"; eerder zonder prijs gezien {sum(1 for r in rijen if (r.get('d') or {}).get('_zonder_prijs_gezien'))}.")
+    # De CSP van de PWA laat alleen foto's van FOTO_HOST door. Die host is niet gemeten; komt funda
+    # met een andere, dan blijven de foto's leeg en zegt deze regel waarom (alleen een aantal).
+    fotos = [u for r in rijen for u in ((r.get("details") or {}).get("photo_urls") or [])
+             if isinstance(u, str) and re.match(r"(?i)[a-z][a-z0-9+.-]*:|//", u)]
+    buiten = sum(1 for u in fotos if not u.startswith(f"https://{FOTO_HOST}/"))
+    if buiten:
+        print(f"::warning::{buiten} van {len(fotos)} foto's komen niet van {FOTO_HOST}: de CSP van de PWA "
+              "houdt ze tegen (funda_rapport.FOTO_HOST en CSP bijwerken).")
 
 
 def rapport_meta(cfg: dict, rente: dict, nu: datetime, rijen: list[dict] | None = None,
@@ -642,7 +658,7 @@ def _prijs_tekst(r: dict) -> str:
 
 def _punten_md(items: list[dict]) -> str:
     return "; ".join(_md(f"{it.get('label')}: {it.get('waarde')}"
-                         + (f" ({it['bron']})" if it.get("bron") else "")) for it in items)
+                         + (f" ({funda_ui.bron_tekst(it['bron'])})" if it.get("bron") else "")) for it in items)
 
 
 def _rente_md(r: dict) -> str:
@@ -709,7 +725,7 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
         lines.append(f"- Let op de rente: {_md(r['melding'])}")
     sc = _scenarios_md(rijen, meta)
     if sc:
-        lines.append("- Max. koopsom per scenario:")
+        lines.append("- Hoogste koopsom per scenario:")
         lines.extend(sc)
     lines += ["- Woonlasten zijn netto, jaar 1. Een bedrag met ≈ is een schatting.",
               "- Score 0 tot 10. 5 betekent: voldoet aan je eisen. Onbekend en kansen tellen niet mee.", ""]
@@ -736,17 +752,18 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
         if b.get("uitleg_regel"):
             lines.append(f"- {_md(b['uitleg_regel'])}")
         if fin.get("scenario_tekst"):
-            lines.append(f"- Scenario: {_md(fin['scenario_tekst'])}")
+            lines.append(f"- {_md(funda_ui.scenario_regel(fin['scenario_tekst']))}")   # zelfde woord als op de kaart
         for t in b.get("twijfel") or []:
             lines.append(f"- Twijfel: {_md(t)} Onderaan gezet.")
         m2 = d.get("living_area") or det.get("living_area")
+        m2_getal, vraagprijs = _getal(m2), _getal(d.get("price"))   # funda geeft soms tekst ("ca. 60 m²")
         prijs = _prijs_tekst(rij)
-        if not rij.get("prijs_onbekend") and m2:
-            prijs += f" ({funda_ui.eur_tekst(d['price'] / m2)} per m²)"
+        if not rij.get("prijs_onbekend") and m2_getal and m2_getal > 0 and vraagprijs:
+            prijs += f" ({funda_ui.eur_tekst(vraagprijs / m2_getal)} per m²)"
         netto = fin.get("netto")
         lasten = f"{funda_ui.eur_tekst(netto)} netto per maand" if netto is not None else "onbekend"
         lines.append(f"- Vraagprijs: {prijs} · Woonlasten: {lasten}")
-        feit = [f"{m2} m²" if m2 else None, f"{d.get('rooms')} kamers" if d.get("rooms") else None,
+        feit = [f"{_md(m2)} m²" if m2 else None, f"{d.get('rooms')} kamers" if d.get("rooms") else None,
                 f"label {d.get('energy_label') or det.get('energy_label') or 'onbekend'}",
                 _md(d.get("neighbourhood")) or None]
         lines.append("- Woning: " + ", ".join(x for x in feit if x))
@@ -757,6 +774,15 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
                              ("Kansen", "kansen")):
             if b.get(sleutel):
                 lines.append(f"- {kop}: {_punten_md(b[sleutel])}")
+        omgeving = [it for it in b.get("info") or [] if it.get("onderdeel") in funda_beoordeling.INFO_TONEN]
+        if omgeving:
+            lines.append(f"- Buurt en omgeving (telt niet mee in de score): {_punten_md(omgeving)}")
+        bij_woning = [it for it in b.get("info") or [] if it.get("onderdeel") in funda_beoordeling.INFO_WONING]
+        if bij_woning:   # zelfde items als in het blok Woning op de kaart
+            lines.append(f"- Over de woning (telt niet mee in de score): {_punten_md(bij_woning)}")
+        for it in b.get("info") or []:
+            if it.get("onderdeel") == funda_beoordeling.BINNENKLIMAAT:   # indicatie, geen meting; de aanwijzingen staan in de uitleg
+                lines.append(f"- {_md(it.get('label'))} (indicatie): {_md(it.get('waarde'))}. {_md(it.get('uitleg') or '')}")
         if b.get("zelf_nagaan"):
             lines.append("- Zelf nagaan:")
             lines.extend(f"  {n}. {_md(v)}" for n, v in enumerate(b["zelf_nagaan"], 1))
@@ -769,115 +795,28 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
 
 # === HTML (lokaal) en PWA ===
 
-# Leaflet (kaart) via CDN, in de <head>: scripts in de via innerHTML gezette body draaien niet.
-MAP_HEAD = """
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-<script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-"""
+# Leaflet 1.9.4 (kaart), zelf gehost: ui/leaflet/ gaat mee naar docs/leaflet/ (schrijf_statisch). In de
+# <head>: scripts in de via innerHTML gezette body draaien niet.
+LEAFLET_VERSIE = "1.9.4"
 
 
-def pwa_push_js() -> str:
-    """Web Push in de PWA: abonnement maken en tonen voor de secret WEB_PUSH_SUBSCRIPTION.
+def map_head(prefix: str = "") -> str:
+    return (f'<link rel="stylesheet" href="{prefix}leaflet/leaflet.css">\n'
+            f'<script defer src="{prefix}leaflet/leaflet.js"></script>')
 
-    Hoort bij het blok "Meldingen op deze iPhone" (funda_ui, ids push-*). Heeft dit toestel al een
-    abonnement, dan verbergt de JS dat blok. Leeg zonder WEB_PUSH_PUBLIC_KEY."""
+
+def push_head() -> str:
+    """De publieke Web Push-sleutel als meta-tag; ui/push.js leest hem. Leeg zonder WEB_PUSH_PUBLIC_KEY."""
     if not WEB_PUSH_PUBLIC_KEY:
         return ""
-    key = json.dumps(WEB_PUSH_PUBLIC_KEY)
-    return f"""
-<script>
-(function(){{
-  var WEB_PUSH_PUBLIC_KEY = {key};
-  function pushStatus(msg, isError){{
-    var el = document.getElementById('push-status');
-    if(!el) return;
-    el.textContent = msg || '';
-    el.classList.toggle('is-fout', !!isError);
-  }}
-  function verbergAlsIngesteld(){{
-    var blok = document.getElementById('meldingen');
-    if(!blok || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
-    navigator.serviceWorker.ready.then(function(reg){{ return reg.pushManager.getSubscription(); }})
-      .then(function(sub){{ if(sub && blok.dataset.net !== '1') blok.hidden = true; }})
-      .catch(function(){{}});
-  }}
-  function b64ToUint8Array(base64){{
-    var padding = '='.repeat((4 - base64.length % 4) % 4);
-    var b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
-    var raw = atob(b64);
-    var out = new Uint8Array(raw.length);
-    for(var i=0;i<raw.length;i++) out[i] = raw.charCodeAt(i);
-    return out;
-  }}
-  async function ensurePushSubscription(){{
-    if(!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)){{
-      throw new Error('Web Push wordt niet ondersteund in deze browser.');
-    }}
-    var permission = await Notification.requestPermission();
-    if(permission !== 'granted') throw new Error('Notificaties zijn niet toegestaan.');
-    var reg = await navigator.serviceWorker.ready;
-    var sub = await reg.pushManager.getSubscription();
-    if(!sub){{
-      sub = await reg.pushManager.subscribe({{
-        userVisibleOnly: true,
-        applicationServerKey: b64ToUint8Array(WEB_PUSH_PUBLIC_KEY)
-      }});
-    }}
-    return sub;
-  }}
-  function wirePushSetup(){{
-    var btn = document.getElementById('push-subscribe-btn');
-    var copy = document.getElementById('push-copy-btn');
-    var output = document.getElementById('push-subscription-output');
-    if(!btn || !output || btn.dataset.bound === '1') return;
-    btn.dataset.bound = '1';
-    verbergAlsIngesteld();
-    btn.addEventListener('click', async function(){{
-      btn.disabled = true;
-      var blok = document.getElementById('meldingen');
-      if(blok) blok.dataset.net = '1';
-      pushStatus('Abonnement maken...');
-      try {{
-        var sub = await ensurePushSubscription();
-        output.value = JSON.stringify(sub.toJSON(), null, 2);
-        output.hidden = false;
-        if(copy) copy.hidden = false;
-        pushStatus('Kopieer dit abonnement naar de GitHub-secret WEB_PUSH_SUBSCRIPTION.');
-      }} catch(err) {{
-        pushStatus(err && err.message ? err.message : String(err), true);
-      }} finally {{
-        btn.disabled = false;
-      }}
-    }});
-    if(copy){{
-      copy.addEventListener('click', async function(){{
-        try {{
-          await navigator.clipboard.writeText(output.value || '');
-          pushStatus('Abonnement gekopieerd.');
-        }} catch(err) {{
-          output.focus();
-          output.select();
-          pushStatus('Kopieer de geselecteerde tekst zelf.', true);
-        }}
-      }});
-    }}
-  }}
-  var previous = window.fundaAfterReportLoad;
-  window.fundaAfterReportLoad = function(){{
-    if(previous) previous();
-    wirePushSetup();
-  }};
-  document.addEventListener('DOMContentLoaded', wirePushSetup);
-}})();
-</script>
-"""
+    return f'<meta name="funda-push-key" content="{funda_ui.h(WEB_PUSH_PUBLIC_KEY)}">'
 
 
 def _scripts(is_pwa: bool) -> str:
-    """Complete <script>-blokken: eerst de UI (zet fundaAfterReportLoad), dan de push-JS die erop aanhaakt."""
-    return f"<script>{funda_ui.UI_JS}</script>" + (pwa_push_js() if is_pwa else "")
+    """Inline <script>-blokken voor het onversleutelde rapport (lokaal): eerst de UI (zet
+    fundaAfterReportLoad), dan de push-JS die erop aanhaakt. De versleutelde PWA laadt dezelfde
+    bestanden uit docs/ (geen inline script, zie CSP)."""
+    return f"<script>{funda_ui.UI_JS}</script>" + (f"<script>{funda_ui.PUSH_JS}</script>" if is_pwa else "")
 
 
 def _body(rijen: list[dict], meta: dict | None, is_pwa: bool) -> str:
@@ -900,6 +839,7 @@ def render_html(rijen: list[dict], meta: dict | None = None, is_pwa: bool = Fals
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Woningen">
+""" + push_head() + """
 """
         pwa_script = """
 <script>
@@ -919,8 +859,9 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 <title>Woningrapport, {nu.day} {_NL_MAANDEN[nu.month - 1]} {nu.year}</title>
 <link rel="icon" href="{asset_prefix}favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" sizes="180x180" href="{asset_prefix}apple-touch-icon.png">
+<meta name="referrer" content="no-referrer">
 {pwa_head}
-{MAP_HEAD}
+{map_head(asset_prefix)}
 <style>{funda_ui.UI_CSS}</style>
 </head>
 <body>
@@ -955,9 +896,11 @@ PWA_MANIFEST = json.dumps({
 }, indent=2, ensure_ascii=False) + "\n"
 
 # Cache ophogen is verplicht bij een nieuwe wrapper: anders blijft een geïnstalleerde PWA de oude tonen.
+# Alleen same-origin GET's komen in de cache; foto's en kaarttegels van buiten gaan er ongemoeid langs.
 PWA_SERVICE_WORKER = """// Woningrapport: service worker (network-first, cache als terugval)
-const CACHE = 'funda-shortlist-v5';
-const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png'];
+const CACHE = 'funda-shortlist-v7';
+const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png',
+  'app.css', 'slot.css', 'app.js', 'slot.js', 'push.js', 'leaflet/leaflet.js', 'leaflet/leaflet.css'];
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
@@ -972,12 +915,13 @@ self.addEventListener('fetch', e => {
   if (url.origin !== location.origin) return;
   e.respondWith(
     fetch(e.request).then(resp => {
-      if (resp.ok) {
+      if (resp.ok && resp.type === 'basic') {
         const clone = resp.clone();
         caches.open(CACHE).then(c => c.put(e.request, clone)).catch(()=>{});
       }
       return resp;
-    }).catch(() => caches.match(e.request).then(r => r || caches.match('index.html')))
+    }).catch(() => caches.match(e.request).then(r =>
+      r || (e.request.mode === 'navigate' ? caches.match('index.html') : Response.error())))
   );
 });
 self.addEventListener('push', e => {
@@ -1136,47 +1080,101 @@ def _write_png_icon(path: Path, size: int) -> None:
     path.write_bytes(png)
 
 
-def beveilig_html(html: str, password: str, css: str | None = None, scripts: str | None = None,
-                  gz: bool = True) -> str:
-    """Versleutel de body en wikkel hem in het slotscherm (ui/slot.html).
+# === Versleuteling van de PWA ===
+# Alles hieronder is publiek (het staat ook in docs/index.html); geheim is alleen het wachtwoord.
+KDF_ITERS = 600_000   # OWASP-advies voor PBKDF2-SHA256
+# Vast zout van deze app, voor de hoofdsleutel. Publiek, willekeurig, en bewust niet per run: de
+# browser bewaart de hoofdsleutel en die moet de volgende run nog passen. Wijzigen = iedereen vult
+# één keer het wachtwoord opnieuw in.
+APP_ZOUT = bytes.fromhex("1f017e8c08649ec54f34bcfdcc10e776")
+KDF_INFO = "woningrapport/v2 hkdf-sha256 aes-256-gcm"   # versiestring; ophogen bij een andere opbouw
+PAKKET_VERSIE = 2
+BLOK = 8192           # de ciphertext (met de tag van 16 bytes) is altijd een veelvoud hiervan
+_TAG = 16
 
-    Eerst gzip (niveau 9, mtime 0, dus reproduceerbaar), dan AES-256-GCM met een sleutel uit
-    PBKDF2-SHA256 (100.000 iteraties, 16 byte zout, 12 byte IV). Comprimeren moet vóór het
-    versleutelen: ciphertext comprimeert niet, dus Pages kan hem over de lijn niet kleiner maken.
-    `gz=False` is de terugval (het slotscherm kent dan GZ 0 en pakt niets uit).
+# Content-Security-Policy van de wrapper (meta-tag). Geen inline script en geen inline style: alle
+# code staat als bestand in docs/. Afbeeldingen: eigen iconen, funda's foto's, OSM-tegels, en data:
+# omdat Leaflet een afgebroken tegel op een lege GIF als data-URI zet. frame-ancestors werkt niet in
+# een meta-tag; daarvoor weigert ui/slot.js te ontgrendelen in een frame.
+FOTO_HOST = "cloud.funda.nl"
+TEGEL_HOST = "tile.openstreetmap.org"   # dezelfde als in ui/app.js (test_funda_pwa)
+CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; "
+       f"img-src 'self' https://{FOTO_HOST} https://{TEGEL_HOST} data:; "
+       "connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'")
 
-    css: CSS in het slotscherm (standaard funda_ui.UI_CSS; het slotscherm gebruikt die klassen ook).
-    scripts: complete <script>-blokken buiten de versleuteling (standaard de UI-JS en pwa_push_js()),
-    want scripts in de via innerHTML gezette body draaien niet.
-    """
+
+def hoofdsleutel(password: str) -> bytes:
+    """PBKDF2-SHA256(wachtwoord, APP_ZOUT, KDF_ITERS): de trage stap, één keer per wachtwoord."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    return PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=APP_ZOUT,
+                      iterations=KDF_ITERS).derive(password.encode("utf-8"))
+
+
+def runsleutel(hoofd: bytes, zout: bytes, info: str = KDF_INFO) -> bytes:
+    """HKDF-SHA256(hoofdsleutel, salt = run-zout, info = versiestring): de AES-256-sleutel van één run."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    return HKDF(algorithm=hashes.SHA256(), length=32, salt=zout, info=info.encode("utf-8")).derive(hoofd)
+
+
+def vul_op(data: bytes) -> bytes:
+    """Lengte (4 bytes, big-endian) + data + nullen, zo lang dat de ciphertext met tag een veelvoud van BLOK is."""
+    kaal = 4 + len(data) + _TAG
+    return len(data).to_bytes(4, "big") + data + bytes(-kaal % BLOK)
+
+
+def versleutel(html: str, password: str, gz: bool = True) -> dict:
+    """Het pakket voor #slot-data: alles wat de browser nodig heeft behalve het wachtwoord.
+
+    ui/slot.js doet het omgekeerde; test_funda_pwa.py ook, in Python en met het echte slot.js in node."""
     import base64
     import gzip
-    from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-    css = funda_ui.UI_CSS if css is None else css
-    scripts = _scripts(True) if scripts is None else scripts
     data = html.encode("utf-8")
     if gz:
         data = gzip.compress(data, compresslevel=9, mtime=0)
-
-    salt = os.urandom(16)
+    zout = os.urandom(16)
     iv = os.urandom(12)
-    iters = 100_000  # snel genoeg op mobiel, sterk genoeg met goed wachtwoord
-    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=iters)
-    key = kdf.derive(password.encode("utf-8"))
-    ciphertext = AESGCM(key).encrypt(iv, data, None)
+    ciphertext = AESGCM(runsleutel(hoofdsleutel(password), zout)).encrypt(iv, vul_op(data), None)
 
+    def b64(b: bytes) -> str:
+        return base64.b64encode(b).decode()
+
+    return {"v": PAKKET_VERSIE, "gz": 1 if gz else 0, "iters": KDF_ITERS, "app_zout": b64(APP_ZOUT),
+            "info": KDF_INFO, "zout": b64(zout), "iv": b64(iv), "ct": b64(ciphertext)}
+
+
+def beveilig_html(html: str, password: str, gz: bool = True) -> str:
+    """Versleutel de body en wikkel hem in het slotscherm (ui/slot.html).
+
+    Opbouw:
+      hoofdsleutel = PBKDF2-SHA256(wachtwoord, APP_ZOUT, 600.000 iteraties)
+      runsleutel   = HKDF-SHA256(hoofdsleutel, salt = run-zout van 16 bytes, info = KDF_INFO)
+      ciphertext   = AES-256-GCM(runsleutel, IV van 12 bytes, lengte + gzip(body) + opvulling)
+    Zout en IV zijn elke run nieuw.
+
+    Waarom zo (dreigingsmodel): "Onthoud op dit apparaat" bewaart de hoofdsleutel, en wie de opslag
+    van het apparaat leest mag daarmee niet sneller naar het wachtwoord kunnen raden dan iemand met
+    alleen de publieke ciphertext. De oude opbouw bewaarde de PBKDF2-basissleutel; daaruit was een
+    afleiding met 1 iteratie te halen, dus raden zonder de trage stap. De HKDF-hoofdsleutel is niet
+    exporteerbaar en zit ná de 600.000 iteraties.
+
+    Eerst gzip (niveau 9, mtime 0, dus reproduceerbaar), dan opvullen, dan versleutelen. Comprimeren
+    moet vóór het versleutelen: ciphertext comprimeert niet, dus Pages kan hem over de lijn niet
+    kleiner maken. De opvulling (vul_op) maakt de ciphertext een veelvoud van 8 kB, zodat de
+    bestandsgrootte het aanbod niet meer per woning volgt. `gz=False` is de terugval (het slotscherm
+    pakt dan niets uit).
+
+    De wrapper bevat geen CSS of JavaScript meer: die staan als bestanden in docs/ (schrijf_statisch),
+    en de CSP in de wrapper staat alleen die toe. Het pakket staat als JSON in #slot-data.
+    """
+    pakket = json.dumps(versleutel(html, password, gz), separators=(",", ":"))
     return funda_ui.vul_slot({
-        "__APP_CSS__": css,
-        "__MAP_HEAD__": MAP_HEAD,
-        "__APP_SCRIPTS__": scripts,
-        "__GZ__": "1" if gz else "0",
-        "__SALT__": base64.b64encode(salt).decode(),
-        "__IV__": base64.b64encode(iv).decode(),
-        "__CT__": base64.b64encode(ciphertext).decode(),
-        "__ITERS__": str(iters),
+        "__CSP__": funda_ui.h(CSP),
+        "__PUSH_META__": push_head(),
+        "__PAKKET__": pakket,
     })
 
 
@@ -1187,8 +1185,34 @@ def _pwa_wachtwoord() -> str:
     return ""
 
 
+# Statische bestanden van de PWA: pad in docs/ -> bron in ui/. De service worker bewaart ze ook.
+STATISCH = {
+    "app.css": "app.css", "slot.css": "slot.css", "app.js": "app.js", "slot.js": "slot.js", "push.js": "push.js",
+    "leaflet/leaflet.js": "leaflet/leaflet.js", "leaflet/leaflet.css": "leaflet/leaflet.css",
+    "leaflet/LICENSE": "leaflet/LICENSE",
+}
+
+
+def schrijf_statisch(pwa_dir: Path) -> None:
+    """Alles in docs/ behalve index.html: manifest, service worker, iconen, CSS, JavaScript en Leaflet.
+
+    Hangt niet van de woningen of het wachtwoord af. Een oude index.html (alles inline) blijft naast
+    deze bestanden gewoon werken."""
+    pwa_dir.mkdir(parents=True, exist_ok=True)
+    (pwa_dir / "manifest.json").write_text(PWA_MANIFEST, encoding="utf-8")
+    (pwa_dir / "service-worker.js").write_text(PWA_SERVICE_WORKER, encoding="utf-8")
+    (pwa_dir / "icon.svg").write_text(PWA_ICON_SVG, encoding="utf-8")
+    (pwa_dir / "favicon.svg").write_text(PWA_FAVICON_SVG, encoding="utf-8")
+    _write_png_icon(pwa_dir / "apple-touch-icon.png", 180)
+    _write_png_icon(pwa_dir / "icon-512.png", 512)
+    for doel, bron in STATISCH.items():
+        pad = pwa_dir / doel
+        pad.parent.mkdir(parents=True, exist_ok=True)
+        pad.write_bytes((funda_ui.UI_DIR / bron).read_bytes())
+
+
 def schrijf_pwa_assets(rijen: list[dict], meta: dict | None = None) -> Path:
-    """Manifest, service worker, iconen en index.html in docs/ (onder UITVOER_DIR)."""
+    """Manifest, service worker, iconen, CSS, JavaScript en index.html in docs/ (onder UITVOER_DIR)."""
     password = _pwa_wachtwoord()
     # Vangrail: in CI (publieke repo) NOOIT onversleuteld publiceren. Vóór het schrijven, zodat
     # er dan ook niets anders in docs/ verandert.
@@ -1199,13 +1223,7 @@ def schrijf_pwa_assets(rijen: list[dict], meta: dict | None = None) -> Path:
         )
 
     pwa_dir = UITVOER_DIR / PWA_DIR_NAAM
-    pwa_dir.mkdir(parents=True, exist_ok=True)
-    (pwa_dir / "manifest.json").write_text(PWA_MANIFEST, encoding="utf-8")
-    (pwa_dir / "service-worker.js").write_text(PWA_SERVICE_WORKER, encoding="utf-8")
-    (pwa_dir / "icon.svg").write_text(PWA_ICON_SVG, encoding="utf-8")
-    (pwa_dir / "favicon.svg").write_text(PWA_FAVICON_SVG, encoding="utf-8")
-    _write_png_icon(pwa_dir / "apple-touch-icon.png", 180)
-    _write_png_icon(pwa_dir / "icon-512.png", 512)
+    schrijf_statisch(pwa_dir)
 
     if password:
         beveiligd = beveilig_html(_body(rijen, meta, True), password)

@@ -1,0 +1,60 @@
+{
+ "odata.metadata": "https://dataderden.cbs.nl/ODataApi/OData/47024NED/$metadata#Cbs.OData.WebAPI.TypedDataSet",
+ "value": [
+  {
+   "ID": 1204405,
+   "Overlast": "0.0.0 ",
+   "WijkenEnBuurten": "GM0518    ",
+   "Perioden": "2025JJ00",
+   "GeregistreerdeOverlast_1": 22833,
+   "Gemeentenaam_2": "'s-Gravenhage                 ",
+   "SoortRegio_3": "Gemeente"
+  },
+  {
+   "ID": 1221493,
+   "Overlast": "0.0.0 ",
+   "WijkenEnBuurten": "BU05182812",
+   "Perioden": "2025JJ00",
+   "GeregistreerdeOverlast_1": 444,
+   "Gemeentenaam_2": "'s-Gravenhage                 ",
+   "SoortRegio_3": "   Buurt"
+  },
+  {
+   "ID": 8350261,
+   "Overlast": "E35   ",
+   "WijkenEnBuurten": "GM0518    ",
+   "Perioden": "2025JJ00",
+   "GeregistreerdeOverlast_1": 3005,
+   "Gemeentenaam_2": "'s-Gravenhage                 ",
+   "SoortRegio_3": "Gemeente"
+  },
+  {
+   "ID": 8367349,
+   "Overlast": "E35   ",
+   "WijkenEnBuurten": "BU05182812",
+   "Perioden": "2025JJ00",
+   "GeregistreerdeOverlast_1": 24,
+   "Gemeentenaam_2": "'s-Gravenhage                 ",
+   "SoortRegio_3": "   Buurt"
+  },
+  {
+   "ID": 22641973,
+   "Overlast": "M061  ",
+   "WijkenEnBuurten": "GM0518    ",
+   "Perioden": "2025JJ00",
+   "GeregistreerdeOverlast_1": 145,
+   "Gemeentenaam_2": "'s-Gravenhage                 ",
+   "SoortRegio_3": "Gemeente"
+  },
+  {
+   "ID": 22659061,
+   "Overlast": "M061  ",
+   "WijkenEnBuurten": "BU05182812",
+   "Perioden": "2025JJ00",
+   "GeregistreerdeOverlast_1": 8,
+   "Gemeentenaam_2": "'s-Gravenhage                 ",
+   "SoortRegio_3": "   Buurt"
+  }
+ ],
+ "_ingekort": "drie van de negen soorten overlast"
+}

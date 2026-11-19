@@ -57,7 +57,7 @@ function bepaalNieuw(){
   ids.forEach(function(id){ if(nieuwIds.indexOf(id) < 0 && gezien.indexOf(id) < 0) gezien.push(id); });
   opslag.gezien = gezien; schrijf(opslag);
   var kop = $('#nieuw-titel');
-  if(kop) kop.textContent = bron === 'bezoek' ? 'Nieuw sinds je vorige bezoek' : 'Nieuw sinds de vorige run';
+  if(kop) kop.textContent = bron === 'bezoek' ? 'Nieuw sinds je vorige bezoek' : 'Nieuw sinds de vorige update';
   var leeg = $('#nieuw-leeg');
   if(leeg && opslag.laatsteBezoek) leeg.textContent = 'Geen nieuwe woningen sinds je vorige bezoek (' + opslag.laatsteBezoek + ').';
   function bezoek(){
@@ -153,7 +153,10 @@ function toepassen(){
     bw.setAttribute('aria-pressed', opslag.bewaard.indexOf(w.id) >= 0 ? 'true' : 'false');
     var vb = opslag.verborgen.indexOf(w.id) >= 0, vk = $('[data-actie="verberg"]', kaartEl);
     kaartEl.classList.toggle('is-verborgen', vb);
-    if(vk){ vk.title = vb ? 'Zet terug' : 'Verberg'; vk.setAttribute('aria-label', (vb ? 'Zet terug: ' : 'Verberg ') + w.titel); }
+    if(vk){
+      vk.setAttribute('aria-label', (vb ? 'Zet terug: ' : 'Verberg ') + w.titel);
+      var vl = $('.knop-label', vk); if(vl) vl.textContent = vb ? 'Zet terug' : 'Verberg';
+    }
   });
   // nieuw-sectie: blijft staan met een regel als hij leeg is (zonder filters)
   var nieuw = $('#nieuw');
@@ -174,9 +177,11 @@ function toepassen(){
   $('#leeg-kop').textContent = geenBewaard ? 'Nog niets bewaard' : 'Geen woningen met deze filters';
   $('#leeg-tekst').textContent = geenBewaard ? 'Tik op de ster bij een woning om hem hier te bewaren. Bewaren blijft op dit apparaat.'
     : 'Zet een filter uit of wis ze allemaal. Verborgen woningen tellen niet mee.';
-  $('#bewaard-balk').hidden = !(stand.snel === 'bewaard' && opslag.bewaard.length);
-  $('#bewaard-tekst').textContent = opslag.bewaard.length < 2 ? 'Bewaar nog een woning om te vergelijken.'
-    : opslag.bewaard.length + ' bewaard. Zet ze naast elkaar:';
+  // Bewaard telt overal zonder verborgen woningen: chip, balk, de teller op Vergelijk en de vergelijking zelf.
+  var nBewaard = bewaardZichtbaar().length;
+  $('#bewaard-balk').hidden = !(stand.snel === 'bewaard' && nBewaard);
+  $('#bewaard-tekst').textContent = nBewaard < 2 ? 'Bewaar nog een woning om te vergelijken.'
+    : nBewaard + ' bewaard. Zet ze naast elkaar:';
   // tellers
   var totaal = data.woningen.filter(function(w){ return opslag.verborgen.indexOf(w.id) < 0; }).length;
   var tt = $('#top-tel'); tt.hidden = !filterActief; tt.textContent = zichtbaar.length + ' van ' + totaal;
@@ -184,7 +189,7 @@ function toepassen(){
   $$('.filter-teller').forEach(function(t){ t.textContent = n; t.hidden = !n; });
   $$('.chip[data-snel]').forEach(function(c){ c.setAttribute('aria-pressed', c.dataset.snel === stand.snel ? 'true' : 'false'); });
   var snelTel = {alles: totaal, nieuw: nieuwIds.filter(function(id){ return opslag.verborgen.indexOf(id) < 0; }).length,
-    bewaard: opslag.bewaard.length};
+    bewaard: nBewaard};
   ['past','krap','gedaald'].forEach(function(k){
     snelTel[k] = data.woningen.filter(function(w){
       return opslag.verborgen.indexOf(w.id) < 0 && (k==='gedaald' ? w.gedaald : w.poort === k.toUpperCase());
@@ -194,12 +199,24 @@ function toepassen(){
   var vb = opslag.verborgen.length;
   $('#verborgen-regel').hidden = !vb;
   $('#verborgen-tekst').textContent = vb + (vb === 1 ? ' woning verborgen.' : ' woningen verborgen.');
-  $('#toon-verborgen').textContent = stand.toonVerborgen ? 'Verberg ze weer' : 'Toon ze';
+  $('#toon-verborgen').textContent = stand.toonVerborgen ? 'Verberg ze weer' : 'Toon verborgen woningen';
   var vg = $$('.vergelijk-knop');
-  vg.forEach(function(k){ k.disabled = opslag.bewaard.length < 2; $('.teller', k).textContent = opslag.bewaard.length; });
+  vg.forEach(function(k){ k.disabled = nBewaard < 2; $('.teller', k).textContent = nBewaard; });
+  snelRand();
   $('#sheet-toon').textContent = 'Toon ' + zichtbaar.length + (zichtbaar.length === 1 ? ' woning' : ' woningen');
   opslag.stand = stand; schrijf(opslag);
   if(kaart) tekenPins(zichtbaar);
+}
+
+function bewaardZichtbaar(){
+  return opslag.bewaard.filter(function(id){ return opslag.verborgen.indexOf(id) < 0; });
+}
+/* Snelfilters: een vervaging aan de kant waar nog chips buiten beeld staan (klassen, geen inline stijl: CSP). */
+function snelRand(){
+  var s = $('.snel'); if(!s) return;
+  var max = s.scrollWidth - s.clientWidth;
+  s.classList.toggle('meer-links', s.scrollLeft > 4);
+  s.classList.toggle('meer-rechts', max - s.scrollLeft > 4);
 }
 
 function actieveFilters(){
@@ -234,6 +251,7 @@ function toast(tekst, ongedaan){
   var t = $('#toast');
   $('#toast-tekst').textContent = tekst;
   var k = $('#toast-knop'); k.hidden = !ongedaan; k.onclick = function(){ ongedaan(); t.hidden = true; };
+  var sl = $('#toast-sluit'); if(sl) sl.onclick = function(){ clearTimeout(toast.timer); t.hidden = true; };
   t.hidden = false;
   clearTimeout(toast.timer); toast.timer = setTimeout(function(){ t.hidden = true; }, 6000);
 }
@@ -271,6 +289,7 @@ function koppel(){
     else if(el.matches('#toon-verborgen')){ stand.toonVerborgen = !stand.toonVerborgen; zetFormulier(); toepassen(); }
     else if(el.matches('[data-naar]')){ naarKaart(el.dataset.naar); }
     else if(el.matches('[data-actie="vergeet"]')){ vergeetApparaat(el); }
+    else if(el.matches('[data-actie="vergrendel"]')){ vergrendel(el); }
     else if(el.matches('[data-actie="budget"]')){ e.preventDefault(); var b = $('#budget'); b.open = true;
       b.scrollIntoView({block:'center'}); $('summary', b).focus({preventScroll:true}); }
   });
@@ -283,12 +302,19 @@ function koppel(){
   $$('dialog.sheet').forEach(function(d){
     d.addEventListener('click', function(e){ if(e.target === d) d.close(); });
   });
+  var snel = $('.snel');
+  if(snel){ snel.addEventListener('scroll', snelRand, {passive:true}); window.addEventListener('resize', snelRand); }
 }
 
-/* "Onthoud op dit apparaat": het slotscherm zet window.fundaApparaat; hier tonen en vergeten. */
+/* Het slotscherm zet window.fundaApparaat: vergrendelen, en met een bewaarde sleutel vergeten. */
 function apparaat(){
-  var blok = $('#apparaat'), a = window.fundaApparaat;
-  if(blok) blok.hidden = !(a && a.onthouden);
+  var a = window.fundaApparaat, aan = !!(a && a.vergrendel), onthoudt = !!(a && a.onthouden);
+  [['#apparaat', aan], ['#apparaat-onthoudt', onthoudt], ['[data-actie="vergeet"]', onthoudt]]
+    .forEach(function(p){ var el = $(p[0]); if(el) el.hidden = !p[1]; });
+}
+function vergrendel(knop){
+  var a = window.fundaApparaat; if(!a || !a.vergrendel) return;
+  knop.disabled = true; a.vergrendel();
 }
 function vergeetApparaat(knop){
   var a = window.fundaApparaat; if(!a || !a.vergeet) return;
@@ -326,7 +352,7 @@ function vergelijkHtml(ws){
     ['Vraagprijs', function(w){ return w.prijs ? eur(w.prijs) : 'op aanvraag'; }, 'prijs', -1],
     ['Score', function(w){ return w.score_tekst; }, 'score', 1],
     ['Oppervlak', function(w){ return w.m2 + ' m²'; }, 'm2', 1],
-    ['Fiets naar werk', function(w){ return w.reis_min==null ? 'onbekend' : '≈ ' + w.reis_min + ' min'; }, 'reis_min', -1],
+    ['Fietsen naar werk', function(w){ return w.reis_min==null ? 'onbekend' : w.reis_min + ' min'; }, 'reis_min', -1],
     ['Sterkste plus', function(w){ return esc(w.top_plus || 'geen'); }],
     ['Sterkste let op', function(w){ return esc(w.top_let_op || 'geen'); }],
     ['Buurt', function(w){ return esc(w.buurt); }]
@@ -347,7 +373,7 @@ function vergelijkHtml(ws){
   return h + '</tbody>';
 }
 
-function vulVergelijk(){ $('#vergelijk-tabel').innerHTML = vergelijkHtml(opslag.bewaard.map(woningVan).filter(Boolean)); }
+function vulVergelijk(){ $('#vergelijk-tabel').innerHTML = vergelijkHtml(bewaardZichtbaar().map(woningVan).filter(Boolean)); }
 
 /* Kaart: Leaflet, pins naar poort, nieuw als ring. Lazy: pas bij openen (mobiel). */
 function startKaart(){
@@ -357,13 +383,15 @@ function startKaart(){
     $('#kaart-melding').hidden = false;
     var pogingen = 0, t = setInterval(function(){
       if(window.L){ clearInterval(t); $('#kaart-melding').hidden = true; startKaart(); }
-      else if(++pogingen > 40){ clearInterval(t); $('#kaart-melding').textContent = 'De kaart kon niet laden. Zonder netwerk werkt alleen de lijst.'; }
+      else if(++pogingen > 40){ clearInterval(t); $('#kaart-melding').textContent = 'De kaart laadt niet. Controleer je verbinding en open de kaart opnieuw. De lijst werkt wel.'; }
     }, 150);
     return;
   }
   kaart = L.map(doos, {zoomControl:true, attributionControl:true, tap:false});
   kaart.zoomControl.setPosition('topright');
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(kaart);
+  // Eén tegelhost (CSP). Alleen hier gaat de kale herkomst mee: OpenStreetMap weigert tegels zonder referrer.
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap',
+    referrerPolicy:'origin'}).addTo(kaart);
   kaart._pins = L.layerGroup().addTo(kaart);
   tekenPins(data.woningen.filter(past), true);
 }

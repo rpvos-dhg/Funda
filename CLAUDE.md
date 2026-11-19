@@ -37,8 +37,10 @@ Actions en publiceert het rapport op GitHub Pages.
 - `funda_verrijking.py` (open bronnen per woning, en de geocoding van postcodes
   via PDOK) en `funda_rente.py` (actuele hypotheekrente). Fail-soft, met budget,
   robots.txt en eerlijke user-agent.
-- `funda_ui.py` met `ui/app.css`, `ui/app.js` en `ui/slot.html` - de UI (lijst,
-  kaart, sheets) en het slotscherm. Geen import van `funda_rapport`. Tokens en
+- `funda_ui.py` met `ui/app.css`, `ui/app.js`, `ui/push.js` en het slotscherm
+  (`ui/slot.html`, `ui/slot.css`, `ui/slot.js`) - de UI (lijst, kaart, sheets).
+  `ui/leaflet/` is Leaflet 1.9.4 met licentie. `funda_rapport` zet ze als losse
+  bestanden in `docs/`. Geen import van `funda_rapport`. Tokens en
   regels van het palet: `.interface-design/system.md`.
 - `.github/workflows/funda-daily.yml` - de dagelijkse run (rooster hierboven):
   genereert het rapport, publiceert `docs/` en stuurt de push.
@@ -49,7 +51,11 @@ Actions en publiceert het rapport op GitHub Pages.
   `funda_mail_validatie.py` (tegen de echte site of een echte mail),
   `funda_html_analyse.py`, `funda_sitemap_probe.py`, `funda_mail_imap_check.py`
   (alleen lokaal), `state_migratie.py` (cachemigratie) en `send_web_push.cjs`
-  (de push, ook in de workflow).
+  (de push, ook in de workflow; `web-push` komt uit `package.json` en
+  `package-lock.json` in de root).
+- `requirements.in` en `requirements.txt` - losse eisen en de daaruit
+  gegenereerde lijst met exacte versies en hashes (zie "Afhankelijkheden staan
+  vast").
 - `data/trhk_2026_tabel1.json` - tabel 1 van de leentoets en de labelbedragen
   (zie "Jaarwissel").
 - `testdata/` - fictieve fixtures: `woningen.json` (fixture-render),
@@ -104,7 +110,7 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   verrijking. Na het rapport zet `vul_summary_aan()` per nieuwe woning
   `status_push` (alleen het poortwoord: Past, Krap, Past niet of Prijs onbekend)
   en `score` in `funda_run_summary.json`; `scripts/send_web_push.cjs` toont dan
-  "<adres>, <stad> · Past · 8,3", zonder beoordeling "<adres>, <stad> · 68 m2".
+  "<adres>, <stad> · Past · 8,3", zonder beoordeling "<adres>, <stad> · 68 m²".
   De push toont de eerste drie, en `vul_summary_aan()` zet de nieuwe woningen
   daarvoor in de volgorde van "Aanbevolen" (`funda_beoordeling.sorteer`; zonder
   beoordeling achteraan), niet die van `sort_key` in `main()` (console en
@@ -188,8 +194,8 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   CBS (`dataderden.cbs.nl`, geen robots.txt). robots.txt per host eerst, vers op
   de dag van ophalen (RFC 9309 par. 2.4: hooguit 24 uur; ook voor `funda_rente`);
   de laatste goede versie (hooguit 30 dagen) alleen als terugval bij een time-out
-  of 5xx, nooit bij een weigering. `EERLIJKE_UA`, sequentieel met pauze, time-out 10 s, budget 60
-  verzoeken per run (± 5 per nieuwe woning; daarna bijna alles uit de cache).
+  of 5xx, nooit bij een weigering. `EERLIJKE_UA`, sequentieel met pauze, time-out 10 s, budget 90
+  verzoeken per run (zie "Budget" hieronder; daarna bijna alles uit de cache).
   Per host stoppen bij 401/403/429/5xx en die host een dag dicht laten; nooit
   omzeilen. Een fout geeft "onbekend" in het rapport, nooit exit 2 en nooit een
   woning minder. Allowlist van velden: herkomst, nationaliteit, inkomen en andere
@@ -200,14 +206,66 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   WOZ-waardeloket en KOOP (robots verbiedt het). De RIVM-laagnamen hebben een
   datum (`rivm_20250101_...`); verdwijnt een jaargang, dan wordt geluid
   "onbekend" tot `RIVM_LAGEN` is bijgewerkt.
+  **Bronnen van 18 nov 2026** (gemeten die dag, robots.txt per host opnieuw
+  gelezen en ongewijzigd; `testdata/verrijking/meting.json`). Elk apart aan of
+  uit in `beoordeling.verrijking.bronnen`, met een eigen status per woning, en in
+  het model **allemaal 0 punten** (informatief of "let op" zonder gewicht): de
+  spreiding tussen buurten is nog niet bekend, gewichten volgen later. Geen
+  nieuwe host: alles op hosts die al gebruikt werden.
+  - `kerncijfers`: CBS Wijken en buurten 2024 uit dezelfde PDOK-call als de
+    buurtcode (geen extra verzoek): gemiddelde WOZ, koop, huur en corporatie,
+    meergezins, stadsverwarming en aardgasvrij, afstand tot supermarkt, station
+    en huisarts. Alleen `KERN_PDOK` wordt gelezen (het antwoord heeft 244
+    velden, ook bevolkingsvelden). Missend = -99997. De uitgave 2025 mist WOZ en
+    afstanden, daarom 2024. Het aantal woningen (`woningvoorraad`) staat alleen
+    in de cache, als noemer; nooit in de uitvoer, het rapport of de log.
+  - `veiligheid`: politiecijfers via `dataderden.cbs.nl`, tabel 47018NED
+    (misdrijven: totaal, woninginbraak 1.1.1, vernieling 2.2.1) en 47024NED
+    (overlast, totaal), jaar 2025 (`POLITIE_JAAR`; bijwerken als 2026 volledig
+    is). Per 1.000 woningen, met het gemeentecijfer uit hetzelfde antwoord (de
+    noemer van de gemeente: één PDOK-verzoek per gemeente). Onder 100 woningen
+    geen cijfer. Altijd informatief en feitelijk; geen oordeel over een buurt.
+  - `lucht` (met `groen` als schakelaar voor het percentage): RIVM-WMS,
+    jaargemiddelde NO2 en PM2,5 van 2024 en het percentage groen binnen 500 m
+    (2022), één verzoek. Duiding tegen het WHO-advies (10 en 5) en de
+    EU-grenswaarden (40 en 25, vanaf 2030 20 en 10; `drempels`). Laagnamen met
+    datum in `RIVM_LUCHT_LAGEN`: verdwijnt een jaargang, dan "onbekend".
+  - `klimaat`: Klimaateffectatlas, één verzoek: wateroverlast rond het pand bij
+    een extreme bui (klasse per pand), overstromingskans (klasse 1 tot 5) en
+    grondwateroverlast 2050. Klassen uit de legenda. **Niet opgenomen:**
+    hitte-eiland en gevoelstemperatuur (eenheid niet te onderbouwen).
+  - `erfgoed`: RCE via `api.pdok.nl` (`/rce/beschermde-gebieden-cultuurhistorie`):
+    beschermd stads- of dorpsgezicht op het punt en het aantal rijksmonumenten
+    binnen 25 m (punten; kan het pand zelf zijn of een buurpand). Twee verzoeken.
+    De eigen WFS van de RCE (`data.geo.cultureelerfgoed.nl`, geen robots.txt)
+    gaf bij de meting geen treffers en wordt niet gebruikt.
+  - **Budget.** Een nieuwe woning kost ongeveer 9 verzoeken (was 5), een nieuwe
+    buurt 3 erbij en een nieuwe gemeente 2; daarom 90 per run in plaats van 60
+    (`funda_verrijking.STANDAARD`; een `max_calls_per_run` in de secret gaat
+    voor). Buurtgegevens staan per buurtcode in de cache (kerncijfers 365 dagen,
+    politiecijfers 180), puntgegevens per gehasht punt (365, erfgoed 180). Wat
+    niet past, krijgt "budget" en gaat de volgende run verder; Past en Krap eerst.
+  - **In het rapport.** `funda_beoordeling.omgeving_items()` maakt de items
+    (onderdeel `omgeving`); een bron die uit staat of niets gaf, levert geen item
+    en geen "onbekend". `funda_ui` toont ze per kaart in het uitklapblok "Buurt
+    en omgeving" (`INFO_TONEN`), de markdown in een eigen regel. Informatieve
+    items over de woning zelf ("Schuin dak: mogelijk", "Eerder zonder prijs";
+    `INFO_WONING`) staan in het blok Woning, in de markdown in de regel "Over
+    de woning".
 - **Geocoding en routes.** Postcodes worden punten via de BAG-collectie `adres`
   op `api.pdok.nl` (`funda_verrijking.Geocoder`, filter op postcode, het punt
   van het eerste adres): de werkpostcodes (`funda_rapport.get_werk_coords`) en
   de zoekpostcode (`funda_zoek.thuis_coords`, alleen met het afstandsfilter
   aan). Per postcode gaat de config voor (`werk_coords` als
   `{postcode: [lat, lon]}`, `thuis_coords` als `[lat, lon]`), dan de caches
-  `funda_werk_coords.json` en `funda_thuis_coords.json` (`{postcode: [lat, lon]}`),
-  dan één poging via PDOK; een gevonden punt blijft voorgoed in die cache. Een
+  `funda_werk_coords.json` en `funda_thuis_coords.json`, dan één poging via
+  PDOK; een gevonden punt blijft voorgoed in die cache. De sleutel in die
+  bestanden is sinds 18 nov 2026 een hash van de postcode
+  (`funda_verrijking.postcode_sleutel`, dezelfde hashfunctie als de andere
+  cachesleutels): een oude leesbare sleutel wordt bij het laden omgezet en niet
+  meer teruggeschreven (`coords_cache_lees`), ook als het punt zelf uit de
+  config komt. Zelfde bestandsnamen, geen nieuw
+  pad; de config-sleutels blijven leesbaar. Een
   eigen `Sessie` met de regels van de verrijking (robots.txt eerst,
   `EERLIJKE_UA`, nooit omzeilen) en **één stand voor `api.pdok.nl` per run**
   (`genereer_rapport` geeft hem door: `neem_cache_over`, `Sessie.neem_over`):
@@ -230,7 +288,9 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
 - **Cache.** Alles in het bestaande `funda_enrichment_cache.json`, als secties:
   `price_history`, `market_insights`, `broker` (pyfunda), `bag`, `fundering`,
   `geluid`, `buurtcode`, `leefbaarometer`, `tevredenheid`, `robots`,
-  `verrijking_weigering` en `rente`. Adres- en puntsleutels zijn gehasht. Geen
+  `verrijking_weigering` en `rente`, en sinds 18 nov 2026 `kerncijfers`,
+  `misdrijven`, `overlast` (per buurtcode), `gemeente` (per gemeentecode),
+  `lucht`, `klimaat` en `erfgoed` (per punt). Adres- en puntsleutels zijn gehasht. Geen
   nieuw cachepad (zie de valkuil over de padenlijst). Van de makelaar alleen naam
   en reviews: zijn aanbod (`get_broker_listings`, een extra funda-verzoek met
   adressen van andere woningen) wordt sinds de opruimronde van nov 2026 niet meer
@@ -246,28 +306,100 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   100%). Nooit rekenen met prijs 0: dat gaf budget "PAST", de laagste maandlast
   en de hoogste score. Vastgepind in `test_prijs_onbekend` (`main()`) en
   `test_prijs_onbekend_rapport` (het echte `bouw_rij` en `funda_ui`).
-- **PWA.** De body wordt eerst met gzip ingepakt (niveau 9, mtime 0) en daarna
-  versleuteld met AES-256-GCM (PBKDF2-SHA256, 100.000 iteraties, 16 byte zout,
-  12 byte IV, ongewijzigd). Ciphertext comprimeert niet, dus zonder gzip vooraf
-  kan Pages hem niet kleiner maken (fixture: 98 kB op schijf, 38 kB gzip). Het
-  slotscherm is `ui/slot.html` (`funda_ui.vul_slot`); zonder
-  `DecompressionStream` (iOS ouder dan 16.4) zegt het dat, in plaats van "fout
-  wachtwoord". "Onthoud op dit apparaat" bewaart een niet-exporteerbare
-  PBKDF2-sleutel in IndexedDB (30 dagen), nooit het wachtwoord; een oud bewaard
-  wachtwoord wordt bij openen omgezet en gewist. Service worker cache
-  `funda-shortlist-v5` (ophogen bij elke nieuwe wrapper, anders blijft een
-  geïnstalleerde PWA de oude tonen). Manifest "Woningrapport" / "Woningen"
-  (geen voornaam: het staat publiek), kleuren `funda_ui.THEME_COLOR` en
-  `funda_ui.ACHTERGROND`, iconen in hetzelfde palet. "Nieuw" geldt per apparaat en
-  telt pas als gezien als de kaart minstens half een seconde in beeld was, tussen
-  de vaste top- en onderbalk.
-- **Huisstijl: eigen palet "Inkt en blauw", bewust geen ANWB-huisstijl.** Kleuren,
-  stylesheet, iconen en fonts van het ANWB-designsysteem zijn merkeigendom van de
-  ANWB (merkrecht), en de CSS van het slotscherm staat buiten de versleuteling
-  publiek op GitHub Pages. Daarom een eigen palet met dezelfde opbouw (tokens
-  licht en donker, feedbackkleuren alleen voor feedback, WCAG AA gemeten).
-  Tokens en regels: `.interface-design/system.md`. `test_funda_ui.py` weigert
-  ANWB-blauw `#003d86`, geel `#ffcd00` en de merk- en fontnamen. Het eerdere
+- **Eerder zonder prijs.** Heeft een woning nu een vraagprijs maar stond hij
+  eerder zonder, dan toont het rapport het informatieve item "Eerder zonder
+  prijs" met de datum (0 punten). Twee bronnen: de eigen waarneming (het
+  cache-element in `funda_sitemap_cache.json` onthoudt `zonder_prijs`, ook van
+  woningen die de nafilter afwees; `SitemapZoeker._element`, doorgegeven als
+  `d["_zonder_prijs_gezien"]`) en een vraagprijsregel zonder bedrag na de
+  laatste verkoop in funda's prijshistorie (`prijshistorie()["zonder_prijs"]`).
+  Een cache-element van voor 19 nov 2026 hield geen datum bij: stond de woning
+  daarin zonder prijs te koop, dan komt het item zonder datum ("gezien, datum
+  onbekend", `ZONDER_PRIJS_ONBEKEND`); er wordt geen datum verzonnen.
+  Hoe funda zo'n aanbieding in de prijshistorie zet, is **niet gemeten**: de
+  logregel "[rapport] Prijshistorie" telt per run de statuswaarden en de regels
+  zonder bedrag (alleen aantallen). Verder verandert er niets aan "Prijs op
+  aanvraag": nooit rekenen met prijs 0.
+- **PWA (aangescherpt 18 nov 2026, `funda_rapport.beveilig_html`).**
+  - **Sleutelopbouw.** Hoofdsleutel = PBKDF2-SHA256(wachtwoord, vast app-zout
+    `APP_ZOUT`, 600.000 iteraties). Runsleutel = HKDF-SHA256(hoofdsleutel, salt =
+    run-zout van 16 bytes, info = `KDF_INFO`) voor AES-256-GCM met een IV van 12
+    bytes; zout en IV elke run nieuw. Waarom: "Onthoud op dit apparaat" bewaart
+    de hoofdsleutel, en wie de opslag leest mag daarmee niet sneller naar het
+    wachtwoord raden dan met de publieke ciphertext. De oude opbouw bewaarde de
+    PBKDF2-basissleutel; daaruit was een afleiding met 1 iteratie te halen.
+    `APP_ZOUT` wijzigen = iedereen vult één keer het wachtwoord in.
+  - **Klare tekst.** gzip (niveau 9, mtime 0), dan opvulling (`vul_op`: lengte
+    van 4 bytes, data, nullen), dan AES. De ciphertext is zo altijd een veelvoud
+    van 8 kB (`BLOK`): de bestandsgrootte volgt het aanbod niet meer per woning.
+    Ciphertext comprimeert niet, dus gzip moet vooraf.
+  - **Wrapper zonder code.** `ui/slot.html` (`funda_ui.vul_slot`) bevat alleen
+    markup, de CSP en het pakket als JSON in `#slot-data`. CSS en JavaScript
+    staan als bestanden in `docs/` (`schrijf_statisch`, lijst `STATISCH`):
+    `app.css`, `slot.css`, `app.js`, `push.js`, `slot.js` en Leaflet 1.9.4 zelf
+    gehost in `leaflet/` (bron `ui/leaflet/`, ongewijzigd uit het npm-pakket,
+    sha256 vastgepind in `test_funda_pwa.py`; geen unpkg meer). De publieke
+    Web Push-sleutel staat in `<meta name="funda-push-key">`. Het lokale
+    `funda_rapport.html` houdt CSS en JS inline en laadt Leaflet uit
+    `docs/leaflet/`.
+  - **CSP** (meta-tag, `funda_rapport.CSP`): `default-src 'none'`, `script-src
+    'self'`, `style-src 'self'` (geen `unsafe-inline`: geen `style=` in de
+    markup), `img-src 'self' https://cloud.funda.nl
+    https://tile.openstreetmap.org data:`, `connect-src`, `manifest-src` en
+    `worker-src 'self'`, `base-uri` en `form-action 'none'`. `data:` is nodig:
+    Leaflet zet een afgebroken tegel op een lege GIF. De fotohost is niet
+    gemeten (dat kan alleen met een funda-verzoek); wijkt hij af, dan staat er
+    een `::warning::` met een aantal in de log. `<meta name="referrer"
+    content="no-referrer">` en `rel="noopener noreferrer"` op externe links;
+    alleen de kaarttegels sturen de kale herkomst mee (`referrerPolicy:
+    'origin'`), omdat OpenStreetMap tegels zonder referrer weigert.
+  - **Slotscherm (`ui/slot.js`).** Zonder `DecompressionStream` (iOS ouder dan
+    16.4) zegt het dat, in plaats van "fout wachtwoord". "Onthoud op dit
+    apparaat" bewaart de hoofdsleutel als niet-exporteerbare HKDF-sleutel
+    (alleen `deriveKey`) in IndexedDB (30 dagen), nooit het wachtwoord. Een
+    bewaarde sleutel van het oude soort en een oud bewaard wachtwoord worden
+    gewist, niet omgezet: één keer het wachtwoord invullen. In een frame
+    ontgrendelt het niet (`frame-ancestors` werkt niet in een meta-tag).
+    "Vergrendel" (blok "Dit apparaat" in de voet) wist de sleutel en herlaadt.
+    Na vier foute wachtwoorden volgt een pauze: 30 seconden, daarna telkens
+    het dubbele, hooguit een kwartier; de teller staat in `localStorage`
+    (`funda_slot_pogingen`, het enige wat het slotscherm daar bewaart) en
+    overleeft herladen. Dat remt raden op het apparaat zelf, niet een aanval
+    op het publieke versleutelde bestand: daar beschermt alleen het wachtwoord.
+  - **Service worker** cache `funda-shortlist-v7` (ophogen bij elke nieuwe
+    wrapper en bij elk gewijzigd bestand in `ASSETS`, anders blijft een
+    geïnstalleerde PWA de oude tonen), met de
+    statische bestanden in `ASSETS`; alleen same-origin GET's komen in de cache.
+  - **Verder.** `#woning-data` escapet `<`, `>` en `&` als `\u003c` enzovoort;
+    `funda_ui.funda_url` laat alleen `https://www.funda.nl/...` door. Manifest
+    "Woningrapport" / "Woningen" (geen voornaam: het staat publiek), kleuren
+    `funda_ui.THEME_COLOR` en `funda_ui.ACHTERGROND`, iconen in hetzelfde palet.
+    "Nieuw" geldt per apparaat en telt pas als gezien als de kaart minstens half
+    een seconde in beeld was, tussen de vaste top- en onderbalk.
+  - **Schrijfregels van de zichtbare tekst** (audit schrijfstijl en componenten,
+    nov 2026; ook `.interface-design/system.md`). De poort heet overal "Status",
+    het scenario "Financiering" (kaart, filter, vergelijken, popup, markdown).
+    Geen "run", hostnaam of bestandsnaam in de tekst van het rapport (wel in de
+    log); één uitzondering: de naam van de instelling `WEB_PUSH_SUBSCRIPTION` in
+    het meldingenblok, omdat je die nodig hebt. Knoppen in de gebiedende wijs
+    ("Ontgrendel", "Verberg"), "meldingen" en niet "notificaties", een
+    foutmelding noemt de vervolgstap. De bron onder een punt gaat door
+    `funda_ui.bron_tekst()` (gewone taal; het model houdt zijn eigen `bron`).
+    Vijf lettermaten (13, 14, 16, 18, 20 px), vet is 600.
+  - **Bewust niet gebouwd (open):** localStorage versleutelen (bewaard,
+    verborgen en gezien staan leesbaar op het apparaat), de kaart pas na een tik
+    laden, en `docs/` publiceren zonder git-geschiedenis.
+- **Huisstijl: eigen palet "Inkt en blauw", bewust geen huisstijl van een merk.**
+  Kleuren, stylesheet, iconen en fonts van het designsysteem van een bestaand
+  merk zijn eigendom van dat merk (merkrecht), en de CSS van het slotscherm
+  staat buiten de versleuteling publiek op GitHub Pages. Daarom een eigen palet
+  (tokens licht en donker, feedbackkleuren alleen voor feedback, WCAG AA
+  gemeten). Tokens en regels: `.interface-design/system.md`. `test_funda_ui.py`
+  weigert het merkblauw `#003d86`, geel `#ffcd00` en de merk- en fontnamen. **Geen
+  merknaam van derden in de repo of in commitberichten** (besluit eigenaar, 18
+  nov 2026): de test bouwt de verboden namen daarom uit losse delen op
+  (`VERBODEN_WOORDEN`) en `test_geen_merknaam` weigert ze in elk bijgehouden
+  bestand. Het eerdere
   paarse palet "Lavendel" is op 7 nov 2026 door de eigenaar afgewezen; de test
   weigert ook paarse tokens en pint topbalk `#0f172a`, knop `#2563eb`, link
   `#1d4ed8` en pagina `#f4f6f9` vast.
@@ -695,9 +827,22 @@ zie ook "Encryptie verplicht in CI".
     Zelfde valkuil bij het gebied: een postcode moet lowercase en zonder spatie.
 - **pyfunda pin.** Het script gebruikt de v2.x API (`f.search_listing(...)` en
   `r.data` dicts). v3+ is een dataclass-rewrite zonder die methodes. Daarom is
-  pyfunda vastgepind op `v2.9.0` in `requirements.txt`; dat is de enige plek
-  (de workflows installeren `requirements.txt`). Niet zomaar upgraden zonder de
+  pyfunda vastgepind op `2.9.0`, sinds 18 nov 2026 van PyPI met hash en niet
+  meer van de git-tag (een tag kan verzet worden; de wheel is vergeleken met
+  commit `1bbe5d3` van tag v2.9.0: identiek). Niet zomaar upgraden zonder de
   code mee te porten.
+- **Afhankelijkheden staan vast (beveiligingsronde 18 nov 2026).**
+  `requirements.in` heeft de losse eisen, `requirements.txt` is daaruit
+  gegenereerd met exacte versies en hashes (het commando staat bovenin
+  `requirements.in`; `uv`, met `--universal` zodat het ook op Windows klopt).
+  Werk nooit met de hand in `requirements.txt`. De workflows doen
+  `pip install --require-hashes -r requirements.txt` en geen `pip install
+  --upgrade pip` meer. Voor de push staan `web-push` en wat eronder hangt in
+  `package.json` en `package-lock.json` (in de root, zodat
+  `scripts/send_web_push.cjs` het pakket vindt); de workflow doet
+  `npm ci --ignore-scripts`. De acties in de workflows staan op een commit-SHA
+  met de tag als commentaar. Bijwerken is steeds een bewuste stap: opnieuw
+  genereren of de SHA opzoeken, en de diff lezen.
 - **Niet in OneDrive zetten.** De repo stond eerst in een OneDrive-map. Dat gaf
   afgekapte bestanden bij opslaan en kapotte `.git`-locks. Daarom verplaatst naar
   `C:\dev\Funda`. Houd de repo buiten OneDrive.
@@ -705,8 +850,7 @@ zie ook "Encryptie verplicht in CI".
   rapport te schrijven als `FUNDA_REQUIRE_ENCRYPTION=1` (gezet in de workflow),
   zodat er nooit per ongeluk leesbare data publiek komt. Die check staat vóór het
   schrijven: dan verandert er ook verder niets in `docs/`. De workflow stopt al
-  eerder als het secret `FUNDA_PWA_PASSWORD` ontbreekt. Gzip vóór AES verandert
-  hier niets aan (`test_funda_pwa.py`).
+  eerder als het secret `FUNDA_PWA_PASSWORD` ontbreekt (`test_funda_pwa.py`).
 - **Verander de padenlijst van de Actions-cache nooit zonder migratie.** De
   versie van een cache hangt af van de exacte lijst `path`-regels in
   `funda-daily.yml` (restore en save). Na een wijziging vindt
@@ -721,7 +865,12 @@ zie ook "Encryptie verplicht in CI".
 - **Publiceren en pushen.** De workflow commit alleen `docs/` naar `main` en
   doet daarna `git pull --rebase origin main` vóór de push: main kan tijdens de
   run veranderd zijn (een gemergde PR), en dan werd de push geweigerd en ging het
-  rapport verloren. `docs/` wijzigt alleen de bot, dus dat rebasen is veilig. Een
+  rapport verloren. `docs/` wijzigt alleen de bot, dus dat rebasen is veilig. Het
+  schrijf-token zit alleen in die stap: checkout draait met
+  `persist-credentials: false`, en de pull en de push krijgen het token als
+  header mee (`met_token`), zodat pip, de run zelf en npm er niet bij kunnen.
+  `permissions` staat op niets voor de workflow en `contents: write` voor de
+  job; "Funda API debug" heeft alleen `contents: read`. Een
   lokale run (`auto_push()`, zonder `--no-push`) commit ook alleen `docs/` (de
   check en de commit krijgen allebei het pad mee; andere gestagede wijzigingen
   blijven gestaged), maar rebaset **niet**: doe lokaal altijd zelf
@@ -734,7 +883,7 @@ zie ook "Encryptie verplicht in CI".
 ## Lokaal draaien
 
 ```
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.txt
 python funda_zoek.py                 # volledige run + rapport, opent HTML, commit en pusht docs/
 python funda_zoek.py --no-push       # zonder commit en push van docs/
 python funda_zoek.py --no-open       # zonder browser
@@ -774,8 +923,9 @@ hoofdlijnen; de details staan bij de tests zelf.
 - `test_funda_verrijking.py` en `test_funda_rente.py` - de open bronnen, de rente
   en de geocoding met een nep-HTTP-functie en ingekorte echte antwoorden
   (`testdata/verrijking/`, `testdata/rente/`).
-- `test_funda_pwa.py` - gzip vóór AES en terug, geen onversleuteld rapport in CI,
-  service worker, manifest, slotscherm en iconen.
+- `test_funda_pwa.py` - sleutelopbouw, gzip en opvulling vóór AES en terug (in
+  Python, en met node het echte `ui/slot.js`), de CSP en geen inline script, geen
+  onversleuteld rapport in CI, service worker, manifest, slotscherm en iconen.
 
 ## Kernfeatures (waarom de code is zoals hij is)
 
@@ -794,3 +944,47 @@ hoofdlijnen; de details staan bij de tests zelf.
   het elke maand betalen (netto woonlasten tegenover je grens)? Dat bepaalt de
   groep; pas daarbinnen telt de score. Onbekend is geen minpunt, twijfel zet een
   woning onderaan maar nooit weg.
+- **Geen energielabel = rekenen met het slechtste** (besluit eigenaar, 18 nov
+  2026). Zonder label rekent het model de energiekosten met label G, tenzij het
+  bouwjaar (BAG, anders funda) een ondergrens geeft: vanaf 1975 E, 1992 C, 2000
+  B, 2006 A (`funda_beoordeling.label_aanname`, een eigen voorzichtige indeling).
+  Alleen voor de energiekosten in de woonlasten: de leentoets krijgt geen label
+  en de score geen minpunt op het onderdeel energielabel. Hogere woonlasten
+  kunnen de poort en de score wel verschuiven. Het item blijft "onbekend,
+  gerekend als G" met de vraag om het label op te vragen. Vastgepind in
+  `test_funda_beoordeling.py::test_label_aanname`.
+- **Binnenklimaat = indicatie, geen meting** (verzoek eigenaar, 19 nov 2026).
+  `funda_beoordeling.binnenklimaat()` geeft hooguit twee informatieve items,
+  "Zomer" en "Winter" (0 punten, onderdeel `binnenklimaat`), uit aanwijzingen
+  die er al zijn: ligging onder het dak of op een tussenverdieping, schuin dak,
+  bouwjaar voor 1975 zonder isolatie in het kenmerk Isolatie, glas, zonligging
+  van de buitenruimte, doorzon of hoek, zonwering of airco, groen binnen 500 m,
+  verwarming en energielabel. Geen nieuw verzoek. Onbekend is geen aanwijzing;
+  zonder aanwijzing geen item. Een onbekend label telt niet mee: naast een
+  andere aanwijzing staat het rekenlabel met het woord "aanname" in de uitleg
+  onder "Niet meegeteld", net als stads- of blokverwarming (dat gaat over
+  kosten). Een ontkenning telt niet, ook achter het woord ("zonwering is niet
+  toegestaan"), en een zin over de buren ook niet. `funda_ui` toont ze in
+  het blok Woning ("Warmte en kou in huis"), de markdown in eigen regels; de
+  vraag staat bij het item en niet in "Zelf nagaan". Niet gemeten op echte
+  advertenties: 'Soort dak', 'Aantal bouwlagen', zonwering of airco in
+  'Voorzieningen', en of "1e woonlaag" de begane grond is (telt daarom niet).
+  Vastgepind in `test_funda_beoordeling.py::test_binnenklimaat`.
+- **Schuin dak = klein minpunt** (besluit eigenaar, 18 nov 2026). Ligt de
+  woonruimte onder een schuin dak, dan geeft het model "let op" met -0,5 en de
+  vraag naar de bruikbare oppervlakte boven 1,50 m (`funda_beoordeling.schuin_dak`,
+  onderdeel `schuin_dak`; instelbaar met `drempels.schuin_dak_punten` en
+  `gewichten.schuin_dak`). Zeker: de advertentie zegt het, of het kenmerk "Soort
+  dak" noemt een schuin dak en de woning ligt aantoonbaar bovenin. In de tekst
+  twee soorten: sterk (schuine wanden, kapverdieping, knieschot, dakkapel) en
+  zwak (schuin dak, onder de kap, zolderverdieping, vide tot in de nok). Een
+  zwakke aanwijzing telt alleen met een woonruimtewoord in dezelfde zin
+  (slaapkamer, woning, werkplek), niet in een zin over het complex, de VvE, de
+  stalling of de bovenburen, en niet als de woonlaag aantoonbaar onder het
+  aantal bouwlagen ligt. Mogelijk (schuin daktype, ligging niet aan te tonen):
+  informatief, 0 punten. Plat dak of geen aanwijzing: geen item. Een ontkenning
+  (ervoor, of erachter: "is niet bij de woning inbegrepen") en een zin over de
+  berging, een gemeenschappelijke zolder of de buren tellen niet. De
+  waarden van "Soort dak" en een kenmerk voor het aantal bouwlagen zijn **niet
+  gemeten** op echte advertenties (de labeltelling in de log laat ze zien).
+  Vastgepind in `test_funda_beoordeling.py::test_schuin_dak`.

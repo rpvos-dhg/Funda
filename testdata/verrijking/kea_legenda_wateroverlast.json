@@ -1,0 +1,45 @@
+{
+ "Legend": [
+  {
+   "layerName": "nl_fcab_omgevingsscore_wateroverlast_v20260806",
+   "title": "nl_fcab_omgevingsscore_wateroverlast_v20260806",
+   "rules": [
+    {
+     "name": "Onbekend",
+     "title": "Onbekend",
+     "filter": "[waterdiepte_klasse = 'Onbekend']"
+    },
+    {
+     "name": "Geen hinderlijke waterdiepte",
+     "title": "Geen hinderlijke waterdiepte",
+     "filter": "[waterdiepte_klasse = '0 tot 2 cm']"
+    },
+    {
+     "name": "Zeer laag",
+     "title": "Zeer laag",
+     "filter": "[waterdiepte_klasse = '2 tot 10 cm']"
+    },
+    {
+     "name": "Laag",
+     "title": "Laag",
+     "filter": "[waterdiepte_klasse = '10 tot 15 cm']"
+    },
+    {
+     "name": "Middel",
+     "title": "Middel",
+     "filter": "[waterdiepte_klasse = '15 tot 20 cm']"
+    },
+    {
+     "name": "Hoog",
+     "title": "Hoog",
+     "filter": "[waterdiepte_klasse = '20 tot 30 cm']"
+    },
+    {
+     "name": "Zeer hoog",
+     "title": "Zeer hoog",
+     "filter": "[waterdiepte_klasse = 'meer dan 30 cm']"
+    }
+   ]
+  }
+ ]
+}

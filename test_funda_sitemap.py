@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from funda_sitemap_zoek import (
+    ZONDER_PRIJS_ONBEKEND,
+    ZONDER_PRIJS_SLEUTEL,
     DetailEndpointDicht,
     SitemapZoeker,
     WoningNietGevonden,
@@ -311,6 +313,65 @@ def test_cache() -> bool:
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return ok
+
+
+def test_zonder_prijs() -> bool:
+    print("eerder zonder vraagprijs: de datum blijft in het cache-element en gaat mee in de data")
+    tmp = tijdelijk("zonderprijs")
+    pad = tmp / "cache.json"
+    try:
+        details = {k: dict(v) for k, v in DETAILS.items()}
+        details["80024814"]["price"] = None                      # prijs op aanvraag
+        details["44546400"]["price"] = 0
+        details["44546400"]["status"] = "sold"                   # verkocht zonder prijs: geen signaal
+        r1 = zoeker(client=StubClient(details), cache_pad=pad).search_listing()
+        c1 = json.loads(pad.read_text(encoding="utf-8"))["woningen"]
+        ok = check("zonder vraagprijs gezien: datum van de run in het element",
+                   c1["80024814"].get("zonder_prijs") == "2026-11-06", str(c1["80024814"]))
+        ok &= check("met prijs of verkocht: geen datum", "zonder_prijs" not in c1["44664520"] and "zonder_prijs" not in c1["44546400"])
+        ok &= check("geen prijs 0 erbij verzonnen: de velden blijven zoals funda ze gaf", "price" not in c1["80024814"]["velden"])
+        ok &= check("zonder prijs: nog geen signaal in de data", not any("_zonder_prijs_gezien" in r.data for r in r1))
+        # Dagen later: nieuwe snapshot, nu met een vraagprijs.
+        later = datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc)
+        web = StubWeb()
+        web.pagina[KOOP1_URL] = KOOP1.replace("2026-11-06T01:00:09+01:00", "2026-11-09T01:00:09+01:00")
+        web.pagina[INDEX_URL] = index_met("2026-11-09T04:59")
+        r2 = zoeker(web=web, client=StubClient(DETAILS), cache_pad=pad, nu=lambda: later).search_listing()
+        c2 = json.loads(pad.read_text(encoding="utf-8"))["woningen"]
+        draai = next((r.data for r in r2 if r.data.get("global_id") == 1001), {})
+        ok &= check("later met prijs: de datum blijft staan en gaat mee als _zonder_prijs_gezien",
+                    c2["80024814"].get("zonder_prijs") == "2026-11-06" and draai.get("_zonder_prijs_gezien") == "2026-11-06"
+                    and draai.get("price") == 299500, str(draai.get("_zonder_prijs_gezien")))
+        ok &= check("andere woningen: geen signaal", not any(r.data.get("_zonder_prijs_gezien") for r in r2 if r.data.get("global_id") != 1001))
+        ok &= check("sleutel gelijk aan wat het model leest", ZONDER_PRIJS_SLEUTEL == "_zonder_prijs_gezien")
+        # Ook via de pool (neem_op): een woning in de achterstand die de pool ophaalt.
+        z3 = zoeker(client=StubClient(details), cache_pad=tmp / "c3.json", max_verkennen=0)
+        z3.search_listing()
+        l3 = Listing(dict(details["80024814"], detail_url="/detail/koop/den-haag/appartement-draaistraat-4/80024814/"))
+        ok &= check("pool legt een woning zonder prijs vast met de datum",
+                    z3.neem_op(l3) and z3._woningen["80024814"].get("zonder_prijs") == "2026-11-06")
+        # Een cache van voor deze code: de woning stond er al zonder prijs in, zonder datum. Komt er een
+        # prijs, dan toch het signaal, met "onbekend" in plaats van een verzonnen datum.
+        pad4 = tmp / "c4.json"
+        zoeker(client=StubClient(details), cache_pad=pad4).search_listing()
+        oud = json.loads(pad4.read_text(encoding="utf-8"))
+        for e in oud["woningen"].values():
+            e.pop("zonder_prijs", None)                          # zo schreef de oude code het element
+        pad4.write_text(json.dumps(oud), encoding="utf-8")
+        r4 = zoeker(web=web, client=StubClient(DETAILS), cache_pad=pad4, nu=lambda: later).search_listing()
+        c4 = json.loads(pad4.read_text(encoding="utf-8"))["woningen"]
+        draai4 = next((r.data for r in r4 if r.data.get("global_id") == 1001), {})
+        import funda_beoordeling
+        ok &= check("oud element zonder prijs en zonder datum: signaal zonder datum zodra er een prijs is",
+                    draai4.get("_zonder_prijs_gezien") == ZONDER_PRIJS_ONBEKEND == funda_beoordeling.ZONDER_PRIJS_ONBEKEND
+                    and c4["80024814"].get("zonder_prijs") == ZONDER_PRIJS_ONBEKEND and draai4.get("price") == 299500,
+                    str(c4["80024814"]))
+        ok &= check("oud element met prijs of verkocht zonder prijs: geen signaal",
+                    not any(r.data.get("_zonder_prijs_gezien") for r in r4 if r.data.get("global_id") != 1001)
+                    and "zonder_prijs" not in c4["44664520"] and "zonder_prijs" not in c4["44546400"])
+        return ok
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_budget() -> bool:
@@ -885,7 +946,7 @@ def test_log_tekst() -> bool:
 def main() -> int:
     resultaten = [
         test_ontleden(), test_kandidaten(), test_doelmarkt(), test_dropin(),
-        test_cache(), test_budget(), test_fouten(), test_gzip(),
+        test_cache(), test_zonder_prijs(), test_budget(), test_fouten(), test_gzip(),
         test_index_cache(), test_straal_in_cache(), test_pool_oordeel(), test_meting(),
         test_detail_dicht(), test_detail_halverwege(), test_steden(), test_leeftijd(), test_log_tekst(),
     ]

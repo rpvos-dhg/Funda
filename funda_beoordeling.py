@@ -61,12 +61,14 @@ characteristics, is_auction, is_fixer_upper, is_monument, has_balcony, has_roof_
 has_garden, has_parking_on_site, has_parking_enclosed, open_house.
 Uit d alleen: _track (eigen tracking: gedaald, drop_bedrag, eerdere_prijs, dagen),
 _enrichment (price_history met changes of een lijst, market met
-avg_asking_price_per_m2, broker met name, review_average, review_count) en _twijfel
-(als twijfel None is).
+avg_asking_price_per_m2, broker met name, review_average, review_count), _twijfel
+(als twijfel None is) en _zonder_prijs_gezien (JJJJ-MM-DD uit de sitemapcache: de woning
+stond eerder zonder vraagprijs te koop; "onbekend" als de dag niet is bijgehouden).
 routes: [{"label", "km", "soort": "weg"|"schatting"}]. twijfel: korte zinnen uit
 funda_zoek (bijv. "Twijfelbuurt Leyenburg (jouw lijst)."). verrijking: per bron
 {"status": "ok"|"onbekend"|"budget"|"uit"|"niet_nodig", "data": {...}, "reden": str}
-of direct de data (kaal, zonder status). rente: dict uit
+of direct de data (kaal, zonder status). Bronnen: bag, fundering, geluid, buurt en, zonder
+scoregewicht, kerncijfers, veiligheid, lucht, klimaat en erfgoed (omgeving_items()). rente: dict uit
 funda_rente.huidige_rente(): {"pct", "bron", "datum", "oud", "melding"}. Zonder rente:
 financien.rente.pct uit de config, anders STANDAARD_RENTE (4,11%, 6 juli 2026).
 
@@ -204,7 +206,12 @@ OVERIG_MAAND = 160              # gemeente, water, inboedel; opstal zit bij een 
 STOOK_IN_VVE_FACTOR = 0.4       # stookkosten in de VvE-bijdrage: alleen elektra over
 ENERGIE_PER_LABEL = {"A++++": 60, "A+++": 70, "A++": 80, "A+": 90, "A": 100, "B": 130, "C": 170,
                      "D": 220, "E": 280, "F": 340, "G": 400}   # per maand per 75 m² (CBS-gemiddelde, secundair)
-ENERGIE_ONBEKEND = 280
+# Geen energielabel bekend: reken de energiekosten met een aangenomen label. Standaard het
+# slechtste (G), tenzij het bouwjaar een ondergrens geeft: de isolatie-eisen uit de bouwregels
+# van dat jaar. Eigen, voorzichtige indeling (geen officiele tabel); alleen voor de energiekosten,
+# niet voor de leentoets en niet voor de score. (vanaf bouwjaar, label), nieuwste eerst.
+LABEL_AANNAME_ZONDER = "G"
+LABEL_AANNAME_BOUWJAAR = ((2006, "A"), (2000, "B"), (1992, "C"), (1975, "E"))
 WOZ_TERUGVAL = 0.9              # geen WOZ bekend: 90% van de koopsom voor het eigenwoningforfait
 NORM_BRUTO_PCT = 0.33           # terugval zonder eigen netto grens (oude norm uit funda_rapport)
 # Standaardrente als er geen rente-parameter en geen rente in de config is:
@@ -236,13 +243,13 @@ STANDAARD: dict = {
     "gewichten": {
         "woonlasten": 1, "buitenruimte": 1, "oppervlak": 1, "woonlaag_lift": 1, "reisafstand": 1,
         "energielabel": 1, "erfpacht": 1, "vve": 1, "fundering": 1, "geluid": 1, "buurt": 1,
-        "staat": 1, "clausules": 1, "markt": 1, "parkeren": 0,
+        "staat": 1, "clausules": 1, "markt": 1, "parkeren": 0, "schuin_dak": 1,
         "_bereik": {
             "woonlasten": [-1.5, 1.5], "buitenruimte": [-1.5, 1.5], "oppervlak": [-1.0, 1.0],
             "woonlaag_lift": [-1.5, 0.0], "reisafstand": [-1.0, 1.0], "energielabel": [-1.0, 0.0],
             "erfpacht": [-2.0, 0.0], "vve": [-1.5, 0.5], "fundering": [-2.0, 0.5], "geluid": [-1.5, 0.0],
             "buurt": [-1.0, 0.5], "staat": [-1.5, 0.0], "clausules": [-1.0, 0.0], "markt": [-0.5, 0.5],
-            "parkeren": [0.0, 0.5],
+            "parkeren": [0.0, 0.5], "schuin_dak": [-1.0, 0.0],
         },
     },
     "drempels": {
@@ -271,6 +278,10 @@ STANDAARD: dict = {
         "markt_afwijking_pct": 10,
         "inhoud_per_m2_hoog": 3.3,
         "bouwjaar_verschil_bag_funda": 5,
+        "schuin_dak_punten": -0.5,              # woonruimte onder een schuin dak (zeker); 0 = alleen melden
+        # Open bronnen van 18 nov 2026: alleen voor "let op" zonder punten (gewichten volgen later).
+        "no2_eu_2030": 20, "no2_who": 10, "no2_eu_grens": 40,
+        "pm25_eu_2030": 10, "pm25_who": 5, "pm25_eu_grens": 25,
     },
     # Geen "verrijking": de standaard daarvan staat alleen in funda_verrijking.STANDAARD. Een blok
     # beoordeling.verrijking uit de config komt via _merge ongewijzigd in cfg["verrijking"], en
@@ -284,7 +295,7 @@ OORDEEL_GROEP = {"sterk": "let_op", "let_op": "let_op", "goed": "plus", "neutraa
 LBM_KLASSE = {1: "zeer onvoldoende", 2: "ruim onvoldoende", 3: "onvoldoende", 4: "zwak", 5: "voldoende",
               6: "ruim voldoende", 7: "goed", 8: "zeer goed", 9: "uitstekend"}
 FUND_KLASSE = ["zeer laag", "laag", "matig", "hoog", "zeer hoog"]
-VRAGEN_ALTIJD = ["Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+VRAGEN_ALTIJD = ["Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting.",
                  "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."]
 _MAANDEN_KORT = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
 _MAANDEN_NL = {m: i + 1 for i, m in enumerate(_MAANDEN_KORT)} | {"mar": 3, "may": 5, "oct": 10, "maa": 3}
@@ -889,7 +900,7 @@ def financiering(woning: dict, cfg: dict, profiel: dict | None, rente: dict | No
 
     redenen = []
     if koop > max_hyp:
-        redenen.append(f"Max. hypotheek {eur(max_hyp)}: {eur(koop - max_hyp)} uit eigen geld.")
+        redenen.append(f"Hoogste hypotheek {eur(max_hyp)}: {eur(koop - max_hyp)} uit eigen geld.")
     if tekort > f["kk_onzekerheid"]:
         redenen.append(f"Eigen geld: {eur(tekort)} tekort.")
     if over > 0:
@@ -1169,6 +1180,21 @@ def energielabel(d: dict, ch: dict, tekst: str) -> tuple[str, str]:
     return "?", "niet vermeld"
 
 
+def label_aanname(label: str, bouwjaar=None) -> tuple[str, str | None]:
+    """(label om de energiekosten mee te rekenen, toelichting of None).
+
+    Een bekend label blijft wat het is. Zonder label: het slechtste (G), tenzij het bouwjaar
+    een beter label aannemelijk maakt (LABEL_AANNAME_BOUWJAAR). Niet zeker, wel voorzichtig:
+    liever te hoge stookkosten dan een woning die op papier past en in de winter niet."""
+    if label in ENERGIE_PER_LABEL:
+        return label, None
+    bj = bouwjaar if isinstance(bouwjaar, (int, float)) and not isinstance(bouwjaar, bool) else None
+    for vanaf, aanname in LABEL_AANNAME_BOUWJAAR:
+        if bj and vanaf <= bj <= 2100:
+            return aanname, f"bouwjaar {int(bj)}"
+    return LABEL_AANNAME_ZONDER, None
+
+
 _RANGTELWOORD = {"eerste": 1, "tweede": 2, "derde": 3, "vierde": 4, "vijfde": 5, "zesde": 6, "zevende": 7,
                  "achtste": 8, "negende": 9, "tiende": 10}
 
@@ -1206,6 +1232,94 @@ def woonlaag(ch: dict, tekst: str = "") -> tuple[int | None, bool | None, str]:
     return laag, lift, bron
 
 
+_DAK_SCHUIN = re.compile(r"zadeldak|schilddak|mansarde|lessenaar|tentdak|dwarskap|puntdak|\bkap\b")
+_DAK_PLAT = re.compile(r"plat\s*dak")
+# Sterk: het gaat vanzelf over de woonruimte (schuine wanden, kapverdieping, dakkapel).
+_KAP_TEKST = re.compile(
+    r"schuine?\s+(?:wand(?:en)?|plafonds?)\b|\bkapverdieping|\bknieschot(?:ten)?\b|\bdakkapel(?:len)?\b")
+# Zwak: kan ook over het pand gaan ("het complex heeft een schuin dak", "onder de kap van de stalling",
+# "de zolderverdieping is van de bovenburen"). Telt alleen met een woonruimtewoord in dezelfde zin.
+_KAP_ZWAK = re.compile(
+    r"schuine?\s+(?:dak(?:en|vlak(?:ken)?|delen|kant(?:en)?)?|kap|zijdes?)\b|onder\s+de\s+(?:kap|nok)\b"
+    r"|\bzolder(?:verdieping|etage)|\bvide\b[^.]{0,40}\bnok\b|\bin\s+de\s+nok\b")
+_WOONRUIMTE = re.compile(r"\b(?:slaap|woon|bad|werk|studeer|hobby|logeer|kinder|zit|eet)?kamers?\b|\bkeuken|\bwoning\b"
+                         r"|\bappartement\b|\bwoonruimte|\bleefruimte|\bwerkplek|\bstudio\b|\bliving\b|\bwoonlaag\b"
+                         r"|\bwoonverdieping|\bslaapverdieping|\bmaisonnette")
+_KNIESCHOT = re.compile(r"\bknieschot(?:ten)?\b")
+# Een zin over iets anders dan deze woning: de buren, het buurpand.
+_NIET_DEZE_WONING = re.compile(r"\b(?:boven|beneden|onder)?buren\b|\bbuurpand|\bnaastgelegen|\bbuurman\b|\bbuurvrouw\b")
+# Een zin over iets anders dan de woonruimte: de berging op zolder, de gemeenschappelijke zolder, de buren.
+_KAP_NIET_WONING = re.compile(r"\bberg(?:ing|zolder|ruimte|vliering)|\bvliering|\bopslag|gemeenschappelijk|gezamenlijk"
+                              r"|\bwaszolder|" + _NIET_DEZE_WONING.pattern)
+# Bij een zwakke aanwijzing ook: het complex, de VvE, de stalling, de kavel, de installaties.
+_KAP_NIET_WONING_ZWAK = re.compile(_KAP_NIET_WONING.pattern + r"|\bcomplex\b|\bappartementencomplex|\bvve\b"
+                                   r"|vereniging\s+van\s+eigenaren|\bstalling|\bcarport|\bkavel\b|\binstallaties?\b|\bcv-?ketel")
+_BOVENSTE = re.compile(r"\b(?:bovenste|hoogste)\s+(?:verdieping|etage|woonlaag)|\btopverdieping|\btopetage|\bdakappartement")
+_ONTKEND_VOOR = re.compile(r"\b(?:geen|niet|zonder|nergens)\b[^.]{0,25}$")
+# Ontkenning achter het woord: "zonwering is niet toegestaan", "airco is niet aanwezig", "de zolderetage is
+# niet bij de woning inbegrepen". Alleen deze vaste vormen: "schuine wanden, maar niet storend" blijft een feit.
+_ONTKEND_NA = re.compile(r"^[^.!?\n]{0,45}?\b(?:niet|geen)\s+(?:\w+\s+){0,2}?(?:aanwezig|toegestaan|inbegrepen|mogelijk"
+                         r"|bij\s+de\s+woning|van\s+toepassing)\b")
+
+
+def _zin_rond(t: str, start: int, eind: int) -> str:
+    a = max(t.rfind(c, 0, start) for c in ".!?\n") + 1
+    einden = [i for i in (t.find(c, eind) for c in ".!?\n") if i >= 0]
+    return t[a:min(einden) if einden else len(t)]
+
+
+def _zonder_ontkenning(patroon: re.Pattern, t: str, niet: re.Pattern | None = None, eis: re.Pattern | None = None) -> bool:
+    """Staat het patroon in t, niet ontkend (ervoor of erachter)? niet: een zin waarin dit patroon staat,
+    telt niet. eis: de zin moet dit patroon ook bevatten."""
+    for m in patroon.finditer(t):
+        if _ONTKEND_VOOR.search(t[max(0, m.start() - 30):m.start()]) or _ONTKEND_NA.search(t[m.end():m.end() + 80]):
+            continue
+        if niet is not None or eis is not None:
+            zin = _zin_rond(t, m.start(), m.end())
+            if (niet is not None and niet.search(zin)) or (eis is not None and not eis.search(zin)):
+                continue
+        return True
+    return False
+
+
+def schuin_dak(ch: dict, tekst: str = "", laag: int | None = None) -> dict:
+    """Ligt (een deel van) de woonruimte onder een schuin dak? -> {"status", "bron", "maisonnette", "bovenste"}.
+
+    status "zeker": de advertentie zegt het over de woonruimte, of het kenmerk 'Soort dak' noemt een
+    schuin dak en de woning ligt aantoonbaar bovenin (tekst "bovenste verdieping", of woonlaag plus
+    eigen woonlagen = het aantal bouwlagen van het pand). "mogelijk": schuin daktype, maar niet aan te
+    tonen dat de woning bovenin ligt. None: plat dak of geen aanwijzing (onbekend is geen minpunt).
+    Kenmerken eerst, tekst als aanvulling. In de tekst twee soorten aanwijzingen:
+    - sterk (schuine wanden, kapverdieping, knieschot, dakkapel): telt, behalve in een zin over de
+      berging, een gemeenschappelijke zolder of de buren;
+    - zwak (schuin dak, onder de kap, zolderverdieping, vide tot in de nok): telt alleen met een
+      woonruimtewoord in dezelfde zin (slaapkamer, woning, werkplek) en niet in een zin over het complex,
+      de VvE, de stalling of de bovenburen. Ligt de woning aantoonbaar niet bovenin (woonlaag onder het
+      aantal bouwlagen), dan telt een zwakke aanwijzing ook niet.
+    Een ontkenning telt niet, ervoor ("geen schuine wanden") of erachter ("de zolderetage is niet bij de
+    woning inbegrepen"). De waarden van 'Soort dak' zijn niet gemeten op echte advertenties: de
+    labeltelling in de log laat zien of funda het kenmerk zo noemt."""
+    t = (tekst or "").lower()
+    dak = str(ch.get("Soort dak") or ch.get("Dak") or "").lower()
+    schuin_type = bool(_DAK_SCHUIN.search(dak))
+    woonlagen = _getal(ch.get("Aantal woonlagen")) or 1
+    maisonnette = woonlagen >= 2 or bool(re.search(r"\bmaisonnette|\bdubbel(?:e)?\s+bovenhuis", t + " " + str(ch.get("Soort appartement") or "").lower()))
+    bouwlagen = _getal(ch.get("Aantal bouwlagen")) or _getal(ch.get("Bouwlagen"))
+    niet_bovenin = bool(laag and bouwlagen and laag + woonlagen - 1 < bouwlagen)
+    bovenste = (not niet_bovenin and _zonder_ontkenning(_BOVENSTE, t, niet=_KAP_NIET_WONING)) or bool(
+        laag and bouwlagen and laag + woonlagen - 1 >= bouwlagen)
+    uit = {"status": None, "bron": "", "maisonnette": maisonnette, "bovenste": bovenste}
+    # Een knieschot staat altijd in de woonruimte onder de kap, ook in een zin over bergruimte erachter.
+    if (_zonder_ontkenning(_KAP_TEKST, t, niet=_KAP_NIET_WONING) or _zonder_ontkenning(_KNIESCHOT, t)
+            or (not niet_bovenin and _zonder_ontkenning(_KAP_ZWAK, t, niet=_KAP_NIET_WONING_ZWAK, eis=_WOONRUIMTE))):
+        uit.update(status="zeker", bron="advertentietekst")
+    elif schuin_type and bovenste and not _DAK_PLAT.search(dak):
+        uit.update(status="zeker", bron="kenmerk 'Soort dak'")
+    elif schuin_type:                                    # ook een samengesteld dak (deels plat)
+        uit.update(status="mogelijk", bron="kenmerk 'Soort dak'")
+    return uit
+
+
 def vve_status(ch: dict, tekst: str) -> str:
     """'actief', 'slapend' of 'onbekend' (kenmerken KvK, ALV, reservefonds, MJOP; tekst)."""
     t = (tekst or "").lower()
@@ -1239,7 +1353,7 @@ SIGNALEN = [
      "Vraag de (concept-)splitsingsakte en wanneer de VvE start."),
     ("extra_bijdrage", r"(?:bijzondere|extra|eenmalige)\s+(?:bijdrage|heffing)|groot\s+onderhoud\s+(?:is\s+)?gepland", True,
      "vve", "let_op", "Extra VvE-bijdrage", "aangekondigd", -0.5, "extra VvE-bijdrage",
-     "Vraag de notulen van de laatste twee ALV's en het bedrag."),
+     "Vraag de notulen van de laatste twee ledenvergaderingen en het bedrag."),
     ("funderingsherstel", r"fundering\s+(?:is\s+)?(?:hersteld|vernieuwd)|funderingsherstel\s+(?:is\s+)?(?:uitgevoerd|gereed)", True,
      "fundering", "goed", "Funderingsherstel", "uitgevoerd (advertentie)", 0.0, "fundering hersteld",
      "Vraag het rapport en de garantie van het herstel."),
@@ -1298,7 +1412,8 @@ def prijshistorie(changes) -> dict:
     """Vraagprijzen na de laatste verkoop (op tijd gesorteerd), de hoogste daarvan en de nieuwste WOZ.
 
     Een piek uit een eerdere verkoopperiode telt niet als prijsdaling. De WOZ is
-    {"bedrag", "jaar", "datum"} (datum ISO uit de regel, of None), of None."""
+    {"bedrag", "jaar", "datum"} (datum ISO uit de regel, of None), of None. "zonder_prijs": de datum
+    van de laatste vraagprijsregel zonder bedrag na de laatste verkoop, of None."""
     rijen = [c for c in (changes or []) if isinstance(c, dict)]
     rijen.sort(key=_tijd)
     verkocht = [c for c in rijen if str(c.get("status") or "").lower() == "sold"]
@@ -1306,7 +1421,12 @@ def prijshistorie(changes) -> dict:
     vraag = [c for c in rijen if str(c.get("status") or "").lower() == "asking_price" and _tijd(c) > na and _prijs_van(c)]
     woz = [c for c in rijen if str(c.get("status") or "").lower() == "woz" and _prijs_van(c)]
     w = woz[-1] if woz else None
+    # Een vraagprijsregel zonder bedrag na de laatste verkoop: de woning stond toen zonder prijs te koop.
+    # Alleen de datum; er wordt nooit met een prijs 0 gerekend.
+    zonder = [_tijd(c) for c in rijen if str(c.get("status") or "").lower() == "asking_price"
+              and _tijd(c) > na and not _prijs_van(c)]
     return {
+        "zonder_prijs": zonder[-1] if zonder else None,
         "vraagprijzen": [{"prijs": _prijs_van(c), "datum": _tijd(c)} for c in vraag],
         "hoogste": max((_prijs_van(c) for c in vraag), default=None),
         "woz": {"bedrag": _prijs_van(w), "jaar": int(_tijd(w)[:4]) if _tijd(w) else None,
@@ -1352,6 +1472,326 @@ def _item(onderdeel, oordeel, label, waarde, bron, punten=0.0, kort=None, vraag=
     return {"onderdeel": onderdeel, "groep": OORDEEL_GROEP[oordeel], "oordeel": oordeel, "label": label,
             "waarde": waarde, "bron": bron, "punten": round(float(punten), 2), "kort": kort,
             "vraag": vraag, "uitleg": uitleg}
+
+
+def _dag_kort(x: date) -> str:
+    return f"{x.day} {_MAANDEN_KORT[x.month - 1]} {x.year}"
+
+
+# Onderdeel van de items uit de open bronnen van 18 nov 2026. Geen gewicht en geen bereik: ze tellen
+# niet mee in de score tot de spreiding tussen buurten bekend is. funda_ui toont ze in een eigen blok.
+OMGEVING = "omgeving"
+INFO_TONEN = (OMGEVING,)
+# Informatieve items over de woning zelf ("Schuin dak: mogelijk", "Eerder zonder prijs"): funda_ui toont ze
+# in het blok Woning, de markdown in een eigen regel.
+INFO_WONING = ("prijsverloop", "schuin_dak")
+# d["_zonder_prijs_gezien"] als de dag van de waarneming niet bekend is (een cache-element van voor
+# 19 nov 2026 hield geen datum bij): dan een item zonder datum, geen verzonnen datum. Zelfde waarde als
+# funda_sitemap_zoek.ZONDER_PRIJS_ONBEKEND (test_funda_sitemap.py).
+ZONDER_PRIJS_ONBEKEND = "onbekend"
+_OVERSTROMING = {1: ("extreem klein", "kleiner dan 1 op 30.000"), 2: ("zeer klein", "1 op 3.000 tot 1 op 30.000"),
+                 3: ("klein", "1 op 300 tot 1 op 3.000"), 4: ("middelgroot", "1 op 30 tot 1 op 300"),
+                 5: ("groot", "groter dan 1 op 30")}
+_GRONDWATER = {1: "kleine toename", 2: "aanmerkelijke toename", 3: "grote toename", 4: "zeer grote toename",
+               5: "kleine kans"}
+_WATEROVERLAST_LET_OP = ("hoog", "zeer hoog")
+
+
+def _is_getal(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _lucht_duiding(v: float, who: float, eu_2030: float, eu_grens: float) -> tuple[str, bool]:
+    """(korte duiding, let op). WHO-advieswaarde, EU-grenswaarde vanaf 2030 en de huidige EU-grenswaarde."""
+    if v <= who:
+        return "binnen WHO-advies", False
+    if v <= eu_2030:
+        return "boven WHO-advies", False
+    if v <= eu_grens:
+        return "boven EU-norm 2030", True
+    return "boven EU-grenswaarde", True
+
+
+def omgeving_items(verrijking: dict | None, dr: dict | None = None, monument_funda: bool = False) -> list[dict]:
+    """Items uit de open bronnen kerncijfers, veiligheid, lucht, klimaat en erfgoed. Allemaal 0 punten.
+
+    Feitelijk en kort: het getal, het jaar en wat het betekent. Geen oordeel over een buurt. Een bron
+    die uit staat of niets gaf, levert geen item (ook geen "onbekend": dat zou de regel "n onbekend"
+    vullen met bronnen die niet meetellen); de status per bron staat in beoordeling["verrijking"]."""
+    dr = dr or STANDAARD["drempels"]
+    uit: list[dict] = []
+
+    st, kc, _ = _bron(verrijking, "kerncijfers")
+    if st == "ok" and kc:
+        jaar = kc.get("jaar") or 2024
+        bron = f"CBS {jaar}"
+        if _is_getal(kc.get("woz")) and kc["woz"] > 0:
+            uit.append(_item(OMGEVING, "neutraal", "WOZ buurt gemiddeld", eur(kc["woz"] * 1000), bron, kort="WOZ buurt",
+                             uitleg=f"Gemiddelde WOZ-waarde van alle woningen in de buurt (CBS, uitgave {jaar}). "
+                                    "Zegt niets over deze woning zelf."))
+        koop, huur = kc.get("koop_pct"), kc.get("huur_pct")
+        if _is_getal(koop) or _is_getal(huur):
+            delen = [f"{nl(x, 0)}% {naam}" for x, naam in ((koop, "koop"), (huur, "huur")) if _is_getal(x)]
+            extra = [f"{nl(x, 0)}% {naam}" for x, naam in ((kc.get("corporatie_pct"), "van een woningcorporatie"),
+                                                            (kc.get("meergezins_pct"), "appartementen")) if _is_getal(x)]
+            uit.append(_item(OMGEVING, "neutraal", "Koop en huur buurt", ", ".join(delen), bron, kort="koop en huur",
+                             uitleg=f"Aandeel van de woningen in de buurt (CBS, uitgave {jaar})"
+                                    + (": " + ", ".join(extra) if extra else "") + "."))
+        afst = [(kc.get("supermarkt_km"), "super", "supermarkt"), (kc.get("treinstation_km"), "trein", "treinstation"),
+                (kc.get("huisarts_km"), "huisarts", "huisarts")]
+        afst = [(x, k_, lang) for x, k_, lang in afst if _is_getal(x)]
+        if afst:
+            uit.append(_item(OMGEVING, "neutraal", "Voorzieningen", ", ".join(f"{k_} {nl(x)} km" for x, k_, _ in afst[:2]),
+                             bron, kort="voorzieningen",
+                             uitleg="Gemiddelde afstand over de weg vanuit de buurt: "
+                                    + ", ".join(f"{lang} {nl(x)} km" for x, _, lang in afst) + f" (CBS, uitgave {jaar})."))
+        agv, sv = kc.get("aardgasvrij_pct"), kc.get("stadsverwarming_pct")
+        if _is_getal(agv) or _is_getal(sv):
+            delen = [f"{nl(x, 0)}% {naam}" for x, naam in ((agv, "aardgasvrij"), (sv, "warmtenet")) if _is_getal(x)]
+            uit.append(_item(OMGEVING, "neutraal", "Verwarming buurt", ", ".join(delen), bron, kort="verwarming buurt",
+                             uitleg=f"Aandeel woningen in de buurt zonder aardgas en met stadsverwarming (CBS, uitgave {jaar}). "
+                                    "Zegt iets over hoe ver de buurt is met van het gas af gaan."))
+
+    st, vh, _ = _bron(verrijking, "veiligheid")
+    if st == "ok" and vh:
+        jaar = vh.get("jaar") or ""
+        for sleutel, label, wat in (("misdrijven", "Misdrijven buurt", "Alle geregistreerde misdrijven"),
+                                    ("woninginbraak", "Woninginbraak buurt", "Diefstal en inbraak uit woningen, ook pogingen"),
+                                    ("vernieling", "Vernieling buurt", "Vernieling en zaakbeschadiging"),
+                                    ("overlast", "Overlast buurt", "Alle geregistreerde meldingen van overlast")):
+            x, g = vh.get(f"{sleutel}_per_1000"), vh.get(f"gem_{sleutel}_per_1000")
+            if not _is_getal(x):
+                continue
+            def kort_getal(v_):
+                return nl(v_, 0 if v_ >= 20 else 1)
+            waarde = f"{kort_getal(x)} per 1.000 woningen"
+            if _is_getal(g):
+                met = f"{kort_getal(x)} per 1.000 (gemeente {kort_getal(g)})"
+                waarde = met if len(met) <= 32 else waarde
+            uit.append(_item(OMGEVING, "neutraal", label, waarde, f"politie via CBS, {jaar}".rstrip(", "), kort=label.lower(),
+                             uitleg=f"{wat}, door de politie geregistreerd in {jaar}, per 1.000 woningen in de buurt"
+                                    + (f"; in de hele gemeente {kort_getal(g)}" if _is_getal(g) else "")
+                                    + ". Waar veel winkels, horeca of kantoren zijn, valt het cijfer hoger uit: "
+                                      "de noemer is het aantal woningen."))
+
+    st, lu, _ = _bron(verrijking, "lucht")
+    if st == "ok" and lu:
+        for sleutel, label, naam in (("no2", "Stikstofdioxide (NO2)", "stikstofdioxide"), ("pm25", "Fijnstof (PM2,5)", "fijnstof PM2,5")):
+            x = lu.get(sleutel)
+            if not _is_getal(x):
+                continue
+            who, eu30, eu = dr[f"{sleutel}_who"], dr[f"{sleutel}_eu_2030"], dr[f"{sleutel}_eu_grens"]
+            duiding, let_op = _lucht_duiding(x, who, eu30, eu)
+            uit.append(_item(OMGEVING, "let_op" if let_op else "neutraal", label, f"{nl(x)} µg/m³, {duiding}", "RIVM 2024",
+                             kort=f"{sleutel} {nl(x)}",
+                             uitleg=f"Jaargemiddelde {naam} op dit punt in 2024, in microgram per m³. WHO-advies {who}, "
+                                    f"EU-grenswaarde {eu} en vanaf 2030 {eu30}."))
+        if _is_getal(lu.get("groen_pct")):
+            uit.append(_item(OMGEVING, "neutraal", "Groen binnen 500 m", f"{nl(lu['groen_pct'], 0)}%", "RIVM 2022", kort="groen",
+                             uitleg="Gemiddeld aandeel groen (bomen, struiken, gras) binnen 500 m van dit punt (RIVM-groenkaart 2022)."))
+
+    st, kl, _ = _bron(verrijking, "klimaat")
+    if st == "ok" and kl:
+        bron = "Klimaateffectatlas"
+        wo = kl.get("wateroverlast")
+        if isinstance(wo, str) and wo:
+            hoog = wo in _WATEROVERLAST_LET_OP
+            waarde = "geen hinderlijke waterdiepte" if wo == "geen" else f"{wo}, {kl.get('waterdiepte') or ''}".rstrip(", ")
+            uit.append(_item(OMGEVING, "let_op" if hoog else "neutraal", "Wateroverlast bij bui", waarde, bron,
+                             kort="wateroverlast bij bui",
+                             vraag="Vraag of er water in de kelder, berging of entree heeft gestaan." if hoog else None,
+                             uitleg="Berekende waterdiepte rond het pand bij een extreme bui. Zegt vooral iets over de "
+                                    "begane grond, kelder en berging, niet over een hogere verdieping."))
+        ok_ = kl.get("overstromingskans")
+        if _is_getal(ok_) and ok_ in _OVERSTROMING:      # een lijst of dict uit een beschadigde cache: overslaan
+            naam, kans = _OVERSTROMING[ok_]
+            uit.append(_item(OMGEVING, "let_op" if ok_ >= 4 else "neutraal", "Overstromingskans", naam, bron,
+                             kort="overstromingskans",
+                             uitleg=f"Kans per jaar op meer dan 20 cm water op deze plek bij een overstroming: {kans} "
+                                    "(huidige situatie)."))
+        gw = kl.get("grondwater")
+        if _is_getal(gw) and gw in _GRONDWATER:
+            uit.append(_item(OMGEVING, "let_op" if gw in (3, 4) else "neutraal", "Grondwateroverlast 2050", _GRONDWATER[gw], bron,
+                             kort="grondwateroverlast",
+                             uitleg=("Kleine kans op grondwateroverlast door een lage grondwaterstand."
+                                     if gw == 5 else "Toename van de kans op grondwateroverlast in 2050 (klimaatscenario hoog), "
+                                                     "op gebiedsniveau: geen oordeel over dit pand.")))
+
+    st, eg, _ = _bron(verrijking, "erfgoed")
+    if st == "ok" and eg:
+        if eg.get("gezicht"):
+            sinds = f", aangewezen in {eg['gezicht_sinds']}" if eg.get("gezicht_sinds") else ""
+            uit.append(_item(OMGEVING, "neutraal", "Beschermd gezicht", str(eg["gezicht"]), "RCE", kort="beschermd gezicht",
+                             uitleg=f"Beschermd stads- of dorpsgezicht{sinds}. Voor veranderingen aan de buitenkant is vaker "
+                                    "een vergunning nodig; dat geldt ook voor onderhoud door de VvE."))
+        n = eg.get("monumenten_dichtbij")
+        if _is_getal(n) and n > 0 and not monument_funda:
+            uit.append(_item(OMGEVING, "neutraal", "Rijksmonument dichtbij", f"{int(n)} binnen 25 m", "RCE",
+                             kort="rijksmonument dichtbij",
+                             uitleg="Dit pand zelf of een buurpand: controleer het adres in het monumentenregister. "
+                                    "Een monument vraagt een vergunning voor verbouwen en duurder onderhoud."))
+    return uit
+
+
+# Binnenklimaat: een indicatie uit aanwijzingen, geen meting (verzoek eigenaar, 19 nov 2026). Twee informatieve
+# items, "Zomer" en "Winter", 0 punten en geen gewicht. funda_ui toont ze in het blok Woning.
+BINNENKLIMAAT = "binnenklimaat"
+ISOLATIE_BOUWJAAR = 1975                       # daarvoor zelden isolatie vanaf de bouw (zelfde grens als label_aanname)
+GROEN_WEINIG_PCT, GROEN_VEEL_PCT = 15, 40      # eigen indeling van het percentage groen binnen 500 m; niet geijkt
+_LABEL_KOUD, _LABEL_WARM = ("E", "F", "G"), ("A++++", "A+++", "A++", "A+", "A", "B")
+_ZON_WARM, _ZON_KOEL = ("Zuid", "Zuidwest", "West"), ("Noord", "Noordoost", "Oost")
+_VEEL_GLAS = re.compile(r"grote\s+raampartij(?:en)?|glazen\s+(?:pui|gevel|wand)|\bglaspui|\bveel\s+glas\b|\bserre\b"
+                        r"|\bdakramen?\b|\blichtkoepel|ramen\s+van\s+vloer\s+tot\s+plafond")
+_DWARS = re.compile(r"\bdoorzon|\bhoek(?:appartement|woning|ligging)|dwarsventilatie"
+                    r"|ramen\s+aan\s+(?:twee|2|drie|3)\s+(?:zijden|kanten)|aan\s+(?:twee|2|drie|3)\s+(?:zijden|kanten)\s+(?:ramen|daglicht)")
+_HOEK = re.compile(r"\bhoek(?:appartement|woning|ligging)")
+_ZONWERING = re.compile(r"zonwering|\bscreens?\b|zonnescherm(?:en)?|\brolluik(?:en)?\b|\bluiken\b|\bmarkiezen\b|\bmarkies\b"
+                        r"|\bairco\b|airconditioning")
+_ENKEL_GLAS = re.compile(r"\benkel\s*glas|gedeeltelijk\s+dubbel\s+glas")
+_GOED_GLAS = re.compile(r"\bhr\s*\+*\s*-?\s*glas|dubbel\s+glas|dubbele\s+beglazing|triple\s+glas|drievoudig\s+glas|isolatieglas")
+_ISOLATIE = re.compile(r"dakisolatie|muurisolatie|spouwmuurisolatie|gevelisolatie|vloerisolatie|volledig\s+ge[iï]soleerd")
+_DAKISOLATIE = re.compile(r"dakisolatie|volledig\s+ge[iï]soleerd")
+_KACHEL = re.compile(r"gaskachel|gashaard|moederhaard|elektrische\s+(?:verwarming|kachel)")
+_COLLECTIEF = re.compile(r"stadsverwarming|blokverwarming|warmtenet")
+
+
+def _aanwijzingen(n: int) -> str:
+    return f"{n} aanwijzing" + ("" if n == 1 else "en")
+
+
+def binnenklimaat(w: dict, ch: dict, tekst: str, bag: dict | None = None, verrijking: dict | None = None,
+                  label: str = "?", reken_label: str | None = None, bouwjaar=None) -> list[dict]:
+    """Indicatie van het binnenklimaat: hooguit twee informatieve items, "Zomer" en "Winter" (0 punten).
+
+    Geen meting: alleen aanwijzingen uit de kenmerken, de advertentietekst en wat de verrijking al heeft
+    (groen binnen 500 m), geen nieuw verzoek. Onbekend is geen aanwijzing en geen minpunt; zonder enige
+    aanwijzing komt er geen item. Een onbekend energielabel telt niet mee: naast een andere aanwijzing voor
+    de winter staat het rekenlabel uit label_aanname() in de uitleg onder "Niet meegeteld", als aanname.
+    Daar staat ook stads- of blokverwarming (dat gaat over kosten, niet over warm of koud).
+    Kenmerken eerst ('Isolatie', 'Verwarming', 'Voorzieningen', 'Soort appartement', 'Gelegen op'), de tekst
+    als aanvulling en zonder ontkende zinnen ("geen airco", "zonwering is niet toegestaan") of zinnen over
+    de buren ("het hoekappartement van de buren"). Niet gemeten op echte advertenties: 'Soort dak',
+    'Aantal bouwlagen', de ligging van balkon of tuin als kenmerk, en zonwering of airco in 'Voorzieningen'."""
+    ch = ch if isinstance(ch, dict) else {}
+    t = (tekst or "").lower()
+
+    def kenm(naam):
+        return str(ch.get(naam) or "").lower()
+
+    def genoemd(patroon, *kenmerken):
+        return any(patroon.search(kenm(k)) for k in kenmerken) or _zonder_ontkenning(patroon, t, niet=_NIET_DEZE_WONING)
+
+    iso, verw, soort = kenm("Isolatie"), kenm("Verwarming"), kenm("Soort appartement")
+    laag = woonlaag(ch, tekst)[0]
+    kap = schuin_dak(ch, tekst, laag)
+    woonlagen = _getal(ch.get("Aantal woonlagen")) or 1
+    bouwlagen = _getal(ch.get("Aantal bouwlagen")) or _getal(ch.get("Bouwlagen"))
+    onder_kap = kap["status"] == "zeker"
+    bovenste = onder_kap or kap["bovenste"] or "penthouse" in soort
+    # Alleen een uitdrukkelijke begane grond telt: of funda's "1e woonlaag" de begane grond is, is niet gemeten.
+    begane_grond = "begane grond" in kenm("Gelegen op") or "benedenwoning" in soort
+    tussen = not bovenste and not begane_grond and (
+        "tussenverdieping" in soort or bool(laag and laag >= 2 and bouwlagen and laag + woonlagen - 1 < bouwlagen))
+    hoek = bool(_HOEK.search(soort) or _HOEK.search(kenm("Ligging")) or _zonder_ontkenning(_HOEK, t, niet=_NIET_DEZE_WONING))
+    bj = bouwjaar if isinstance(bouwjaar, (int, float)) and not isinstance(bouwjaar, bool) else None
+    if bj is None and isinstance(bag, dict):
+        bj = _getal(bag.get("bouwjaar"))
+    oud = bool(bj and bj < ISOLATIE_BOUWJAAR)
+    richting = buitenruimte(w or {}, ch, tekst)["richting"]
+    lu = _bron(verrijking, "lucht")
+    groen = lu[1].get("groen_pct") if lu[0] == "ok" and lu[1] and _is_getal(lu[1].get("groen_pct")) else None
+    geen_isolatie = "geen isolatie" in iso
+    deels_enkel = "gedeeltelijk dubbel glas" in iso or "gedeeltelijk dubbel glas" in t
+
+    # --- zomer
+    warm, koel = [], []
+    if onder_kap:
+        warm.append("woonruimte direct onder een schuin dak")
+    elif bovenste:
+        warm.append("bovenste woonlaag, direct onder het dak")
+    if bovenste and oud and iso and not _DAKISOLATIE.search(iso) and not _zonder_ontkenning(_DAKISOLATIE, t):
+        warm.append(f"bouwjaar {int(bj)} en geen dakisolatie genoemd")
+    if richting in _ZON_WARM:
+        warm.append(f"buitenruimte op het {richting.lower()}en: middag- en avondzon op die gevel")
+    if _zonder_ontkenning(_VEEL_GLAS, t, niet=_NIET_DEZE_WONING):
+        warm.append("veel glas volgens de advertentie")
+    if groen is not None and groen < GROEN_WEINIG_PCT:
+        warm.append(f"weinig groen in de buurt ({nl(groen, 0)}% binnen 500 m)")
+    if genoemd(_DWARS, "Soort appartement", "Ligging"):
+        koel.append("ramen aan meer kanten (doorzon of hoek): 's avonds goed door te luchten")
+    if genoemd(_ZONWERING, "Voorzieningen"):
+        koel.append("zonwering, luiken of airco genoemd")
+    if tussen:
+        koel.append("tussenverdieping: geen dak direct boven de woning")
+    if richting in _ZON_KOEL:
+        koel.append(f"buitenruimte op het {richting.lower()}en: weinig middagzon op die gevel")
+    if groen is not None and groen >= GROEN_VEEL_PCT:
+        koel.append(f"veel groen in de buurt ({nl(groen, 0)}% binnen 500 m)")
+
+    # --- winter
+    koud, behaaglijk = [], []
+    if hoek and (begane_grond or bovenste):
+        koud.append(("begane grond" if begane_grond else "bovenste woonlaag") + " op een hoek: veel buitenvlak")
+    elif begane_grond:
+        koud.append("begane grond: koude vloer mogelijk")
+    elif bovenste:
+        koud.append("bovenste woonlaag: warmteverlies via het dak mogelijk")
+    elif hoek:
+        koud.append("hoekligging: een extra buitengevel")
+    if deels_enkel:
+        koud.append("gedeeltelijk dubbel glas, dus deels enkel glas")
+    elif genoemd(_ENKEL_GLAS, "Isolatie"):
+        koud.append("enkel glas genoemd")
+    if geen_isolatie:
+        koud.append("volgens de advertentie geen isolatie")
+    elif oud and iso and not _ISOLATIE.search(iso) and not _zonder_ontkenning(_ISOLATIE, t):
+        koud.append(f"bouwjaar {int(bj)} en geen dak-, muur- of vloerisolatie genoemd")
+    if _KACHEL.search(verw):
+        koud.append("verwarming met losse kachels, geen centrale verwarming")
+    if tussen:
+        behaaglijk.append("tussenverdieping: woningen erboven en eronder, weinig buitenvlak")
+    if not deels_enkel and genoemd(_GOED_GLAS, "Isolatie"):
+        behaaglijk.append("dubbel of HR-glas genoemd")
+    if _ISOLATIE.search(iso) or _zonder_ontkenning(_ISOLATIE, t):
+        behaaglijk.append("dak-, muur- of vloerisolatie genoemd")
+    # Het label: een bekend label is een aanwijzing. Een aangenomen label niet: dat staat alleen als
+    # opmerking in de uitleg, naast een echte aanwijzing, en telt niet mee in "n aanwijzingen".
+    reken = reken_label or label
+    opmerkingen = []
+    if label in _LABEL_KOUD:
+        koud.append(f"energielabel {label}")
+    elif label in _LABEL_WARM:
+        behaaglijk.append(f"energielabel {label}")
+    elif label not in ENERGIE_PER_LABEL and (koud or behaaglijk):
+        if reken in _LABEL_KOUD:
+            opmerkingen.append(f"energielabel onbekend, gerekend als {reken}: een aanname, geen gegeven")
+        elif reken in _LABEL_WARM:
+            opmerkingen.append(f"energielabel onbekend, gerekend als {reken} op grond van het bouwjaar: een aanname")
+    # Stads- of blokverwarming zegt iets over de kosten, niet over warm of koud.
+    if _COLLECTIEF.search(verw):
+        opmerkingen.append("stads- of blokverwarming: de stookkosten zitten dan vaak in de servicekosten")
+
+    uit: list[dict] = []
+    basis = "Een indicatie uit de advertentie en open kaarten. De temperatuur in huis is niet gemeten."
+    if warm or koel:
+        waarde = (f"kans op warmte: {_aanwijzingen(len(warm))}" if len(warm) > len(koel) else
+                  "aanwijzingen voor warm en koel" if len(warm) == len(koel) else f"eerder koel: {_aanwijzingen(len(koel))}")
+        uitleg = (basis + (" Warmer: " + "; ".join(warm) + "." if warm else "")
+                  + (" Koeler of beter af te koelen: " + "; ".join(koel) + "." if koel else ""))
+        uit.append(_item(BINNENKLIMAAT, "neutraal", "Zomer", waarde, "aanwijzingen, niet gemeten", kort="zomer: " + waarde.split(":")[0],
+                         vraag="Vraag bij de bezichtiging hoe warm het in de zomer wordt en of het 's avonds afkoelt.",
+                         uitleg=uitleg))
+    if koud or behaaglijk:
+        waarde = (f"kans op kou: {_aanwijzingen(len(koud))}" if len(koud) > len(behaaglijk) else
+                  "aanwijzingen voor warm en koud" if len(koud) == len(behaaglijk)
+                  else f"eerder warm: {_aanwijzingen(len(behaaglijk))}")
+        uitleg = (basis + (" Kouder: " + "; ".join(koud) + "." if koud else "")
+                  + (" Warmer: " + "; ".join(behaaglijk) + "." if behaaglijk else "")
+                  + (" Niet meegeteld: " + "; ".join(opmerkingen) + "." if opmerkingen else ""))
+        uit.append(_item(BINNENKLIMAAT, "neutraal", "Winter", waarde, "aanwijzingen, niet gemeten", kort="winter: " + waarde.split(":")[0],
+                         vraag="Vraag bij de bezichtiging naar tocht, koude vloeren en het energieverbruik van vorig jaar.",
+                         uitleg=uitleg))
+    return uit
 
 
 def _woning(d: dict, details: dict | None) -> dict:
@@ -1422,7 +1862,13 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
     erf = erfpacht(ch, tekst)
     vve, vve_bron = vve_maand(ch, tekst)
     stook = stookkosten_in_vve(ch, tekst)
-    energie = ENERGIE_PER_LABEL.get(label, ENERGIE_ONBEKEND) * max(m2, 40) / 75 * (STOOK_IN_VVE_FACTOR if stook else 1)
+    # Bouwjaar: BAG gaat voor, anders funda. Zonder label bepaalt het ook het rekenlabel van de energiekosten.
+    bag_st, bag, bag_reden = _bron(verrijking, "bag")
+    bj_funda = _getal(w.get("construction_year")) or _getal(ch.get("Bouwjaar"))
+    bj_bag = _getal((bag or {}).get("bouwjaar")) if bag_st == "ok" else None
+    bj = bj_bag or bj_funda
+    reken_label, label_grond = label_aanname(label, bj)
+    energie = ENERGIE_PER_LABEL[reken_label] * max(m2, 40) / 75 * (STOOK_IN_VVE_FACTOR if stook else 1)
     hist = prijshistorie(prijswijzigingen(d))
     prijs = w.get("price") if isinstance(w.get("price"), (int, float)) and w.get("price") > 0 else None
     fin = financiering({"prijs": prijs, "label": None if label == "?" else label, "canon_jaar": erf["canon_jaar"],
@@ -1456,7 +1902,7 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
             add(_item("financiering", "neutraal", "Leenruimte", f"{eur(marge)} over", "leentoets 2026"))
         else:
             add(_item("financiering", "sterk" if fin["tekort"] > kk_onz else "neutraal", "Leenruimte",
-                      f"{eur(-marge)} boven max. hypotheek", "leentoets 2026", kort="leenruimte te klein"))
+                      f"{eur(-marge)} te weinig", "leentoets 2026", kort="leenruimte te klein"))
         if fin["scenario_tekst"]:
             add(_item("financiering", "neutraal", "Leentoets", fin["scenario_tekst"], "leentoets 2026, jouw scenario's",
                       kort=fin["scenario_tekst"].lower()))
@@ -1509,6 +1955,18 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
     elif laag and lift and laag >= 3:
         add(_item("woonlaag_lift", "goed", "Lift", f"{laag}e woonlaag", "kenmerk 'Voorzieningen'", kort=f"lift, {laag}e woonlaag"))
 
+    # --- schuin dak: klein minpunt als de woonruimte onder de kap ligt (besluit eigenaar, 18 nov 2026)
+    kap = schuin_dak(ch, tekst, laag)
+    if kap["status"] == "zeker":
+        waarde = ("bovenste woonlaag onder de kap" if kap["maisonnette"] else
+                  "bovenste etage onder de kap" if kap["bovenste"] else "woonruimte onder schuin dak")
+        add(_item("schuin_dak", "let_op", "Schuin dak", waarde, kap["bron"], dr["schuin_dak_punten"], kort="onder schuin dak",
+                  vraag="Vraag de bruikbare oppervlakte boven 1,50 m hoogte op.",
+                  uitleg="Onder een schuin dak is minder vloer bruikbaar dan het aantal m² doet denken, en de ruimte voelt anders."))
+    elif kap["status"] == "mogelijk":
+        add(_item("schuin_dak", "neutraal", "Schuin dak", "mogelijk onder schuin dak", kap["bron"], kort="mogelijk schuin dak",
+                  uitleg="Het pand heeft een schuin dak; of deze woning eronder ligt, is niet te zien. Kijk op de foto's en de plattegrond."))
+
     # --- reisafstand
     routes = [r for r in (routes or []) if isinstance(r, dict) and isinstance(r.get("km"), (int, float))]
     if routes:
@@ -1532,8 +1990,11 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
                   vraag="Vraag naar verduurzamingsplannen van de VvE.",
                   uitleg=(f"Voor energiebesparende maatregelen mag je tot {eur(extra)} extra lenen." if extra else None)))
     elif label == "?":
-        add(_item("energielabel", "onbekend", "Energielabel", "onbekend", label_bron, kort="label onbekend",
-                  vraag="Vraag het energielabel op."))
+        add(_item("energielabel", "onbekend", "Energielabel", f"onbekend, gerekend als {reken_label}", label_bron,
+                  kort="label onbekend", vraag="Vraag het energielabel op.",
+                  uitleg=(f"Energiekosten gerekend met label {reken_label}"
+                          + (f", op grond van {label_grond}." if label_grond else ": zonder label gaan we uit van het slechtste.")
+                          + " Een aanname, geen gegeven.")))
     elif label in dr["energielabel_goed"]:
         add(_item("energielabel", "goed", "Energielabel", label, label_bron, kort=f"label {label}",
                   uitleg="Lagere stookkosten en meer leenruimte; dat zit al in woonlasten en leentoets."))
@@ -1570,15 +2031,15 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
     if vve is not None:
         per_m2 = vve / max(m2, 1)
         if stook:
-            add(_item("vve", "neutraal", "VvE-bijdrage", f"{eur(vve)} p/m incl. stookkosten", vve_bron, kort=f"VvE {eur(vve)}"))
+            add(_item("vve", "neutraal", "VvE-bijdrage", f"{eur(vve)} per maand, met stookkosten", vve_bron, kort=f"VvE {eur(vve)}"))
         elif per_m2 < dr["vve_bijdrage_laag_per_m2"]:
-            add(_item("vve", "let_op", "VvE-bijdrage", f"{eur(vve)} p/m, laag", vve_bron, kort=f"VvE {eur(vve)} laag",
-                      vraag="Lage bijdrage: vraag de stand van het reservefonds en het MJOP."))
+            add(_item("vve", "let_op", "VvE-bijdrage", f"{eur(vve)} per maand, laag", vve_bron, kort=f"VvE {eur(vve)} laag",
+                      vraag="Lage bijdrage: vraag de stand van het reservefonds en het onderhoudsplan."))
         elif per_m2 > dr["vve_bijdrage_hoog_per_m2"]:
-            add(_item("vve", "let_op", "VvE-bijdrage", f"{eur(vve)} p/m, hoog", vve_bron, kort=f"VvE {eur(vve)} hoog",
+            add(_item("vve", "let_op", "VvE-bijdrage", f"{eur(vve)} per maand, hoog", vve_bron, kort=f"VvE {eur(vve)} hoog",
                       uitleg="Zit al in je woonlasten."))
         else:
-            add(_item("vve", "neutraal", "VvE-bijdrage", f"{eur(vve)} p/m", vve_bron, kort=f"VvE {eur(vve)}"))
+            add(_item("vve", "neutraal", "VvE-bijdrage", f"{eur(vve)} per maand", vve_bron, kort=f"VvE {eur(vve)}"))
     else:
         add(_item("vve", "onbekend", "VvE-bijdrage", f"onbekend, gerekend met {eur(VVE_GESCHAT)}", "aanname",
                   kort="VvE-bijdrage onbekend", vraag="Vraag de maandelijkse VvE-bijdrage op."))
@@ -1591,27 +2052,23 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
     if nee["Reservefonds aanwezig"]:
         add(_item("vve", "let_op", "Reservefonds", "nee", "kenmerk 'Reservefonds aanwezig'", -0.5, kort="geen reservefonds"))
     if nee["Onderhoudsplan"]:
-        add(_item("vve", "let_op", "Onderhoudsplan", "nee", "kenmerk 'Onderhoudsplan'", -0.5, kort="geen MJOP"))
+        add(_item("vve", "let_op", "Onderhoudsplan", "nee", "kenmerk 'Onderhoudsplan'", -0.5, kort="geen onderhoudsplan"))
     if all(ja.values()) and vs != "slapend":
-        add(_item("vve", "goed", "VvE op orde", "KvK, ALV, reservefonds, MJOP", "kenmerken", 0.5, kort="VvE op orde"))
-    bag_st, bag, bag_reden = _bron(verrijking, "bag")
+        add(_item("vve", "goed", "VvE op orde", "KvK, vergadering, fonds en plan", "kenmerken", 0.5, kort="VvE op orde"))
     n_vbo = _getal((bag or {}).get("aantal_vbo_pand")) if bag_st == "ok" else None
     klein = n_vbo is not None and n_vbo <= dr["vve_klein_max_woningen"]
     if n_vbo is not None:
         if klein:
             add(_item("vve", "let_op", "Kleine VvE", f"{n_vbo} adressen in het pand", "BAG", -0.5, kort=f"VvE van {n_vbo}",
-                      vraag="Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+                      vraag="Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds.",
                       uitleg="Grote kosten (dak, fundering) deel je met weinig eigenaren."))
         else:
             add(_item("vve", "neutraal", "Pand", f"{n_vbo} adressen", "BAG", kort=f"pand met {n_vbo} adressen"))
     elif bag_st in ("onbekend", "budget"):
         add(_item("vve", "onbekend", "VvE-grootte", "onbekend", "BAG", kort="VvE-grootte onbekend",
-                  uitleg=bag_reden or ("budget van deze run op, volgende run verder" if bag_st == "budget" else None)))
+                  uitleg=bag_reden or ("Nog niet opgehaald. Komt bij een volgende update." if bag_st == "budget" else None)))
 
     # --- fundering (alleen bij een bouwjaar voor 1970)
-    bj_funda = _getal(w.get("construction_year")) or _getal(ch.get("Bouwjaar"))
-    bj_bag = _getal((bag or {}).get("bouwjaar")) if bag_st == "ok" else None
-    bj = bj_bag or bj_funda
     fu_st, fu, fu_reden = _bron(verrijking, "fundering")
     herstel = "funderingsherstel" in sig_ids
     if bj and bj >= dr["fundering_bouwjaar_voor"] and fu_st in ("ok", "niet_nodig", "onbekend", "budget"):
@@ -1619,7 +2076,7 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
                   kort="fundering geen risico"))
     elif fu_st in ("onbekend", "budget"):
         add(_item("fundering", "onbekend", "Funderingsrisico buurt", "onbekend", "Klimaateffectatlas", kort="fundering onbekend",
-                  uitleg=fu_reden or ("budget van deze run op" if fu_st == "budget" else None),
+                  uitleg=fu_reden or ("Nog niet opgehaald. Komt bij een volgende update." if fu_st == "budget" else None),
                   vraag="Vraag de VvE of er funderingsonderzoek is gedaan."))
     elif fu_st == "ok" and fu:
         klassen = [(k, v) for k, v in fu.items() if v in FUND_KLASSE]
@@ -1690,7 +2147,7 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
                           kort=f"buurt {LBM_KLASSE[k]}"))
         onv = bu.get("onv")
         if isinstance(onv, (int, float)) and onv <= dr["leefbaarometer_onv_let_op"]:
-            add(_item("buurt", "let_op", "Overlast en onveiligheid", f"{nl(onv, 2)} t.o.v. NL", "Leefbaarometer 3.0", -0.5,
+            add(_item("buurt", "let_op", "Overlast en onveiligheid", f"{nl(onv, 2)} tegenover Nederland", "Leefbaarometer 3.0", -0.5,
                       kort="overlast buurt"))
     elif bu_st in ("onbekend", "budget"):
         add(_item("buurt", "onbekend", "Buurtdata", "onbekend", "Leefbaarometer", kort="buurtdata onbekend", uitleg=bu_reden))
@@ -1704,6 +2161,24 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
         elif tv >= dr["tevreden_woonomgeving_goed"]:
             add(_item("buurt", "goed", "Tevreden met buurt", f"{nl(tv, 0)}% (2024)", "RIVM-gezondheidsmonitor",
                       kort=f"tevreden {nl(tv, 0)}%"))
+
+    # --- open bronnen zonder scoregewicht: kerncijfers, politiecijfers, lucht, klimaat, erfgoed
+    for it in omgeving_items(verrijking, dr, monument_funda=bool(w.get("is_monument"))):
+        add(it)
+
+    # --- eerder zonder vraagprijs aangeboden (alleen als er nu wel een prijs is; nooit rekenen met prijs 0)
+    if prijs:
+        ruw_zp = (d or {}).get("_zonder_prijs_gezien")
+        eigen = _datum(ruw_zp)
+        uit_hist = _datum(hist.get("zonder_prijs"))
+        wanneer, bron_zp = (eigen, "eigen waarneming") if eigen else (uit_hist, "funda prijshistorie")
+        zonder_datum = not wanneer and ruw_zp == ZONDER_PRIJS_ONBEKEND
+        if wanneer or zonder_datum:
+            add(_item("prijsverloop", "neutraal", "Eerder zonder prijs",
+                      f"gezien op {_dag_kort(wanneer)}" if wanneer else "gezien, datum onbekend",
+                      bron_zp if wanneer else "eigen waarneming", kort="eerder zonder prijs",
+                      uitleg="Deze woning stond eerder zonder vraagprijs te koop (prijs op aanvraag). "
+                             "Vraag de makelaar waarom er nu wel een prijs staat."))
 
     # --- staat en clausules uit de advertentie
     kluswoning = bool(w.get("is_fixer_upper")) or "opknapper" in sig_ids
@@ -1770,6 +2245,10 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
     if isinstance(dagen, (int, float)) and dagen >= cfg["lang_op_funda_dagen"]:
         add(_item("kans", "kans", "Lang te koop", f"{int(dagen)} dagen", "eigen tracking", kort="lang te koop"))
 
+    # --- binnenklimaat: indicatie voor zomer en winter, informatief (verzoek eigenaar, 19 nov 2026)
+    for it in binnenklimaat(w, ch, tekst, bag if bag_st == "ok" else None, verrijking, label, reken_label, bj):
+        add(it)
+
     return _samenvatten(cfg, items, gate, twijfel_z, fin, verrijking)
 
 
@@ -1808,6 +2287,8 @@ def _samenvatten(cfg: dict, items: list[dict], gate: dict, twijfel: list[str], f
     info = [i for i in items if i["groep"] == "info"]
     vragen: list[str] = []
     for i in let_op + onbekend + plus + info:
+        if i["onderdeel"] == BINNENKLIMAAT:   # die vraag staat bij het item zelf; hier zou hij de vaste vragen verdringen
+            continue
         if i.get("vraag") and i["vraag"] not in vragen:
             vragen.append(i["vraag"])
     for v in VRAGEN_ALTIJD:
@@ -1816,7 +2297,8 @@ def _samenvatten(cfg: dict, items: list[dict], gate: dict, twijfel: list[str], f
     fin_uit = {k: v for k, v in fin.items() if k not in ("poort", "redenen")}
     namen = ["bag", "fundering", "geluid", "buurt"]
     if isinstance(verrijking, dict):
-        namen += [k for k in verrijking if k not in namen and k in ("tevredenheid",)]
+        namen += [k for k in verrijking if k not in namen
+                  and k in ("tevredenheid", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed")]
     poort_ = gate["poort"]
     return {
         "poort": poort_,
@@ -1897,3 +2379,27 @@ def log_kenmerk_labels(details_lijst) -> dict[str, int]:
             if isinstance(k, str) and k.strip():
                 teller[k.strip()] = teller.get(k.strip(), 0) + 1
     return dict(sorted(teller.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
+def log_prijshistorie(woningen) -> dict:
+    """Meting voor "eerder zonder prijs aangeboden": welke statuswaarden funda's prijshistorie geeft en
+    hoeveel regels geen bedrag hebben. Alleen aantallen: {"woningen", "regels", "status": {naam: n},
+    "zonder_bedrag": {naam: n}}. Een statuswaarde die niet op een kort woord lijkt, telt als "anders"."""
+    uit = {"woningen": 0, "regels": 0, "status": {}, "zonder_bedrag": {}}
+    for d in woningen or []:
+        changes = prijswijzigingen(d if isinstance(d, dict) else None)
+        if not changes:
+            continue
+        uit["woningen"] += 1
+        for c in changes:
+            if not isinstance(c, dict):
+                continue
+            st = str(c.get("status") or "").strip().lower()
+            st = st if re.fullmatch(r"[a-z_]{1,30}", st) else ("leeg" if not st else "anders")
+            uit["regels"] += 1
+            uit["status"][st] = uit["status"].get(st, 0) + 1
+            if not _prijs_van(c):
+                uit["zonder_bedrag"][st] = uit["zonder_bedrag"].get(st, 0) + 1
+    uit["status"] = dict(sorted(uit["status"].items()))
+    uit["zonder_bedrag"] = dict(sorted(uit["zonder_bedrag"].items()))
+    return uit
