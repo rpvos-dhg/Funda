@@ -2343,6 +2343,197 @@ def test_pool_in_run() -> bool:
                 str(tracking.get("g1")))
     return ok
 
+# Fictieve woningen voor de tests van een dicht detail-endpoint: (tiny_id, global_id).
+DICHT_WONINGEN = [(f"4460000{i}", f"760000{i}") for i in range(1, 8)]
+
+
+def _dichtrun(methode: str, statussen: dict | None = None, *, faal_na=None, actions: bool = False) -> dict:
+    """main() met zeven woningen via de API-, HTML- of mailroute; de detail-calls volgen `statussen`.
+
+    `statussen` geeft per volgnummer (1 tot 7) de status van de detail-call; zonder
+    status slaagt hij. De statebestanden hebben vooraf inhoud, zodat te zien is of
+    de run eraan kwam. Geeft exitcode, detail-calls, log, of het rapport draaide,
+    de titels in het rapport en of de statebestanden gelijk bleven.
+    """
+    import funda_html_zoek as fhz
+    import funda_mail_ophalen as fmo
+    import test_funda_html as th
+
+    statussen = statussen or {}
+    url = "https://www.funda.nl/detail/koop/den-haag"
+    details, zoekdata, kaarten, links = {}, [], [], []
+    for i, (tiny, gid) in enumerate(DICHT_WONINGEN, 1):
+        basis = {"global_id": gid, "tiny_id": tiny, "city": "Den Haag", "neighbourhood": "Bomenbuurt",
+                 "price": 250000, "living_area": 60, "title": f"Dichtlaan {i}"}
+        details[tiny] = {**basis, "description": "Licht, op de derde verdieping.",
+                         **({"_status": statussen[i]} if i in statussen else {})}
+        zoekdata.append({**basis, "detail_url": f"/detail/koop/den-haag/appartement-dichtlaan-{i}/{tiny}/"})
+        kaarten.append(th.kaart_html(stad_slug="den-haag", slug=f"appartement-dichtlaan-{i}", tiny_id=tiny,
+                                     adres=f"Dichtlaan {i}", postcode="1234 AB", stad="Den Haag",
+                                     prijs="€ 250.000 k.k.", m2="60 m²", kamers="3"))
+        links.append(f"{url}/appartement-dichtlaan-{i}/{tiny}/")
+    pagina = "<html><body>" + "".join(kaarten) + "</body></html>"
+
+    calls: list[str] = []
+    fz = maak_stub_funda(lambda n: [StubListing(dict(z)) for z in zoekdata] if n == 1 else [],
+                         details=details, calls=calls, faal_na=faal_na)
+    # State met inhoud. Het trackingrecord is te oud voor de pool: die doet hier geen call.
+    fz.STATE_FILE.write_text(json.dumps(["al-gezien"]))
+    fz.TRACKING_FILE.write_text(json.dumps({"oud": {"last_seen": "2020-01-01", "prices": []}}))
+    fz.SUMMARY_FILE.write_text(json.dumps({"vorige": "run"}))
+    staat = [fz.STATE_FILE, fz.TRACKING_FILE, fz.SUMMARY_FILE]
+    vooraf = [pad.read_bytes() for pad in staat]
+
+    class Html(fhz.HtmlZoeker):
+        def _haal(self, _url):
+            return pagina
+
+    gezien: dict = {}
+
+    def rapport(_client, goed, _nieuw):
+        gezien["titels"] = sorted(d.get("title") for d in goed)
+        return Path("rapport.html")
+
+    fz.genereer_rapport = rapport
+    origineel = (fhz.HtmlZoeker, fmo.mail_config, fmo.haal_mail_teksten)
+    oude_sleep = time.sleep
+    os.environ["FUNDA_ZOEK_METHODE"] = methode
+    fhz.HtmlZoeker = Html
+    fmo.mail_config = lambda _personal=None: {"host": "imap.example", "gebruiker": "x",
+                                              "wachtwoord": "y", "map_naam": ""}
+    fmo.haal_mail_teksten = lambda **_kw: ["\n".join(links)]
+    if actions:
+        os.environ["GITHUB_ACTIONS"] = "true"
+    try:
+        time.sleep = lambda _s: None
+        with contextlib.redirect_stdout(io.StringIO()) as uit:
+            try:
+                fz.main()
+                code = None
+            except SystemExit as exc:
+                code = exc.code
+    finally:
+        time.sleep = oude_sleep
+        fhz.HtmlZoeker, fmo.mail_config, fmo.haal_mail_teksten = origineel
+        os.environ["FUNDA_ZOEK_METHODE"] = "api"
+        os.environ.pop("GITHUB_ACTIONS", None)
+    return {"code": code, "calls": calls, "log": uit.getvalue(), "rapport": "titels" in gezien,
+            "titels": gezien.get("titels"),
+            "state_gelijk": [pad.read_bytes() for pad in staat] == vooraf}
+
+
+def _gestopt(naam: str, r: dict, n_calls: int, melding: str = "Detail-endpoint ging tijdens de run dicht") -> bool:
+    """De vaste controles van exit 2: code, geen rapport, state onaangeroerd, melding, geen call meer."""
+    fout = [regel for regel in r["log"].splitlines() if regel.startswith("::error::")]
+    return all([
+        check(f"{naam}: exit 2", r["code"] == 2, str(r["code"])),
+        check(f"{naam}: geen rapport", not r["rapport"]),
+        check(f"{naam}: seen-ids, tracking en samenvatting ongewijzigd", r["state_gelijk"]),
+        check(f"{naam}: één ::error:: met de melding",
+              len(fout) == 1 and melding in fout[0] and "Rapport NIET bijgewerkt" in fout[0], str(fout)),
+        check(f"{naam}: daarna geen detail-call meer", len(r["calls"]) == n_calls,
+              f"{len(r['calls'])} calls, verwacht {n_calls}"),
+    ])
+
+
+def _doorgelopen(naam: str, r: dict, titels: int) -> bool:
+    return all([
+        check(f"{naam}: geen afbreking", r["code"] is None, str(r["code"])),
+        check(f"{naam}: rapport met {titels} woningen", len(r["titels"] or []) == titels, str(r["titels"])),
+        check(f"{naam}: state bijgewerkt", not r["state_gelijk"]),
+    ])
+
+
+def _geen_spoor(naam: str, r: dict) -> bool:
+    nummers = [n for paar in DICHT_WONINGEN for n in paar]
+    lekken = [x for x in ("/detail/", "Dichtlaan", *nummers) if x in r["log"]]
+    return check(f"{naam}: geen woning, pad of nummer in de publieke log", not lekken, ", ".join(lekken))
+
+
+def test_detailcheck_dicht() -> bool:
+    """De detailcheck slikt een dicht detail-endpoint niet meer.
+
+    Eerder ving de detailcheck elke fout van de detail-call en toonde de woning
+    dan toch: bij een 401, 403 of 429 liep de run door, bleef het endpoint
+    aanroepen en publiceerde een rapport op half werk. Nu: exit 2, net als in de
+    sitemapzoeker en de pool. Een losse storing en een 404 houden hun gedrag.
+    """
+    print("test: detailcheck stopt bij een dicht detail-endpoint")
+    ok = True
+    # Weigering: bij de eerste call, halverwege, en na een reeks successen.
+    for naam, faal_na, n in (("403 bij de eerste call", (0, 403), 1), ("429 halverwege", (3, 429), 4),
+                             ("401 na zes successen", (6, 401), 7)):
+        ok &= _gestopt(naam, _dichtrun("api", faal_na=faal_na), n)
+    # Een weigering na storingen en een 404: de eerdere fouten veranderen daar niets aan.
+    ok &= _gestopt("403 na een storing en een 404", _dichtrun("api", {1: 500, 2: 404, 4: 403}), 4)
+
+    # DICHT_NA storingen op rij: het endpoint lijkt dicht, ook zonder weigering.
+    r = _dichtrun("api", {i: 500 for i in range(2, 7)})
+    ok &= _gestopt("vijf storingen op rij na een succes", r, 6)
+    ok &= check("vijf storingen op rij: de reden staat in de melding", "5 detail-calls op rij mislukt" in r["log"])
+    ok &= _gestopt("time-outs vanaf de tweede call", _dichtrun("api", faal_na=(1, None)), 6)
+
+    # Geen exit 2: een losse storing, een losse 404, en storingen met een 404 of
+    # een succes ertussen. De woning blijft staan (tonen is de standaard).
+    r = _dichtrun("api", {3: 500})
+    ok &= _doorgelopen("losse storing", r, 7)
+    ok &= check("losse storing: gemeld en getoond", r["log"].count("tonen by default") == 1)
+    ok &= _doorgelopen("losse 404", _dichtrun("api", {3: 404}), 7)
+    ok &= _doorgelopen("vier storingen, een 404, twee storingen",
+                       _dichtrun("api", {1: 500, 2: 500, 3: 500, 4: 500, 5: 404, 6: 500, 7: 500}), 7)
+    ok &= _doorgelopen("vier storingen, een succes, twee storingen",
+                       _dichtrun("api", {1: 500, 2: 500, 3: 500, 4: 500, 6: 500, 7: 500}), 7)
+
+    # De publieke log: de melding van de client noemt de woning, de log niet.
+    for naam, kw in (("403 op Actions", {"faal_na": (2, 403)}),
+                     ("vijf storingen op Actions", {"statussen": {i: 500 for i in range(1, 6)}})):
+        r = _dichtrun("api", actions=True, **kw)
+        ok &= check(f"{naam}: exit 2 met ::error::", r["code"] == 2 and "::error::" in r["log"], str(r["code"]))
+        ok &= _geen_spoor(naam, r)
+    return ok
+
+
+def test_zoekroute_dicht() -> bool:
+    """De HTML- en de mailroute slikken een dicht detail-endpoint niet meer.
+
+    Beide verrijken in search_listing() via de gedeelde DropIn._haal_detail. Een
+    weigering werd daar een overgeslagen woning; de zoekronde ging door met de
+    volgende woning en de volgende prijsband, en main() schreef een rapport met
+    wat er toevallig al binnen was.
+    """
+    print("test: HTML- en mailroute stoppen bij een dicht detail-endpoint")
+    ok = True
+    for route in ("html", "mail"):
+        for naam, faal_na, n in (("403 bij de eerste call", (0, 403), 1), ("429 halverwege", (3, 429), 4),
+                                 ("401 na zes successen", (6, 401), 7)):
+            ok &= _gestopt(f"{route}, {naam}", _dichtrun(route, faal_na=faal_na), n)
+        ok &= _gestopt(f"{route}, 403 na een storing en een 404",
+                       _dichtrun(route, {1: 500, 2: 404, 4: 403}), 4)
+        r = _dichtrun(route, {i: 500 for i in range(2, 7)})
+        ok &= _gestopt(f"{route}, vijf storingen op rij na een succes", r, 6)
+        ok &= check(f"{route}, vijf storingen op rij: de reden staat in de melding",
+                    "5 detail-calls op rij mislukt" in r["log"])
+
+        # Geen exit 2. De woning zonder detail valt uit de oogst, zoals voorheen.
+        r = _dichtrun(route, {3: 500})
+        ok &= _doorgelopen(f"{route}, losse storing", r, 6)
+        ok &= _doorgelopen(f"{route}, losse 404", _dichtrun(route, {3: 404}), 6)
+        ok &= _doorgelopen(f"{route}, vier storingen met een 404 ertussen",
+                           _dichtrun(route, {1: 500, 2: 500, 3: 404, 4: 500, 5: 500}), 2)
+
+        r = _dichtrun(route, faal_na=(2, 403), actions=True)
+        ok &= check(f"{route}, 403 op Actions: exit 2 met ::error::",
+                    r["code"] == 2 and "::error::" in r["log"], str(r["code"]))
+        if route == "html":   # de mailroute draait alleen lokaal en logt daar het pad
+            ok &= _geen_spoor("html, 403 op Actions", r)
+
+    # De HTML-route ziet dezelfde woning in elke prijsband en sortering: één kapotte
+    # woning wordt telkens opnieuw geprobeerd, maar telt één keer in de reeks.
+    r = _dichtrun("html", {3: 500})
+    ok &= check("html, losse storing: dezelfde woning vaker geprobeerd, geen 'dicht'",
+                len(r["calls"]) > 7 + 5 and "op rij mislukt" not in r["log"], str(len(r["calls"])))
+    return ok
+
 
 def main() -> int:
     resultaten = [test_alles_faalt(), test_stille_lege_oogst(), test_normale_run(), test_prijs_onbekend(),
@@ -2351,7 +2542,8 @@ def main() -> int:
                   test_woningtypefilter(), test_zoekcriteria(), test_beschikbaarheid(),
                   test_pool(), test_pool_in_run(), test_sitemapbron_faalt_luid(),
                   test_geen_dubbele_detail_calls(), test_pool_404_bovenaan(), test_pool_404_beeindigt_reeks(),
-                  test_endpoint_halverwege_dicht(), test_publieke_log(), test_sitemap_overslaan(),
+                  test_endpoint_halverwege_dicht(), test_detailcheck_dicht(), test_zoekroute_dicht(),
+                  test_publieke_log(), test_sitemap_overslaan(),
                   test_instellingen(),
                   test_eerlijke_client(), test_auto_push_alleen_docs()]
     print()

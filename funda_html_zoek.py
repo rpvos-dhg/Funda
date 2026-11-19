@@ -17,6 +17,11 @@ Detail-calls zijn het dure deel, dus:
   van wat de kaart al prijsgeeft: stad, prijs, oppervlakte, adres);
 - opgehaalde details worden gecachet, zodat de detail-check verderop in
   funda_zoek.py geen tweede call doet.
+
+Weigert het detail-endpoint (401, 403 of 429), of mislukken DICHT_NA woningen op
+rij, dan gooit `search_listing()` een `DetailEndpointDicht` (de gedeelde
+`DropIn._haal_detail`): funda_zoek.py stopt dan met exit 2 en vraagt niets meer
+op. Een losse storing of een 404 kost alleen die ene woning.
 """
 
 from __future__ import annotations
@@ -293,7 +298,9 @@ class HtmlZoeker(DropIn):
             # aanroeper dedupliceert pas ná deze call; uit het geheugen kost een
             # duplicaat geen tweede detail-call. Mislukt de call, dan overslaan:
             # zonder detail missen buurt en label, en de kaartgegevens alleen
-            # zijn te mager om betrouwbaar op te filteren.
+            # zijn te mager om betrouwbaar op te filteren. Een weigering van het
+            # endpoint wordt niet overgeslagen: _haal_detail gooit dan
+            # DetailEndpointDicht, en die gaat door naar funda_zoek.py.
             data, _fout = self._haal_detail(
                 kaart["detail_url"], "html", str(kaart.get("tiny_id") or kaart["detail_url"]),
                 aanvullen={v: kaart[v] for v in self.KAARTVELDEN if kaart.get(v)})

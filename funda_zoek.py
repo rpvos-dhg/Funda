@@ -1481,6 +1481,11 @@ def zoek_alle_banden(zoeker: object, zoek_methode: str) -> list:
                         sort=sort,
                         page=pagina,
                     )
+                except DetailEndpointDicht:
+                    # Geen zoekfout maar een dicht detail-endpoint: niet doorgaan
+                    # met de volgende band (elke band vraagt het endpoint opnieuw
+                    # aan). main() stopt met exit 2.
+                    raise
                 except Exception as exc:
                     zoek_fout += 1
                     reden = str(exc)[:80]
@@ -1594,17 +1599,34 @@ def nafilter(rauwe: list, thuis: tuple[float, float] | None, straal: float | Non
     return voor, weg
 
 
+def _detail_teller(zoeker: object) -> int | None:
+    """Het aantal echte detail-calls van de client tot nu toe, of None als die niet telt."""
+    try:
+        return getattr(zoeker, "detail_calls", None)
+    except Exception:
+        return None
+
+
 def detailcheck(zoeker: object, voor: list, thuis: tuple[float, float] | None, straal: float | None,
                 weg: Counter) -> tuple[list[dict], list[tuple[dict, list[str]]], dict[str, str | None]]:
     """Detail-check op blacklist, beleggingsobject en begane grond.
 
-    Geeft (goed, afgewezen met redenen, publicatiedatum per woning). Mislukt de
-    detail-call, dan blijft de woning staan: tonen is de standaard.
+    Geeft (goed, afgewezen met redenen, publicatiedatum per woning). Mislukt een
+    losse detail-call (storing of 404), dan blijft de woning staan: tonen is de
+    standaard.
+
+    Een dicht endpoint is geen losse fout. Weigert het (401/403/429), of
+    mislukken DICHT_NA calls op rij, dan `DetailEndpointDicht`: main() stopt met
+    exit 2, vóór tracking, seen-ids en rapport, en er volgt geen detail-call
+    meer. Zelfde regel als in de sitemapzoeker en de pool: een nette 404 is een
+    antwoord en beëindigt de reeks, een geslaagde call ook (een antwoord uit het
+    geheugen van deze run niet: dat zegt niets over het endpoint).
     """
     blacklist = laad_blacklist()
     goed: list[dict] = []
     afgewezen: list[tuple[dict, list[str]]] = []
     pub_data: dict[str, str | None] = {}
+    op_rij = 0
     for r in voor:
         d = r.data
         lid = d.get("global_id") or d.get("listing_id")
@@ -1612,8 +1634,26 @@ def detailcheck(zoeker: object, voor: list, thuis: tuple[float, float] | None, s
         if sleutel in blacklist:   # geen detail-call nodig
             afgewezen.append((d, ["blacklist"]))
             continue
+        calls_voor = _detail_teller(zoeker)
         try:
             details = zoeker.get_listing(lid)
+        except DetailEndpointDicht:
+            raise
+        except Exception as exc:
+            log(f"Detail fout {'voor een woning' if publieke_log() else lid}: {exc} - tonen by default.")
+            goed.append(d)
+            if isinstance(exc, WoningNietGevonden):
+                op_rij = 0   # een antwoord, geen storing
+                continue
+            op_rij += 1
+            if op_rij >= DICHT_NA:
+                raise DetailEndpointDicht(
+                    f"Detailcheck: {op_rij} detail-calls op rij mislukt (laatste: "
+                    f"{type(exc).__name__}: {exc}); het detail-endpoint lijkt dicht.") from exc
+            continue
+        if calls_voor is None or _detail_teller(zoeker) != calls_voor:
+            op_rij = 0   # een echte, geslaagde call
+        try:
             details_data = details.data if hasattr(details, "data") else None
 
             # Bij de API-route heeft het zoekresultaat geen coördinaten; die komen
@@ -1634,6 +1674,7 @@ def detailcheck(zoeker: object, voor: list, thuis: tuple[float, float] | None, s
                 goed.append(d)
             time.sleep(0.5)
         except Exception as exc:
+            # Het antwoord is er, maar is niet te beoordelen: geen storing van het endpoint.
             log(f"Detail fout {'voor een woning' if publieke_log() else lid}: {exc} - tonen by default.")
             goed.append(d)
     if weg[NAFILTER_CRITERIA]:
@@ -1718,38 +1759,42 @@ def main() -> None:
 
     bron, zoek_methode = kies_zoeker(f)
     zoeker = DetailCacheZoeker(bron)
-    rauwe = zoek_alle_banden(zoeker, zoek_methode)
-
-    # Eerder getoonde woningen die deze run niet binnenkwamen opnieuw controleren.
-    # Pas ná de checks van het zoeken: een stukke zoekmethode moet luid falen,
-    # ook als de pool wél iets oplevert. Bij de sitemaproute weet de pool wat de
-    # zoeker al ophaalde of bewust oversloeg, zodat geen woning twee keer per run
-    # wordt opgehaald.
-    tracking = laad_tracking()
-    al_binnen = {str(r.data[veld]) for r in rauwe
-                 for veld in ("global_id", "listing_id", "tiny_id", "detail_url") if r.data.get(veld)}
+    # Alles wat het detail-endpoint aanroept (zoeken via HTML, mail of sitemap,
+    # de pool en de detailcheck) staat in één blok en vóór de eerste schrijfactie
+    # op tracking, seen-ids en rapport. Gaat het endpoint dicht (weigering, of
+    # DICHT_NA mislukte calls op rij), dan stopt de run hier met exit 2: doorgaan
+    # geeft een rapport op half werk, en dat blijft staan zolang de volgende runs
+    # al bij de eerste call falen. De pool zet "weg" alleen in het geheugen; dat
+    # wordt pas in werk_tracking_bij() bewaard.
     try:
+        rauwe = zoek_alle_banden(zoeker, zoek_methode)
+
+        # Eerder getoonde woningen die deze run niet binnenkwamen opnieuw controleren.
+        # Pas ná de checks van het zoeken: een stukke zoekmethode moet luid falen,
+        # ook als de pool wél iets oplevert. Bij de sitemaproute weet de pool wat de
+        # zoeker al ophaalde of bewust oversloeg, zodat geen woning twee keer per run
+        # wordt opgehaald.
+        tracking = laad_tracking()
+        al_binnen = {str(r.data[veld]) for r in rauwe
+                     for veld in ("global_id", "listing_id", "tiny_id", "detail_url") if r.data.get(veld)}
         rauwe.extend(controleer_pool(zoeker, tracking, al_binnen, dagen=POOL_DAGEN, maximum=POOL_MAX,
                                      sitemap=bron if zoek_methode == "sitemap" else None))
+
+        # Alleen lokaal: de buurtnamen met aantallen tonen het zoekgebied, en de log
+        # op Actions is publiek.
+        if debug_wijken and publieke_log():
+            log("--debug-wijken werkt alleen lokaal (de log op Actions is publiek).")
+        elif debug_wijken:
+            toon_wijken(rauwe)
+
+        thuis = thuis_coords()
+        straal = nafilter_straal_km()
+        if straal and not thuis:
+            log("Afstandsfilter: zoekpostcode niet te geocoderen; deze run zonder afstandsfilter.")
+        voor, weg = nafilter(rauwe, thuis, straal)
+        goed, afgewezen, pub_data = detailcheck(zoeker, voor, thuis, straal, weg)
     except DetailEndpointDicht as exc:
-        # Het endpoint ging tijdens de run dicht. Doorgaan geeft een rapport
-        # zonder de bekende woningen, en dat blijft staan zolang de volgende
-        # runs al bij de eerste call falen.
         _stop(f"Detail-endpoint ging tijdens de run dicht ({exc}). Rapport NIET bijgewerkt.")
-
-    # Alleen lokaal: de buurtnamen met aantallen tonen het zoekgebied, en de log
-    # op Actions is publiek.
-    if debug_wijken and publieke_log():
-        log("--debug-wijken werkt alleen lokaal (de log op Actions is publiek).")
-    elif debug_wijken:
-        toon_wijken(rauwe)
-
-    thuis = thuis_coords()
-    straal = nafilter_straal_km()
-    if straal and not thuis:
-        log("Afstandsfilter: zoekpostcode niet te geocoderen; deze run zonder afstandsfilter.")
-    voor, weg = nafilter(rauwe, thuis, straal)
-    goed, afgewezen, pub_data = detailcheck(zoeker, voor, thuis, straal, weg)
     werk_tracking_bij(goed, tracking, pub_data)
 
     nieuw = [d for d in goed if str(_woning_id(d)) not in seen]
