@@ -1062,3 +1062,39 @@ zie ook "Encryptie verplicht in CI".
   waarden van "Soort dak" en een kenmerk voor het aantal bouwlagen zijn **niet
   gemeten** op echte advertenties (de labeltelling in de log laat ze zien).
   Vastgepind in `test_funda_beoordeling.py::test_schuin_dak`.
+
+## Onderzoek Cloudflare (19 nov 2026)
+
+Aanleiding: geplande runs op GitHub starten sinds begin oktober 2026 4,5 tot 10
+uur te laat (ook gemeld in GitHub Community Discussions #209507, #209838,
+#210111 en #210888, zonder reactie van GitHub; een ander minuutgetal, een eigen
+runner of de workflow uit- en aanzetten hielp daar niet). Uitwerking:
+`notities/plan-cloudflare.md`. Gelezen in de officiële documentatie op 19 nov
+2026 (paginadatum tussen haakjes):
+
+- Workers-limieten (18-11-2026): gratis 10 ms CPU en 50 subrequests; Paid 30 s
+  tot 5 min CPU, 10.000 subrequests, cron hooguit 15 min wandklok, 128 MB
+  geheugen. https://developers.cloudflare.com/workers/platform/limits/
+- Prijs (18-11-2026): Workers Paid vanaf 5 dollar per maand.
+  https://developers.cloudflare.com/workers/platform/pricing/
+- Workflows (10-11-2026): Paid 10.000 stappen, wandklok per stap onbeperkt,
+  resultaat per stap hooguit 1 MiB.
+  https://developers.cloudflare.com/workflows/reference/limits/
+- KV (21-4-2026): een schrijfactie is elders pas na 60 s zichtbaar; daarom R2.
+  https://developers.cloudflare.com/kv/concepts/how-kv-works/
+- PBKDF2 in productie hooguit 100.000 iteraties (open issue, laatste activiteit
+  27-10-2026). https://github.com/cloudflare/workerd/issues/1346
+- Elke uitgaande fetch krijgt de header `CF-Worker` (15-11-2026).
+  https://developers.cloudflare.com/fundamentals/reference/http-headers/
+- Pages op een subdomein werkt met alleen een CNAME (11-11-2026); Workers op
+  een eigen domein en Access vragen een Cloudflare-zone; een partial setup kost
+  Business, een subdomain setup Enterprise.
+  https://developers.cloudflare.com/pages/configuration/custom-domains/
+  https://developers.cloudflare.com/dns/zone-setups/partial-setup/
+- Python Workers: stdlib beschikbaar (22-6-2026); GA alleen in bronnen van
+  derden (sep 2026).
+  https://developers.cloudflare.com/workers/languages/python/stdlib/
+
+Niet bevestigd: of funda verzoeken vanaf Cloudflare doorlaat, de
+nauwkeurigheid van Cron Triggers, of `web-push`-alternatieven op Web Crypto
+werken, de officiële gebruikersgrens van Access.

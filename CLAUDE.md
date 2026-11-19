@@ -593,6 +593,9 @@ Tegen de echte site, alleen handmatig: de `..._validatie.py`-scripts,
 
 ## 14. Open punten en ideeën
 
+- **Rooster en hosting:** geplande runs starten 4,5 tot 10 uur te laat (GitHub,
+  sinds oktober 2026). Plan voor Cloudflare, met meetfase en beslismomenten:
+  `notities/plan-cloudflare.md`.
 - `docs/` publiceren zonder git-geschiedenis: vraagt een andere Pages-instelling
   van de eigenaar en hoort bij het opnieuw aanmaken van de repo.
 - Gewichten voor de bronnen van 18 nov 2026: keuze van de eigenaar; de cijfers
