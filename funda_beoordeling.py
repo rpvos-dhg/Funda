@@ -61,12 +61,14 @@ characteristics, is_auction, is_fixer_upper, is_monument, has_balcony, has_roof_
 has_garden, has_parking_on_site, has_parking_enclosed, open_house.
 Uit d alleen: _track (eigen tracking: gedaald, drop_bedrag, eerdere_prijs, dagen),
 _enrichment (price_history met changes of een lijst, market met
-avg_asking_price_per_m2, broker met name, review_average, review_count) en _twijfel
-(als twijfel None is).
+avg_asking_price_per_m2, broker met name, review_average, review_count), _twijfel
+(als twijfel None is) en _zonder_prijs_gezien (JJJJ-MM-DD uit de sitemapcache: de woning
+stond eerder zonder vraagprijs te koop).
 routes: [{"label", "km", "soort": "weg"|"schatting"}]. twijfel: korte zinnen uit
 funda_zoek (bijv. "Twijfelbuurt Leyenburg (jouw lijst)."). verrijking: per bron
 {"status": "ok"|"onbekend"|"budget"|"uit"|"niet_nodig", "data": {...}, "reden": str}
-of direct de data (kaal, zonder status). rente: dict uit
+of direct de data (kaal, zonder status). Bronnen: bag, fundering, geluid, buurt en, zonder
+scoregewicht, kerncijfers, veiligheid, lucht, klimaat en erfgoed (omgeving_items()). rente: dict uit
 funda_rente.huidige_rente(): {"pct", "bron", "datum", "oud", "melding"}. Zonder rente:
 financien.rente.pct uit de config, anders STANDAARD_RENTE (4,11%, 6 juli 2026).
 

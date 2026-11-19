@@ -194,8 +194,8 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   CBS (`dataderden.cbs.nl`, geen robots.txt). robots.txt per host eerst, vers op
   de dag van ophalen (RFC 9309 par. 2.4: hooguit 24 uur; ook voor `funda_rente`);
   de laatste goede versie (hooguit 30 dagen) alleen als terugval bij een time-out
-  of 5xx, nooit bij een weigering. `EERLIJKE_UA`, sequentieel met pauze, time-out 10 s, budget 60
-  verzoeken per run (± 5 per nieuwe woning; daarna bijna alles uit de cache).
+  of 5xx, nooit bij een weigering. `EERLIJKE_UA`, sequentieel met pauze, time-out 10 s, budget 90
+  verzoeken per run (zie "Budget" hieronder; daarna bijna alles uit de cache).
   Per host stoppen bij 401/403/429/5xx en die host een dag dicht laten; nooit
   omzeilen. Een fout geeft "onbekend" in het rapport, nooit exit 2 en nooit een
   woning minder. Allowlist van velden: herkomst, nationaliteit, inkomen en andere
@@ -206,14 +206,62 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   WOZ-waardeloket en KOOP (robots verbiedt het). De RIVM-laagnamen hebben een
   datum (`rivm_20250101_...`); verdwijnt een jaargang, dan wordt geluid
   "onbekend" tot `RIVM_LAGEN` is bijgewerkt.
+  **Bronnen van 18 nov 2026** (gemeten die dag, robots.txt per host opnieuw
+  gelezen en ongewijzigd; `testdata/verrijking/meting.json`). Elk apart aan of
+  uit in `beoordeling.verrijking.bronnen`, met een eigen status per woning, en in
+  het model **allemaal 0 punten** (informatief of "let op" zonder gewicht): de
+  spreiding tussen buurten is nog niet bekend, gewichten volgen later. Geen
+  nieuwe host: alles op hosts die al gebruikt werden.
+  - `kerncijfers`: CBS Wijken en buurten 2024 uit dezelfde PDOK-call als de
+    buurtcode (geen extra verzoek): gemiddelde WOZ, koop, huur en corporatie,
+    meergezins, stadsverwarming en aardgasvrij, afstand tot supermarkt, station
+    en huisarts. Alleen `KERN_PDOK` wordt gelezen (het antwoord heeft 244
+    velden, ook bevolkingsvelden). Missend = -99997. De uitgave 2025 mist WOZ en
+    afstanden, daarom 2024. Het aantal woningen (`woningvoorraad`) staat alleen
+    in de cache, als noemer; nooit in de uitvoer, het rapport of de log.
+  - `veiligheid`: politiecijfers via `dataderden.cbs.nl`, tabel 47018NED
+    (misdrijven: totaal, woninginbraak 1.1.1, vernieling 2.2.1) en 47024NED
+    (overlast, totaal), jaar 2025 (`POLITIE_JAAR`; bijwerken als 2026 volledig
+    is). Per 1.000 woningen, met het gemeentecijfer uit hetzelfde antwoord (de
+    noemer van de gemeente: één PDOK-verzoek per gemeente). Onder 100 woningen
+    geen cijfer. Altijd informatief en feitelijk; geen oordeel over een buurt.
+  - `lucht` (met `groen` als schakelaar voor het percentage): RIVM-WMS,
+    jaargemiddelde NO2 en PM2,5 van 2024 en het percentage groen binnen 500 m
+    (2022), één verzoek. Duiding tegen het WHO-advies (10 en 5) en de
+    EU-grenswaarden (40 en 25, vanaf 2030 20 en 10; `drempels`). Laagnamen met
+    datum in `RIVM_LUCHT_LAGEN`: verdwijnt een jaargang, dan "onbekend".
+  - `klimaat`: Klimaateffectatlas, één verzoek: wateroverlast rond het pand bij
+    een extreme bui (klasse per pand), overstromingskans (klasse 1 tot 5) en
+    grondwateroverlast 2050. Klassen uit de legenda. **Niet opgenomen:**
+    hitte-eiland en gevoelstemperatuur (eenheid niet te onderbouwen).
+  - `erfgoed`: RCE via `api.pdok.nl` (`/rce/beschermde-gebieden-cultuurhistorie`):
+    beschermd stads- of dorpsgezicht op het punt en het aantal rijksmonumenten
+    binnen 25 m (punten; kan het pand zelf zijn of een buurpand). Twee verzoeken.
+    De eigen WFS van de RCE (`data.geo.cultureelerfgoed.nl`, geen robots.txt)
+    gaf bij de meting geen treffers en wordt niet gebruikt.
+  - **Budget.** Een nieuwe woning kost ongeveer 9 verzoeken (was 5), een nieuwe
+    buurt 3 erbij en een nieuwe gemeente 2; daarom 90 per run in plaats van 60
+    (`funda_verrijking.STANDAARD`; een `max_calls_per_run` in de secret gaat
+    voor). Buurtgegevens staan per buurtcode in de cache (kerncijfers 365 dagen,
+    politiecijfers 180), puntgegevens per gehasht punt (365, erfgoed 180). Wat
+    niet past, krijgt "budget" en gaat de volgende run verder; Past en Krap eerst.
+  - **In het rapport.** `funda_beoordeling.omgeving_items()` maakt de items
+    (onderdeel `omgeving`); een bron die uit staat of niets gaf, levert geen item
+    en geen "onbekend". `funda_ui` toont ze per kaart in het uitklapblok "Buurt
+    en omgeving" (`INFO_TONEN`), de markdown in een eigen regel.
 - **Geocoding en routes.** Postcodes worden punten via de BAG-collectie `adres`
   op `api.pdok.nl` (`funda_verrijking.Geocoder`, filter op postcode, het punt
   van het eerste adres): de werkpostcodes (`funda_rapport.get_werk_coords`) en
   de zoekpostcode (`funda_zoek.thuis_coords`, alleen met het afstandsfilter
   aan). Per postcode gaat de config voor (`werk_coords` als
   `{postcode: [lat, lon]}`, `thuis_coords` als `[lat, lon]`), dan de caches
-  `funda_werk_coords.json` en `funda_thuis_coords.json` (`{postcode: [lat, lon]}`),
-  dan één poging via PDOK; een gevonden punt blijft voorgoed in die cache. Een
+  `funda_werk_coords.json` en `funda_thuis_coords.json`, dan één poging via
+  PDOK; een gevonden punt blijft voorgoed in die cache. De sleutel in die
+  bestanden is sinds 18 nov 2026 een hash van de postcode
+  (`funda_verrijking.postcode_sleutel`, dezelfde hashfunctie als de andere
+  cachesleutels): een oude leesbare sleutel wordt bij het laden omgezet en niet
+  meer teruggeschreven (`coords_cache_lees`). Zelfde bestandsnamen, geen nieuw
+  pad; de config-sleutels blijven leesbaar. Een
   eigen `Sessie` met de regels van de verrijking (robots.txt eerst,
   `EERLIJKE_UA`, nooit omzeilen) en **één stand voor `api.pdok.nl` per run**
   (`genereer_rapport` geeft hem door: `neem_cache_over`, `Sessie.neem_over`):
@@ -236,7 +284,9 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
 - **Cache.** Alles in het bestaande `funda_enrichment_cache.json`, als secties:
   `price_history`, `market_insights`, `broker` (pyfunda), `bag`, `fundering`,
   `geluid`, `buurtcode`, `leefbaarometer`, `tevredenheid`, `robots`,
-  `verrijking_weigering` en `rente`. Adres- en puntsleutels zijn gehasht. Geen
+  `verrijking_weigering` en `rente`, en sinds 18 nov 2026 `kerncijfers`,
+  `misdrijven`, `overlast` (per buurtcode), `gemeente` (per gemeentecode),
+  `lucht`, `klimaat` en `erfgoed` (per punt). Adres- en puntsleutels zijn gehasht. Geen
   nieuw cachepad (zie de valkuil over de padenlijst). Van de makelaar alleen naam
   en reviews: zijn aanbod (`get_broker_listings`, een extra funda-verzoek met
   adressen van andere woningen) wordt sinds de opruimronde van nov 2026 niet meer
@@ -252,6 +302,17 @@ financiële scenario's, rentemodule, "Onthoud" zonder leesbaar wachtwoord.
   100%). Nooit rekenen met prijs 0: dat gaf budget "PAST", de laagste maandlast
   en de hoogste score. Vastgepind in `test_prijs_onbekend` (`main()`) en
   `test_prijs_onbekend_rapport` (het echte `bouw_rij` en `funda_ui`).
+- **Eerder zonder prijs.** Heeft een woning nu een vraagprijs maar stond hij
+  eerder zonder, dan toont het rapport het informatieve item "Eerder zonder
+  prijs" met de datum (0 punten). Twee bronnen: de eigen waarneming (het
+  cache-element in `funda_sitemap_cache.json` onthoudt `zonder_prijs`, ook van
+  woningen die de nafilter afwees; `SitemapZoeker._element`, doorgegeven als
+  `d["_zonder_prijs_gezien"]`) en een vraagprijsregel zonder bedrag na de
+  laatste verkoop in funda's prijshistorie (`prijshistorie()["zonder_prijs"]`).
+  Hoe funda zo'n aanbieding in de prijshistorie zet, is **niet gemeten**: de
+  logregel "[rapport] Prijshistorie" telt per run de statuswaarden en de regels
+  zonder bedrag (alleen aantallen). Verder verandert er niets aan "Prijs op
+  aanvraag": nooit rekenen met prijs 0.
 - **PWA (aangescherpt 18 nov 2026, `funda_rapport.beveilig_html`).**
   - **Sleutelopbouw.** Hoofdsleutel = PBKDF2-SHA256(wachtwoord, vast app-zout
     `APP_ZOUT`, 600.000 iteraties). Runsleutel = HKDF-SHA256(hoofdsleutel, salt =
@@ -874,3 +935,16 @@ hoofdlijnen; de details staan bij de tests zelf.
   kunnen de poort en de score wel verschuiven. Het item blijft "onbekend,
   gerekend als G" met de vraag om het label op te vragen. Vastgepind in
   `test_funda_beoordeling.py::test_label_aanname`.
+- **Schuin dak = klein minpunt** (besluit eigenaar, 18 nov 2026). Ligt de
+  woonruimte onder een schuin dak, dan geeft het model "let op" met -0,5 en de
+  vraag naar de bruikbare oppervlakte boven 1,50 m (`funda_beoordeling.schuin_dak`,
+  onderdeel `schuin_dak`; instelbaar met `drempels.schuin_dak_punten` en
+  `gewichten.schuin_dak`). Zeker: de advertentie zegt het (schuine wanden, onder
+  de kap, kapverdieping, zolderverdieping, knieschot, dakkapel, vide onder de
+  nok), of het kenmerk "Soort dak" noemt een schuin dak en de woning ligt
+  aantoonbaar bovenin. Mogelijk (schuin daktype, ligging niet aan te tonen):
+  informatief, 0 punten. Plat dak of geen aanwijzing: geen item. Een ontkenning
+  en een zin over de berging of een gemeenschappelijke zolder tellen niet. De
+  waarden van "Soort dak" en een kenmerk voor het aantal bouwlagen zijn **niet
+  gemeten** op echte advertenties (de labeltelling in de log laat ze zien).
+  Vastgepind in `test_funda_beoordeling.py::test_schuin_dak`.

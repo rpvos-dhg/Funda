@@ -665,6 +665,41 @@ def test_tekst() -> bool:
     ])
 
 
+def test_omgeving_blok() -> bool:
+    """Informatieve items uit de open bronnen (18 nov 2026): een eigen uitklapblok per kaart, zonder punten."""
+    print("omgeving: blok 'Buurt en omgeving' met de items uit de open bronnen")
+    import funda_beoordeling as fb
+    rijen, meta = testrijen()
+    verrijking = {"lucht": {"status": "ok", "data": {"no2": 18.3, "pm25": 8.7, "groen_pct": 16}},
+                  "veiligheid": {"status": "ok", "data": {"jaar": 2025, "misdrijven_per_1000": 498.2, "gem_misdrijven_per_1000": 146.5}},
+                  "klimaat": {"status": "ok", "data": {"wateroverlast": "zeer hoog", "waterdiepte": "meer dan 30 cm"}}}
+    items = fb.omgeving_items(verrijking)
+    b = rijen[0]["beoordeling"]
+    b["info"] = list(b.get("info") or []) + [i for i in items if i["groep"] == "info"] + [
+        fb._item("prijsverloop", "neutraal", "Eerder zonder prijs", "gezien op 12 okt 2026", "eigen waarneming", uitleg="<b>uitleg</b>")]
+    b["let_op"] = list(b.get("let_op") or []) + [i for i in items if i["groep"] == "let_op"]
+    body = funda_ui.render_report_body(rijen, meta)
+    sleutel = funda_ui.woning_sleutel(rijen[0]["d"])
+    kaart = _kaart(body, sleutel)
+    m = re.search(r'<details class="opbouw omgeving">(.*?)</details>', kaart, re.S)
+    blok = m.group(1) if m else ""
+    n_info = len([i for i in b["info"] if i["onderdeel"] in fb.INFO_TONEN])
+    andere = _kaart(body, funda_ui.woning_sleutel(rijen[1]["d"]))
+    ok = [
+        check("blok aanwezig met het aantal items", "Buurt en omgeving" in blok and f'<span class="waarde">{n_info}</span>' in blok, blok[:200]),
+        check("items met label, waarde, bron en uitleg",
+              all(t in blok for t in ("Stikstofdioxide (NO2)", "18,3 µg/m³, boven WHO-advies", "RIVM 2024", "WHO-advies 10",
+                                      "Misdrijven buurt", "498 per 1.000 (gemeente 146)", "Eerder zonder prijs", "gezien op 12 okt 2026"))),
+        check("geen punten in het blok, wel de zin dat het niet meetelt", 'class="pt ' not in blok and "Telt nog niet mee in de score" in blok),
+        check("uitleg wordt ge-escaped", "&lt;b&gt;uitleg&lt;/b&gt;" in blok and "<b>uitleg</b>" not in blok),
+        check("overige neutrale items (leenruimte en dergelijke) staan niet in het blok", "Leenruimte" not in blok and "Woonoppervlak" not in blok),
+        check("een 'let op' uit een open bron staat bij Let op, zonder punten", "Wateroverlast bij bui" in kaart and "Wateroverlast bij bui" not in blok),
+        check("kaart zonder zulke items: geen blok", "opbouw omgeving" not in andere),
+        check("CSS: binnenmarge voor de lijst in het uitklapblok", ".opbouw>.punten" in CSS),
+    ]
+    return all(ok)
+
+
 def test_fixronde_ui() -> bool:
     """Fixronde na de review: sheet, randen, hover, topbalk, kaart, sortering, teksten."""
     print("fixronde: sheet, randen, hover, sortering en teksten")
@@ -833,7 +868,7 @@ def main() -> int:
     resultaten = [test_geen_merknaam(), test_contract_testdata(), test_ids_en_attributen(), test_statusregels(), test_status_en_scenario_in_kaart(),
                   test_prijs_onbekend(), test_volgorde(), test_woning_data(), test_css_regels(), test_contrast(),
                   test_rente_en_budget(), test_meta_en_randgevallen(), test_app_js(), test_slot(), test_veilige_uitvoer(), test_groottes(), test_tekst(),
-                  test_fixronde_ui(), test_eindreview_js()]
+                  test_fixronde_ui(), test_eindreview_js(), test_omgeving_blok()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

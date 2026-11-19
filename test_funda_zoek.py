@@ -250,6 +250,17 @@ def test_markdown_living_area() -> bool:
     ok &= check("een getal als tekst of als getal: wel een prijs per m²",
                 "€ 4.167 per m²" in blokken[1] and "€ 4.032 per m²" in blokken[2])
     ok &= check("0, leeg, een lijst en NaN: geen prijs per m²", all("per m²" not in x for x in blokken[3:]))
+    # Informatieve items uit de open bronnen en het prijs-signaal: een eigen regel, zonder punten.
+    import funda_beoordeling as fb
+    info = fb.omgeving_items({"lucht": {"status": "ok", "data": {"no2": 18.3, "pm25": None, "groen_pct": 16}}})
+    info.append(fb._item("financiering", "neutraal", "Leenruimte", "€ 1 over", "leentoets 2026"))
+    md2 = fr.render_markdown([{"d": {"global_id": 1, "title": "Teststraat 1", "city": "Den Haag", "price": 250000,
+                                     "living_area": 60}, "beoordeling": dict(b, info=info)}], {})
+    regel = next((r for r in md2.splitlines() if r.startswith("- Buurt en omgeving")), "")
+    ok &= check("markdown: regel 'Buurt en omgeving' met de items uit de open bronnen, zonder de overige info",
+                "Stikstofdioxide (NO2): 18,3 µg/m³, boven WHO-advies (RIVM 2024)" in regel and "Groen binnen 500 m: 16%" in regel
+                and "Leenruimte" not in regel and "telt niet mee" in regel, regel)
+    ok &= check("markdown: zonder zulke items geen regel", "Buurt en omgeving" not in md)
     return ok
 
 
@@ -469,6 +480,11 @@ def test_rapport_testdata() -> bool:
             ok &= check("log: kenmerklabels en aantallen per poort",
                         any(r.startswith("[rapport] Kenmerklabels") and "Bijdrage VvE" in r for r in logregels)
                         and any(r.startswith("[rapport] Per poort: Past ") for r in logregels))
+            ph = next((r for r in logregels if r.startswith("[rapport] Prijshistorie: ")), "")
+            ok &= check("log: prijshistorie met statuswaarden en regels zonder bedrag, alleen aantallen",
+                        bool(re.fullmatch(r"\[rapport\] Prijshistorie: \d+ regels bij \d+ van 13 woningen; status "
+                                          r"(?:[a-z_]+ \d+(?:, )?)+; zonder bedrag \d+(?: \((?:[a-z_]+ \d+(?:, )?)+\))?"
+                                          r"; eerder zonder prijs gezien \d+\.", ph)) and "asking_price" in ph, ph)
             ok &= check("log: geen adressen of postcodes",
                         not any(t in r for r in logregels for t in titels + postcodes))
             cache = json.loads((tmp / "cache.json").read_text(encoding="utf-8"))
