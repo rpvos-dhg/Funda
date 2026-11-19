@@ -127,7 +127,7 @@
       "groep": "plus",
       "oordeel": "goed",
       "label": "VvE op orde",
-      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "waarde": "KvK, vergadering, fonds en plan",
       "bron": "kenmerken",
       "punten": 0.5,
       "kort": "VvE op orde",
@@ -262,7 +262,7 @@
       "groep": "info",
       "oordeel": "neutraal",
       "label": "VvE-bijdrage",
-      "waarde": "€ 110 p/m",
+      "waarde": "€ 110 per maand",
       "bron": "kenmerk 'Bijdrage VvE'",
       "punten": 0.0,
       "kort": "VvE € 110",
@@ -320,7 +320,7 @@
     ],
     "kansen": [],
     "zelf_nagaan": [
-     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting.",
      "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
     ],
     "financiering": {
@@ -418,7 +418,7 @@
       "bron": "BAG",
       "punten": -0.5,
       "kort": "VvE van 3",
-      "vraag": "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+      "vraag": "Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds.",
       "uitleg": "Grote kosten (dak, fundering) deel je met weinig eigenaren."
      }
     ],
@@ -464,7 +464,7 @@
       "groep": "plus",
       "oordeel": "goed",
       "label": "VvE op orde",
-      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "waarde": "KvK, vergadering, fonds en plan",
       "bron": "kenmerken",
       "punten": 0.5,
       "kort": "VvE op orde",
@@ -599,7 +599,7 @@
       "groep": "info",
       "oordeel": "neutraal",
       "label": "VvE-bijdrage",
-      "waarde": "€ 140 p/m",
+      "waarde": "€ 140 per maand",
       "bron": "kenmerk 'Bijdrage VvE'",
       "punten": 0.0,
       "kort": "VvE € 140",
@@ -657,9 +657,9 @@
     ],
     "kansen": [],
     "zelf_nagaan": [
-     "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+     "Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds.",
      "Laat je kosten koper narekenen door een adviseur.",
-     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting.",
      "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
     ],
     "financiering": {
@@ -793,7 +793,7 @@
       "groep": "plus",
       "oordeel": "goed",
       "label": "VvE op orde",
-      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "waarde": "KvK, vergadering, fonds en plan",
       "bron": "kenmerken",
       "punten": 0.5,
       "kort": "VvE op orde",
@@ -916,7 +916,7 @@
       "groep": "info",
       "oordeel": "neutraal",
       "label": "VvE-bijdrage",
-      "waarde": "€ 165 p/m",
+      "waarde": "€ 165 per maand",
       "bron": "advertentietekst",
       "punten": 0.0,
       "kort": "VvE € 165",
@@ -989,7 +989,7 @@
      "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
      "Controleer de plaats: Leidschendam staat op je uitsluitlijst.",
      "Laat je kosten koper narekenen door een adviseur.",
-     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting.",
      "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
     ],
     "financiering": {
@@ -1135,7 +1135,7 @@
       "groep": "plus",
       "oordeel": "goed",
       "label": "VvE op orde",
-      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "waarde": "KvK, vergadering, fonds en plan",
       "bron": "kenmerken",
       "punten": 0.5,
       "kort": "VvE op orde",
@@ -1247,7 +1247,7 @@
       "groep": "info",
       "oordeel": "neutraal",
       "label": "VvE-bijdrage",
-      "waarde": "€ 155 p/m",
+      "waarde": "€ 155 per maand",
       "bron": "advertentietekst",
       "punten": 0.0,
       "kort": "VvE € 155",
@@ -1308,7 +1308,7 @@
     "zelf_nagaan": [
      "Vraag het energielabel op.",
      "Laat je kosten koper narekenen door een adviseur.",
-     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting.",
      "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
     ],
     "financiering": {
@@ -1482,7 +1482,7 @@
       "groep": "plus",
       "oordeel": "goed",
       "label": "VvE op orde",
-      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "waarde": "KvK, vergadering, fonds en plan",
       "bron": "kenmerken",
       "punten": 0.5,
       "kort": "VvE op orde",
@@ -1593,7 +1593,7 @@
       "groep": "info",
       "oordeel": "neutraal",
       "label": "VvE-bijdrage",
-      "waarde": "€ 190 p/m",
+      "waarde": "€ 190 per maand",
       "bron": "kenmerk 'Bijdrage VvE'",
       "punten": 0.0,
       "kort": "VvE € 190",
@@ -1678,7 +1678,7 @@
     "zelf_nagaan": [
      "Vraag de VvE naar funderingsonderzoek en of ze ervoor reserveert.",
      "Vraag naar verduurzamingsplannen van de VvE.",
-     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting.",
      "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
     ],
     "financiering": {
@@ -1846,7 +1846,7 @@
       "groep": "plus",
       "oordeel": "goed",
       "label": "VvE op orde",
-      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "waarde": "KvK, vergadering, fonds en plan",
       "bron": "kenmerken",
       "punten": 0.5,
       "kort": "VvE op orde",
@@ -1957,7 +1957,7 @@
       "groep": "info",
       "oordeel": "neutraal",
       "label": "VvE-bijdrage",
-      "waarde": "€ 230 p/m",
+      "waarde": "€ 230 per maand",
       "bron": "advertentietekst",
       "punten": 0.0,
       "kort": "VvE € 230",
@@ -2029,7 +2029,7 @@
     "zelf_nagaan": [
      "Vraag wat de canon na 2032 wordt.",
      "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
-     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting.",
      "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
     ],
     "financiering": {
@@ -2171,7 +2171,7 @@
       "bron": "BAG",
       "punten": -0.5,
       "kort": "VvE van 4",
-      "vraag": "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+      "vraag": "Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds.",
       "uitleg": "Grote kosten (dak, fundering) deel je met weinig eigenaren."
      },
      {
@@ -2179,7 +2179,7 @@
       "groep": "let_op",
       "oordeel": "let_op",
       "label": "Overlast en onveiligheid",
-      "waarde": "−0,21 t.o.v. NL",
+      "waarde": "−0,21 tegenover Nederland",
       "bron": "Leefbaarometer 3.0",
       "punten": -0.5,
       "kort": "overlast buurt",
@@ -2229,7 +2229,7 @@
       "groep": "plus",
       "oordeel": "goed",
       "label": "VvE op orde",
-      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "waarde": "KvK, vergadering, fonds en plan",
       "bron": "kenmerken",
       "punten": 0.5,
       "kort": "VvE op orde",
@@ -2352,10 +2352,10 @@
     "kansen": [],
     "zelf_nagaan": [
      "Vraag de erfpachtakte: canon, afkoop en einddatum.",
-     "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+     "Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds.",
      "Vraag de maandelijkse VvE-bijdrage op.",
      "Laat je kosten koper narekenen door een adviseur.",
-     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting.",
      "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
     ],
     "financiering": {
@@ -2547,7 +2547,7 @@
       "groep": "plus",
       "oordeel": "goed",
       "label": "VvE op orde",
-      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "waarde": "KvK, vergadering, fonds en plan",
       "bron": "kenmerken",
       "punten": 0.5,
       "kort": "VvE op orde",
@@ -2622,7 +2622,7 @@
       "groep": "info",
       "oordeel": "neutraal",
       "label": "VvE-bijdrage",
-      "waarde": "€ 285 p/m incl. stookkosten",
+      "waarde": "€ 285 per maand, met stookkosten",
       "bron": "advertentietekst",
       "punten": 0.0,
       "kort": "VvE € 285",
@@ -2695,7 +2695,7 @@
      "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
      "Vraag de erfpachtakte en de datum van de volgende herziening.",
      "Vraag de VvE naar funderingsonderzoek en of ze ervoor reserveert.",
-     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting.",
      "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
     ],
     "financiering": {
@@ -2745,7 +2745,7 @@
    "beoordeling": {
     "poort": "PAST NIET",
     "poort_redenen": [
-     "Max. hypotheek € 252.511: € 16.489 uit eigen geld.",
+     "Hoogste hypotheek € 252.511: € 16.489 uit eigen geld.",
      "Eigen geld: € 16.499 tekort.",
      "Woonlasten € 26 boven je grens."
     ],
@@ -2793,7 +2793,7 @@
       "groep": "let_op",
       "oordeel": "sterk",
       "label": "Leenruimte",
-      "waarde": "€ 16.489 boven max. hypotheek",
+      "waarde": "€ 16.489 te weinig",
       "bron": "leentoets 2026",
       "punten": 0.0,
       "kort": "leenruimte te klein",
@@ -2903,7 +2903,7 @@
       "groep": "plus",
       "oordeel": "goed",
       "label": "VvE op orde",
-      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "waarde": "KvK, vergadering, fonds en plan",
       "bron": "kenmerken",
       "punten": 0.5,
       "kort": "VvE op orde",
@@ -2966,7 +2966,7 @@
       "groep": "info",
       "oordeel": "neutraal",
       "label": "VvE-bijdrage",
-      "waarde": "€ 120 p/m",
+      "waarde": "€ 120 per maand",
       "bron": "kenmerk 'Bijdrage VvE'",
       "punten": 0.0,
       "kort": "VvE € 120",
@@ -3039,7 +3039,7 @@
     "zelf_nagaan": [
      "Vraag de erfpachtakte en de datum van de volgende herziening.",
      "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
-     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting.",
      "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
     ],
     "financiering": {
@@ -3089,7 +3089,7 @@
    "beoordeling": {
     "poort": "PAST NIET",
     "poort_redenen": [
-     "Max. hypotheek € 279.043: € 9.957 uit eigen geld.",
+     "Hoogste hypotheek € 279.043: € 9.957 uit eigen geld.",
      "Eigen geld: € 10.073 tekort."
     ],
     "status_kort": "Past niet · € 10.073 eigen geld te weinig",
@@ -3132,7 +3132,7 @@
       "groep": "let_op",
       "oordeel": "sterk",
       "label": "Leenruimte",
-      "waarde": "€ 9.957 boven max. hypotheek",
+      "waarde": "€ 9.957 te weinig",
       "bron": "leentoets 2026",
       "punten": 0.0,
       "kort": "leenruimte te klein",
@@ -3184,7 +3184,7 @@
       "bron": "BAG",
       "punten": -0.5,
       "kort": "VvE van 4",
-      "vraag": "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+      "vraag": "Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds.",
       "uitleg": "Grote kosten (dak, fundering) deel je met weinig eigenaren."
      },
      {
@@ -3230,7 +3230,7 @@
       "groep": "plus",
       "oordeel": "goed",
       "label": "VvE op orde",
-      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "waarde": "KvK, vergadering, fonds en plan",
       "bron": "kenmerken",
       "punten": 0.5,
       "kort": "VvE op orde",
@@ -3329,7 +3329,7 @@
       "groep": "info",
       "oordeel": "neutraal",
       "label": "VvE-bijdrage",
-      "waarde": "€ 95 p/m",
+      "waarde": "€ 95 per maand",
       "bron": "kenmerk 'Bijdrage VvE'",
       "punten": 0.0,
       "kort": "VvE € 95",
@@ -3388,9 +3388,9 @@
     "kansen": [],
     "zelf_nagaan": [
      "Vraag de bruikbare oppervlakte boven 1,50 m hoogte op.",
-     "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+     "Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds.",
      "Is er een vergunning voor het dakterras en staat het in de splitsingsakte?",
-     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting.",
      "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
     ],
     "financiering": {
@@ -3440,7 +3440,7 @@
    "beoordeling": {
     "poort": "PAST NIET",
     "poort_redenen": [
-     "Max. hypotheek € 289.043: € 15.957 uit eigen geld.",
+     "Hoogste hypotheek € 289.043: € 15.957 uit eigen geld.",
      "Eigen geld: € 16.113 tekort."
     ],
     "status_kort": "Past niet · € 16.113 eigen geld te weinig",
@@ -3495,7 +3495,7 @@
       "groep": "let_op",
       "oordeel": "sterk",
       "label": "Leenruimte",
-      "waarde": "€ 15.957 boven max. hypotheek",
+      "waarde": "€ 15.957 te weinig",
       "bron": "leentoets 2026",
       "punten": 0.0,
       "kort": "leenruimte te klein",
@@ -3519,7 +3519,7 @@
       "groep": "let_op",
       "oordeel": "let_op",
       "label": "Overlast en onveiligheid",
-      "waarde": "−0,18 t.o.v. NL",
+      "waarde": "−0,18 tegenover Nederland",
       "bron": "Leefbaarometer 3.0",
       "punten": -0.5,
       "kort": "overlast buurt",
@@ -3593,7 +3593,7 @@
       "groep": "plus",
       "oordeel": "goed",
       "label": "VvE op orde",
-      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "waarde": "KvK, vergadering, fonds en plan",
       "bron": "kenmerken",
       "punten": 0.5,
       "kort": "VvE op orde",
@@ -3668,7 +3668,7 @@
       "groep": "info",
       "oordeel": "neutraal",
       "label": "VvE-bijdrage",
-      "waarde": "€ 85 p/m",
+      "waarde": "€ 85 per maand",
       "bron": "advertentietekst",
       "punten": 0.0,
       "kort": "VvE € 85",
@@ -3752,7 +3752,7 @@
     "zelf_nagaan": [
      "Vraag aan welke kant de slaapkamer ligt en hoe de ramen zijn.",
      "Vraag wat de canon na 2071 wordt.",
-     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+     "Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting.",
      "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."
     ],
     "financiering": {
@@ -3959,7 +3959,7 @@
       "waarde": "nee",
       "bron": "kenmerk 'Onderhoudsplan'",
       "punten": -0.5,
-      "kort": "geen MJOP",
+      "kort": "geen onderhoudsplan",
       "vraag": null,
       "uitleg": null
      },
@@ -3972,7 +3972,7 @@
       "bron": "BAG",
       "punten": -0.5,
       "kort": "VvE van 2",
-      "vraag": "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+      "vraag": "Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds.",
       "uitleg": "Grote kosten (dak, fundering) deel je met weinig eigenaren."
      }
     ],
@@ -4097,7 +4097,7 @@
      "Vraag of de VvE een rekening, verzekering en vergadering heeft.",
      "Vraag naar verduurzamingsplannen van de VvE.",
      "Vraag de VvE naar funderingsonderzoek en of ze ervoor reserveert.",
-     "Kleine VvE: vraag notulen, MJOP en stand reservefonds."
+     "Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds."
     ],
     "financiering": {
      "max_hypotheek": 269043,
@@ -4204,7 +4204,7 @@
       "bron": "BAG",
       "punten": -0.5,
       "kort": "VvE van 3",
-      "vraag": "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+      "vraag": "Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds.",
       "uitleg": "Grote kosten (dak, fundering) deel je met weinig eigenaren."
      }
     ],
@@ -4262,7 +4262,7 @@
       "groep": "plus",
       "oordeel": "goed",
       "label": "VvE op orde",
-      "waarde": "KvK, ALV, reservefonds, MJOP",
+      "waarde": "KvK, vergadering, fonds en plan",
       "bron": "kenmerken",
       "punten": 0.5,
       "kort": "VvE op orde",
@@ -4396,12 +4396,12 @@
     ],
     "kansen": [],
     "zelf_nagaan": [
-     "Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+     "Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds.",
      "Vraag de vraagprijs of een richtprijs.",
      "Vraag de maandelijkse VvE-bijdrage op.",
      "Vraag de VvE of er funderingsonderzoek is gedaan.",
      "Vraag welke verbouwingen een vergunning nodig hebben.",
-     "Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting."
+     "Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting."
     ],
     "financiering": {
      "max_hypotheek": null,

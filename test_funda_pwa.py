@@ -330,9 +330,9 @@ def _png_pixel(pad: Path, x: int = 0, y: int = 0) -> tuple[int, ...]:
 
 
 def test_pwa_uiterlijk() -> bool:
-    print("test: service worker v6, manifest zonder voornaam, eigen palet, slotscherm uit ui/slot.html")
+    print("test: service worker v7, manifest zonder voornaam, eigen palet, slotscherm uit ui/slot.html")
     sw = fr.PWA_SERVICE_WORKER
-    ok = check("service worker: cache funda-shortlist-v6", "const CACHE = 'funda-shortlist-v6';" in sw)
+    ok = check("service worker: cache funda-shortlist-v7", "const CACHE = 'funda-shortlist-v7';" in sw)
     assets = re.findall(r"'([^']+)'", re.search(r"const ASSETS = \[(.*?)\];", sw, re.S).group(1))
     nodig = {"./", "index.html", "manifest.json", "icon.svg", "favicon.svg", "apple-touch-icon.png", "icon-512.png",
              *(n for n in fr.STATISCH if n != "leaflet/LICENSE")}

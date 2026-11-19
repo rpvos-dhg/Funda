@@ -658,7 +658,7 @@ def _prijs_tekst(r: dict) -> str:
 
 def _punten_md(items: list[dict]) -> str:
     return "; ".join(_md(f"{it.get('label')}: {it.get('waarde')}"
-                         + (f" ({it['bron']})" if it.get("bron") else "")) for it in items)
+                         + (f" ({funda_ui.bron_tekst(it['bron'])})" if it.get("bron") else "")) for it in items)
 
 
 def _rente_md(r: dict) -> str:
@@ -725,7 +725,7 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
         lines.append(f"- Let op de rente: {_md(r['melding'])}")
     sc = _scenarios_md(rijen, meta)
     if sc:
-        lines.append("- Max. koopsom per scenario:")
+        lines.append("- Hoogste koopsom per scenario:")
         lines.extend(sc)
     lines += ["- Woonlasten zijn netto, jaar 1. Een bedrag met ≈ is een schatting.",
               "- Score 0 tot 10. 5 betekent: voldoet aan je eisen. Onbekend en kansen tellen niet mee.", ""]
@@ -752,7 +752,7 @@ def render_markdown(rijen: list[dict], meta: dict | None = None) -> str:
         if b.get("uitleg_regel"):
             lines.append(f"- {_md(b['uitleg_regel'])}")
         if fin.get("scenario_tekst"):
-            lines.append(f"- Scenario: {_md(fin['scenario_tekst'])}")
+            lines.append(f"- {_md(funda_ui.scenario_regel(fin['scenario_tekst']))}")   # zelfde woord als op de kaart
         for t in b.get("twijfel") or []:
             lines.append(f"- Twijfel: {_md(t)} Onderaan gezet.")
         m2 = d.get("living_area") or det.get("living_area")
@@ -892,7 +892,7 @@ PWA_MANIFEST = json.dumps({
 # Cache ophogen is verplicht bij een nieuwe wrapper: anders blijft een geïnstalleerde PWA de oude tonen.
 # Alleen same-origin GET's komen in de cache; foto's en kaarttegels van buiten gaan er ongemoeid langs.
 PWA_SERVICE_WORKER = """// Woningrapport: service worker (network-first, cache als terugval)
-const CACHE = 'funda-shortlist-v6';
+const CACHE = 'funda-shortlist-v7';
 const ASSETS = ['./', 'index.html', 'manifest.json', 'icon.svg', 'favicon.svg', 'apple-touch-icon.png', 'icon-512.png',
   'app.css', 'slot.css', 'app.js', 'slot.js', 'push.js', 'leaflet/leaflet.js', 'leaflet/leaflet.css'];
 self.addEventListener('install', e => {

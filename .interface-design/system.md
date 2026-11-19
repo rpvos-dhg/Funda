@@ -85,23 +85,25 @@ Arial, sans-serif`. Geen webfont, geen merkfont (ook niet als naam in de stack).
 
 | Token | Waarde | Gebruik |
 |---|---|---|
-| `--heading-medium` | 500 22/28 | h1 slotscherm |
+| `--heading-medium` | 500 20/28 | h1 slotscherm |
 | `--heading-app` | 600 18/24 | h1 topbalk, sheetkop |
-| `--heading-small` | 600 17/22 | adres (h3), lege toestand |
+| `--heading-small` | 600 18/24 | adres (h3), lege toestand |
 | `--paragraph-title-medium` | 600 16/24 | sectiekop, legend, knop |
-| `--paragraph-title-compact` | 600 15/22 | summaries, onderknoppen |
-| `--paragraph-title-small` | 600 14/20 | punten, veldlabel |
+| `--paragraph-title-compact` | 600 16/22 | blokkop (h4), summaries van de opbouwblokken, onderknoppen |
+| `--paragraph-title-small` | 600 14/20 | punten, veldlabel, summary in de kaartvoet |
 | `--paragraph-body-medium` | 400 16/24 | body, invoer (16 px: geen zoom op iOS) |
-| `--paragraph-body-status` | 400 15/22 | statusregel |
+| `--paragraph-body-status` | 400 16/22 | statusregel |
 | `--paragraph-body-small` | 400 14/20 | meta, lijsten, uitleg |
 | `--paragraph-body-xsmall` | 400 13/18 | bron, kerncijfer-label (minimum 13 px) |
-| `--label-small` | 600 13/18 | labels |
-| `--label-chip` | 600 15/20 | snelfilters |
+| `--label-small` | 600 13/18 | labels, label onder een iconknop |
+| `--label-chip` | 600 14/20 | snelfilters |
 | `--cijfer-groot` | 600 20/24 | bedragen in de kerncijfers |
 | `--teken` | 600 13/1 | + en − in rondjes, tellers |
 
-Geen hoofdletters als stijl, geen letterspatiëring, vet is 600 (nooit 700). Geen tekst kleiner dan
-13 px.
+Vijf maten en geen tussenmaten: 13, 14, 16, 18 en 20 px (audit schrijfstijl en componenten, nov 2026;
+daarvoor ook 15, 17 en 22). `--icoon-sluit` (24 px) is het kruisje van de kaartpopup, een teken en
+geen tekst. Geen hoofdletters als stijl, geen letterspatiëring, vet is 600 (nooit 700: `b`, `strong`
+en `th` staan in `ui/app.css` op 600). Geen tekst kleiner dan 13 px.
 
 ## Ruimte, vorm en maat
 - Spacing: 25 = 2 px, 50 = 4, 75 = 6, 100 = 8, 150 = 12, 200 = 16, 300 = 24, 400 = 32. Paginarand
@@ -121,17 +123,17 @@ sprite zit in de versleutelde body).
 ## Opbouw
 - Topbalk "Woningen" met bijgewerkt en volgende run op één regel ("Bijgewerkt 7 nov 17:34 · volgende
   morgen 09:30"; `nowrap` met ellips, zodat de balk 56 px blijft en de plakkende groepskoppen kloppen);
-  snelfilters als chips; rentemelding als één zin, alleen als de rente oud is of de rentemodule iets
+  snelfilters als chips, met een vervaging aan de kant waar nog chips buiten beeld staan; rentemelding als één zin, alleen als de rente oud is of de rentemodule iets
   meldt (de uitleg met de configsleutel staat in Jouw budget); "Nieuw sinds je vorige bezoek" (per
   apparaat, pas gezien als de kaart minstens de helft een seconde in beeld was, tussen top- en
   onderbalk); daarna per poort Past, Krap, Past niet (ingeklapt), Prijs onbekend.
 - Woningkaart laag 1: statusregel (`<Poort> · <reden>`, met "Financiering: past nu" en dergelijke
   eronder: het scenario gaat over leenruimte en eigen geld, de poort ook over je grens), foto, adres met ster,
-  buurt en stad, feitenregel, fietstijd, labels, kerncijfers (Vraagprijs, Woonlasten, Score),
-  twijfelregel ("Onderaan gezet."), redenregel, kaartvoet met Let op en Pluspunten, Bekijk op funda
-  en Verberg. Laag 2 in `details`: Let op, Pluspunten, Onbekend en kansen, Opbouw score, Geld, Woning,
+  buurt en stad, feitenregel, fietstijd ("9 min fietsen · werk B 49 min"), labels, kerncijfers
+  (Vraagprijs, Woonlasten, Score), twijfelregel ("Onderaan gezet."), redenregel, kaartvoet met Let op
+  en Pluspunten en twee iconknoppen met een zichtbaar label eronder ("Op funda", "Verberg"). Laag 2 in `details`: Let op, Pluspunten, Onbekend en kansen, Opbouw score, Geld, Woning,
   Zelf nagaan, foto's.
-- Voet: verborgen woningen, Jouw budget en aannames (grens, rente met bron en peildatum, max. koopsom
+- Voet: verborgen woningen, Jouw budget en aannames (grens, rente met bron en peildatum, hoogste koopsom
   per scenario, nooit inkomen), Meldingen op deze iPhone (alleen zonder abonnement), Dit apparaat,
   Bronnen.
 - Desktop vanaf 64rem: lijst links, plakkende zijkolom (filter, vergelijk, kaart) rechts.

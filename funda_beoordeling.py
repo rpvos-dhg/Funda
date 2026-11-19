@@ -295,7 +295,7 @@ OORDEEL_GROEP = {"sterk": "let_op", "let_op": "let_op", "goed": "plus", "neutraa
 LBM_KLASSE = {1: "zeer onvoldoende", 2: "ruim onvoldoende", 3: "onvoldoende", 4: "zwak", 5: "voldoende",
               6: "ruim voldoende", 7: "goed", 8: "zeer goed", 9: "uitstekend"}
 FUND_KLASSE = ["zeer laag", "laag", "matig", "hoog", "zeer hoog"]
-VRAGEN_ALTIJD = ["Vraag de VvE-stukken: notulen van 2 jaar, MJOP, reservefonds en begroting.",
+VRAGEN_ALTIJD = ["Vraag de VvE-stukken: notulen van 2 jaar, onderhoudsplan (MJOP), reservefonds en begroting.",
                  "Zoek op officielebekendmakingen.nl naar vergunningen op dit adres."]
 _MAANDEN_KORT = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
 _MAANDEN_NL = {m: i + 1 for i, m in enumerate(_MAANDEN_KORT)} | {"mar": 3, "may": 5, "oct": 10, "maa": 3}
@@ -900,7 +900,7 @@ def financiering(woning: dict, cfg: dict, profiel: dict | None, rente: dict | No
 
     redenen = []
     if koop > max_hyp:
-        redenen.append(f"Max. hypotheek {eur(max_hyp)}: {eur(koop - max_hyp)} uit eigen geld.")
+        redenen.append(f"Hoogste hypotheek {eur(max_hyp)}: {eur(koop - max_hyp)} uit eigen geld.")
     if tekort > f["kk_onzekerheid"]:
         redenen.append(f"Eigen geld: {eur(tekort)} tekort.")
     if over > 0:
@@ -1323,7 +1323,7 @@ SIGNALEN = [
      "Vraag de (concept-)splitsingsakte en wanneer de VvE start."),
     ("extra_bijdrage", r"(?:bijzondere|extra|eenmalige)\s+(?:bijdrage|heffing)|groot\s+onderhoud\s+(?:is\s+)?gepland", True,
      "vve", "let_op", "Extra VvE-bijdrage", "aangekondigd", -0.5, "extra VvE-bijdrage",
-     "Vraag de notulen van de laatste twee ALV's en het bedrag."),
+     "Vraag de notulen van de laatste twee ledenvergaderingen en het bedrag."),
     ("funderingsherstel", r"fundering\s+(?:is\s+)?(?:hersteld|vernieuwd)|funderingsherstel\s+(?:is\s+)?(?:uitgevoerd|gereed)", True,
      "fundering", "goed", "Funderingsherstel", "uitgevoerd (advertentie)", 0.0, "fundering hersteld",
      "Vraag het rapport en de garantie van het herstel."),
@@ -1704,7 +1704,7 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
             add(_item("financiering", "neutraal", "Leenruimte", f"{eur(marge)} over", "leentoets 2026"))
         else:
             add(_item("financiering", "sterk" if fin["tekort"] > kk_onz else "neutraal", "Leenruimte",
-                      f"{eur(-marge)} boven max. hypotheek", "leentoets 2026", kort="leenruimte te klein"))
+                      f"{eur(-marge)} te weinig", "leentoets 2026", kort="leenruimte te klein"))
         if fin["scenario_tekst"]:
             add(_item("financiering", "neutraal", "Leentoets", fin["scenario_tekst"], "leentoets 2026, jouw scenario's",
                       kort=fin["scenario_tekst"].lower()))
@@ -1833,15 +1833,15 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
     if vve is not None:
         per_m2 = vve / max(m2, 1)
         if stook:
-            add(_item("vve", "neutraal", "VvE-bijdrage", f"{eur(vve)} p/m incl. stookkosten", vve_bron, kort=f"VvE {eur(vve)}"))
+            add(_item("vve", "neutraal", "VvE-bijdrage", f"{eur(vve)} per maand, met stookkosten", vve_bron, kort=f"VvE {eur(vve)}"))
         elif per_m2 < dr["vve_bijdrage_laag_per_m2"]:
-            add(_item("vve", "let_op", "VvE-bijdrage", f"{eur(vve)} p/m, laag", vve_bron, kort=f"VvE {eur(vve)} laag",
-                      vraag="Lage bijdrage: vraag de stand van het reservefonds en het MJOP."))
+            add(_item("vve", "let_op", "VvE-bijdrage", f"{eur(vve)} per maand, laag", vve_bron, kort=f"VvE {eur(vve)} laag",
+                      vraag="Lage bijdrage: vraag de stand van het reservefonds en het onderhoudsplan."))
         elif per_m2 > dr["vve_bijdrage_hoog_per_m2"]:
-            add(_item("vve", "let_op", "VvE-bijdrage", f"{eur(vve)} p/m, hoog", vve_bron, kort=f"VvE {eur(vve)} hoog",
+            add(_item("vve", "let_op", "VvE-bijdrage", f"{eur(vve)} per maand, hoog", vve_bron, kort=f"VvE {eur(vve)} hoog",
                       uitleg="Zit al in je woonlasten."))
         else:
-            add(_item("vve", "neutraal", "VvE-bijdrage", f"{eur(vve)} p/m", vve_bron, kort=f"VvE {eur(vve)}"))
+            add(_item("vve", "neutraal", "VvE-bijdrage", f"{eur(vve)} per maand", vve_bron, kort=f"VvE {eur(vve)}"))
     else:
         add(_item("vve", "onbekend", "VvE-bijdrage", f"onbekend, gerekend met {eur(VVE_GESCHAT)}", "aanname",
                   kort="VvE-bijdrage onbekend", vraag="Vraag de maandelijkse VvE-bijdrage op."))
@@ -1854,21 +1854,21 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
     if nee["Reservefonds aanwezig"]:
         add(_item("vve", "let_op", "Reservefonds", "nee", "kenmerk 'Reservefonds aanwezig'", -0.5, kort="geen reservefonds"))
     if nee["Onderhoudsplan"]:
-        add(_item("vve", "let_op", "Onderhoudsplan", "nee", "kenmerk 'Onderhoudsplan'", -0.5, kort="geen MJOP"))
+        add(_item("vve", "let_op", "Onderhoudsplan", "nee", "kenmerk 'Onderhoudsplan'", -0.5, kort="geen onderhoudsplan"))
     if all(ja.values()) and vs != "slapend":
-        add(_item("vve", "goed", "VvE op orde", "KvK, ALV, reservefonds, MJOP", "kenmerken", 0.5, kort="VvE op orde"))
+        add(_item("vve", "goed", "VvE op orde", "KvK, vergadering, fonds en plan", "kenmerken", 0.5, kort="VvE op orde"))
     n_vbo = _getal((bag or {}).get("aantal_vbo_pand")) if bag_st == "ok" else None
     klein = n_vbo is not None and n_vbo <= dr["vve_klein_max_woningen"]
     if n_vbo is not None:
         if klein:
             add(_item("vve", "let_op", "Kleine VvE", f"{n_vbo} adressen in het pand", "BAG", -0.5, kort=f"VvE van {n_vbo}",
-                      vraag="Kleine VvE: vraag notulen, MJOP en stand reservefonds.",
+                      vraag="Kleine VvE: vraag notulen, onderhoudsplan en stand reservefonds.",
                       uitleg="Grote kosten (dak, fundering) deel je met weinig eigenaren."))
         else:
             add(_item("vve", "neutraal", "Pand", f"{n_vbo} adressen", "BAG", kort=f"pand met {n_vbo} adressen"))
     elif bag_st in ("onbekend", "budget"):
         add(_item("vve", "onbekend", "VvE-grootte", "onbekend", "BAG", kort="VvE-grootte onbekend",
-                  uitleg=bag_reden or ("budget van deze run op, volgende run verder" if bag_st == "budget" else None)))
+                  uitleg=bag_reden or ("Nog niet opgehaald. Komt bij een volgende update." if bag_st == "budget" else None)))
 
     # --- fundering (alleen bij een bouwjaar voor 1970)
     fu_st, fu, fu_reden = _bron(verrijking, "fundering")
@@ -1878,7 +1878,7 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
                   kort="fundering geen risico"))
     elif fu_st in ("onbekend", "budget"):
         add(_item("fundering", "onbekend", "Funderingsrisico buurt", "onbekend", "Klimaateffectatlas", kort="fundering onbekend",
-                  uitleg=fu_reden or ("budget van deze run op" if fu_st == "budget" else None),
+                  uitleg=fu_reden or ("Nog niet opgehaald. Komt bij een volgende update." if fu_st == "budget" else None),
                   vraag="Vraag de VvE of er funderingsonderzoek is gedaan."))
     elif fu_st == "ok" and fu:
         klassen = [(k, v) for k, v in fu.items() if v in FUND_KLASSE]
@@ -1949,7 +1949,7 @@ def beoordeel(d: dict, details: dict | None, routes: list | None, twijfel: list 
                           kort=f"buurt {LBM_KLASSE[k]}"))
         onv = bu.get("onv")
         if isinstance(onv, (int, float)) and onv <= dr["leefbaarometer_onv_let_op"]:
-            add(_item("buurt", "let_op", "Overlast en onveiligheid", f"{nl(onv, 2)} t.o.v. NL", "Leefbaarometer 3.0", -0.5,
+            add(_item("buurt", "let_op", "Overlast en onveiligheid", f"{nl(onv, 2)} tegenover Nederland", "Leefbaarometer 3.0", -0.5,
                       kort="overlast buurt"))
     elif bu_st in ("onbekend", "budget"):
         add(_item("buurt", "onbekend", "Buurtdata", "onbekend", "Leefbaarometer", kort="buurtdata onbekend", uitleg=bu_reden))

@@ -1086,8 +1086,8 @@ def test_pushtekst() -> bool:
     data = json.loads(uit.stdout)
     r = data["r"]
     ok = check("nieuwe vorm", r[0] == "Teststraat 1, Den Haag · Past · 8,3", r[0])
-    ok &= check("zonder beoordeling: geen vraagprijs", r[1] == "Teststraat 2, Den Haag · 68 m2", r[1])
-    ok &= check("prijs op aanvraag zonder beoordeling", r[2] == "Teststraat 3, Den Haag · prijs op aanvraag · 70 m2", r[2])
+    ok &= check("zonder beoordeling: geen vraagprijs", r[1] == "Teststraat 2, Den Haag · 68 m²", r[1])
+    ok &= check("prijs op aanvraag zonder beoordeling", r[2] == "Teststraat 3, Den Haag · prijs op aanvraag · 70 m²", r[2])
     ok &= check("oude samenvatting: alleen het poortwoord", r[3:7] == [
         "Teststraat 4, Den Haag · Past · 7,0", "Teststraat 5, Den Haag · Krap · 7,2",
         "Teststraat 6, Den Haag · Past niet · 7,4", "Teststraat 7, Den Haag · Prijs onbekend · 6,0"], str(r[3:7]))

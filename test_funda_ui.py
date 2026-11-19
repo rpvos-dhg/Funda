@@ -357,7 +357,7 @@ def test_status_en_scenario_in_kaart() -> bool:
         check("scenario_regel", funda_ui.scenario_regel("Past nu") == "Financiering: past nu"
               and funda_ui.scenario_regel(None) == ""),
         check("scenario's in laag 2 met planning", "Later (planning)</dt><dd>past" in w01
-              and "<dt>Nu</dt><dd>past niet, max. koopsom" in w01),
+              and "<dt>Nu</dt><dd>past niet, koopsom tot" in w01),
         check("twijfelregel met Onderaan gezet", "Twijfelbuurt Leyenburg (jouw lijst). Onderaan gezet." in w10),
         check("redenregel met minteken U+2212 in de punten", "−" in body and "-0,5" not in body),
     ])
@@ -496,19 +496,19 @@ def test_rente_en_budget() -> bool:
     rente_budget = met_uitleg[met_uitleg.index('id="budget"'):met_uitleg.index("</details>", met_uitleg.index('id="budget"'))]
     return all([
         check("melding bij oude rente: één zin met datum, percentage en leeftijd", 'id="rente-melding"' in oud
-              and "Rente van 6 juli 2026 (4,11%) is 123 dagen oud: woonlasten kunnen afwijken. <u>Meer weten</u>" in oud),
+              and "Rente van 6 juli 2026 (4,11%) is 123 dagen oud: woonlasten kunnen afwijken. <u>Bekijk de aannames</u>" in oud),
         check("oude rente: uitleg van de rentemodule alleen in Jouw budget", "zet financien.rente.pct" not in rente_top
               and "zet financien.rente.pct in je config." in rente_budget),
         check("geen melding bij verse rente", 'id="rente-melding"' not in vers),
         check("melding uit de rentemodule zichtbaar", 'id="rente-melding"' in melding
               and "ASN gaf geen rente; DNB-maandcijfer gebruikt." in melding),
-        check("bron en peildatum in budget", "standaardwaarde uit de code, peildatum 6 juli 2026 (123 dagen oud)" in budget),
+        check("bron en peildatum in budget", "standaardrente van dit rapport, peildatum 6 juli 2026 (123 dagen oud)" in budget),
         check("ASN met datum", "ASN Bank, peildatum 5 november 2026" in vers and "3,86%" in vers),
         check("rente als fractie wordt procent", "3,86%" in fractie),
         check("kop zegt rente oud", "· rente 123 dagen oud" in oud),
-        check("max. koopsom per scenario", "<dt>Nu</dt>" in budget and "<dt>Later (planning)</dt>" in budget
+        check("hoogste koopsom per scenario", "Hoogste koopsom per scenario." in budget and "<dt>Nu</dt>" in budget and "<dt>Later (planning)</dt>" in budget
               and "<dt>Met bonus</dt>" in budget),
-        check("groepen volgen planning", "volgen het scenario &quot;Later&quot;" in budget),
+        check("groepen volgen planning", "volgen het scenario 'Later'." in budget),
         check("geen inkomen in de body", "inkomen" not in oud.lower() and "62.000" not in oud),
         check("scenario's uit meta gaan voor", "<dd>€\u00a0250.000</dd>" in _body(
             {"scenarios": [{"id": "nu", "label": "Nu", "max_koopsom": 250000}]})),
@@ -533,7 +533,9 @@ def test_meta_en_randgevallen() -> bool:
               and "230.000" not in met_woz),
         check("lege lijst rendert", '<div id="app"' in leeg and _woning_data(leeg) == {"woningen": []}),
         check("zonder meta: geen runknop, wel lijst", "Nieuwe run starten" not in zonder and zonder.count("<article") == 13),
-        check("met actions_url een runknop", "Nieuwe run starten" in _body()),
+        check("met actions_url een verversknop, zonder 'run' of de naam van de host in de tekst",
+              'aria-label="Ververs het rapport: opent de startpagina in een nieuw venster"' in _body()
+              and "Nieuwe run" not in _body()),
         check("push-blok met de id's van de push-JS", all(f'id="{i}"' in push for i in
               ("push-subscribe-btn", "push-copy-btn", "push-subscription-output", "push-status"))),
         check("push-blok weg als er al een abonnement is", "push-subscribe-btn" not in push_al),
@@ -645,8 +647,9 @@ def test_groottes() -> bool:
     body = _body()
     per_woning = len(body.encode()) / 13
     return all([
-        check("ui/app.css <= 40 kB", len(CSS.encode()) <= 40_000, f"{len(CSS.encode())} bytes"),
-        check("ui/app.js <= 23 kB", len(JS.encode()) <= 23_000, f"{len(JS.encode())} bytes"),
+        # 40 en 23 kB plus de audit van nov 2026: labels bij de iconknoppen, vervaging van de snelfilters, sluitknop op de toast
+        check("ui/app.css <= 42 kB", len(CSS.encode()) <= 42_000, f"{len(CSS.encode())} bytes"),
+        check("ui/app.js <= 24 kB", len(JS.encode()) <= 24_000, f"{len(JS.encode())} bytes"),
         check("body <= 14 kB per woning", per_woning <= 14_000, f"{per_woning:.0f} bytes per woning"),
     ])
 
@@ -743,13 +746,13 @@ def test_fixronde_ui() -> bool:
         check("eur_vast is weg (eur heeft al een harde spatie)", not hasattr(funda_ui, "eur_vast")),
         check("scorebalk: −0,5 en −0,5 (afgerond) even breed, half naar boven",
               len(balk) == 3 and balk[1] == balk[2] == "3" and balk[0] == "3", str(balk)),
-        check("placeholder max. woonlasten uit je grens, zonder grens geen getal",
-              re.search(r'id="f-maxlasten"[^>]* placeholder="bijv. 1450">', body) is not None
+        check("placeholder 'Woonlasten tot' uit je grens, zonder grens geen getal",
+              re.search(r'id="f-maxlasten"[^>]* placeholder="bijvoorbeeld 1450">', body) is not None
               and re.search(r'id="f-maxlasten"[^>]*>', funda_ui.render_report_body(
                   [{"d": {"global_id": 1, "price": 1}}], {})).group(0).count("placeholder") == 0),
         check("twijfeluitleg dekt leefbaarheid", "(buurt, stad of leefbaarheid onduidelijk)" in body),
-        check("vergelijking: Financiering, netto per maand en ≈ min",
-              "['Financiering'," in JS and "' netto per maand'" in JS and "'≈ ' + w.reis_min + ' min'" in JS
+        check("vergelijking: Status (poort) en Financiering (scenario), netto per maand en minuten fietsen",
+              "['Status'," in JS and "['Financiering'," in JS and "' netto per maand'" in JS and "w.reis_min + ' min'" in JS and "≈" not in JS
               and "'Wanneer'" not in JS),
         check("popup: scenario met label Financiering", "'<br>Financiering: ' + esc(finTekst(w.scenario_tekst))" in JS),
         check("JS: euroteken met harde spatie", "'€\\u00a0'" in JS and "replace(/€ /g, '€\\u00a0')" in JS),

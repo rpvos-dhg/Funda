@@ -49,7 +49,7 @@ function regel(home) {
     delen = [kop, ...woord.split(" · "), score];
   } else {
     // Zonder beoordeling: geen vraagprijs, wel "prijs op aanvraag" als die ontbreekt.
-    const area = home.living_area ? `${home.living_area} m2` : "? m2";
+    const area = home.living_area ? `${home.living_area} m²` : "? m²";
     delen = [kop, home.price ? "" : "prijs op aanvraag", area];
   }
   return zonderBedragen(delen).join(" · ");
