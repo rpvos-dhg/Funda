@@ -59,18 +59,19 @@ def mail_config(personal: dict[str, Any] | None = None) -> dict[str, str] | None
     Secret, en zo kan het niet per ongeluk in funda_personal.json terechtkomen.
     """
     personal = personal or {}
-    gebruiker = (os.environ.get("FUNDA_MAIL_USER")
-                 or personal.get("mail_gebruiker") or "").strip()
+
+    def instelling(omgeving: str, sleutel: str, standaard: str = "") -> str:
+        return (os.environ.get(omgeving) or personal.get(sleutel) or standaard).strip()
+
+    gebruiker = instelling("FUNDA_MAIL_USER", "mail_gebruiker")
     wachtwoord = os.environ.get("FUNDA_MAIL_PASSWORD") or ""
     if not gebruiker or not wachtwoord:
         return None
     return {
-        "host": (os.environ.get("FUNDA_MAIL_HOST")
-                 or personal.get("mail_host") or IMAP_HOST_STANDAARD).strip(),
+        "host": instelling("FUNDA_MAIL_HOST", "mail_host", IMAP_HOST_STANDAARD),
         "gebruiker": gebruiker,
         "wachtwoord": wachtwoord,
-        "map_naam": (os.environ.get("FUNDA_MAIL_MAP")
-                     or personal.get("mail_map") or MAP_AUTO).strip(),
+        "map_naam": instelling("FUNDA_MAIL_MAP", "mail_map", MAP_AUTO),
     }
 
 
@@ -161,15 +162,8 @@ def tekst_uit_mail(ruwe_bytes: bytes) -> str:
     if not ruwe_bytes:
         return ""
     bericht = email.message_from_bytes(ruwe_bytes, policy=email.policy.default)
-    stukken: list[str] = []
-    for deel in bericht.walk():
-        if deel.get_content_maintype() != "text":
-            continue
-        if deel.get_content_subtype() not in ("plain", "html"):
-            continue
-        tekst = _decodeer(deel)
-        if tekst:
-            stukken.append(tekst)
+    stukken = [tekst for deel in bericht.walk()
+               if deel.get_content_type() in ("text/plain", "text/html") and (tekst := _decodeer(deel))]
     if not stukken:
         # Niet-multipart mail zonder bruikbare delen: val terug op de ruwe bytes.
         return ruwe_bytes.decode("utf-8", errors="replace")
