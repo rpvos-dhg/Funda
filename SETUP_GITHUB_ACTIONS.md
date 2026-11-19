@@ -56,7 +56,12 @@ het.
 rapport terug te pushen).
 
 ### 4. Eerste run testen
-**Tab Actions -> "Funda dagelijks rapport" -> Run workflow.** Dit draait hem
+**Tab Actions -> "Funda dagelijks rapport" -> Run workflow.** Vul bij deze
+allereerste run (en na het opnieuw aanmaken van de repo) bij `lege_state` de
+waarde `ja` in: er is dan nog geen state in de cache, en zonder die invoer stopt
+de run met een foutmelding. Dat is een vangnet: een latere run die onverwacht
+geen state terugkrijgt, zou anders alles als nieuw melden en de tracking
+kwijtraken. Bij alle volgende runs laat je het veld leeg. Dit draait hem
 meteen. Als alles groen is, staat het verse rapport op je Pages-URL. Bij een lege
 cache begint de run met een achterstand van het bestaande aanbod; die is na een
 paar dagen weg. Sneller kan eenmalig met de input `sitemap_max_verkennen` = 600

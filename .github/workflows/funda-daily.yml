@@ -22,6 +22,13 @@ on:
           sneller weg te werken.
         required: false
         default: ""
+      lege_state:
+        description: >-
+          Alleen bij de allereerste run of na het opnieuw aanmaken van de repo:
+          vul "ja" in om te starten zonder state uit de cache. Anders stopt de
+          run als er geen state terugkomt.
+        required: false
+        default: ""
 
 # Voorkom dat twee runs tegelijk de repo pushen.
 concurrency:
@@ -53,7 +60,7 @@ jobs:
           persist-credentials: false
 
       - name: Python opzetten
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: "3.11"
 
@@ -67,7 +74,8 @@ jobs:
       # State terughalen uit vorige run. Bevat geen persoonlijke gegevens van jou,
       # wel je werk-coordinaten, daarom in de cache en niet in de publieke repo.
       - name: State terughalen (cache)
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        id: state
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25  # v5.1.0
         with:
           path: |
             funda_seen_ids.json
@@ -80,6 +88,24 @@ jobs:
           key: funda-state-${{ github.run_id }}
           restore-keys: |
             funda-state-
+
+      # Vangnet: zonder state lijkt alles nieuw en is de tracking weg (gebeurd op
+      # 6 nov 2026 na een gewijzigde padenlijst; een nieuwe versie van de
+      # cache-actie kan hetzelfde doen). Dan liever stoppen dan een run die de
+      # lege state als nieuwste cache bewaart. De oude cache blijft staan.
+      - name: State aanwezig?
+        env:
+          GEVONDEN: ${{ steps.state.outputs.cache-matched-key }}
+          LEGE_STATE: ${{ github.event.inputs.lege_state }}
+        run: |
+          if [ -n "$GEVONDEN" ]; then
+            echo "State teruggehaald."
+          elif [ "$LEGE_STATE" = "ja" ]; then
+            echo "::warning::Geen state in de cache; gestart met lege state (lege_state=ja)."
+          else
+            echo "::error::Geen state in de cache gevonden. Klopt dat (eerste run, nieuwe repo)? Start de workflow dan handmatig met lege_state = ja."
+            exit 1
+          fi
 
       # Secrets naar bestanden schrijven. Stopt hard als het wachtwoord ontbreekt,
       # zodat er nooit per ongeluk een ONVERSLEUTELD rapport publiek wordt gezet.
@@ -187,9 +213,10 @@ jobs:
           node scripts/send_web_push.cjs
 
       # State bewaren voor de run van morgen (rollende cache-sleutel).
+      # Niet na het vangnet "State aanwezig?": dan is er niets om te bewaren.
       - name: State bewaren (cache)
-        if: always()
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        if: always() && (steps.state.outputs.cache-matched-key != '' || github.event.inputs.lege_state == 'ja')
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25  # v5.1.0
         with:
           path: |
             funda_seen_ids.json
