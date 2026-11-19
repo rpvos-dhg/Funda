@@ -468,12 +468,16 @@ def verrijk_rijen(rijen: list[dict], cache: dict, cfg: dict, vandaag, http=None,
 
 
 def log_aantallen(rijen: list[dict]) -> None:
-    """Voor de publieke log: alleen labelnamen van funda's kenmerken en aantallen. Geen adressen of waarden."""
+    """Voor de publieke log: labelnamen van funda's kenmerken met aantallen, en van een vaste lijst kenmerken
+    (funda_beoordeling.LOG_WAARDEN_KENMERKEN) de genormaliseerde waarden. Geen adressen of bedragen."""
     details = [r.get("details") or r.get("d") or {} for r in rijen]
     labels = funda_beoordeling.log_kenmerk_labels(details)
     n_met = sum(1 for det in details if isinstance(det.get("characteristics"), dict))
     print(f"[rapport] Kenmerklabels uit {n_met} van {len(rijen)} woningen ({len(labels)} soorten): "
           + ("; ".join(f"{k} {n}" for k, n in labels.items()) or "geen"))
+    for naam, w in funda_beoordeling.log_kenmerk_waarden(details).items():
+        print(f"[rapport] Kenmerkwaarden {naam}: "
+              + "; ".join([f"{k} {n}" for k, n in w["waarden"].items()] + [f"andere waarden {w['meer']}"] * bool(w["meer"])))
     tel = Counter((r.get("beoordeling") or {}).get("poort") for r in rijen)
     twijfel = sum(1 for r in rijen if (r.get("beoordeling") or {}).get("twijfel"))
     print("[rapport] Per poort: " + ", ".join(f"{naam} {tel.get(p, 0)}"
