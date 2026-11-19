@@ -163,7 +163,10 @@ jobs:
       # web-push en alles eronder staan vast in package-lock.json (versie en
       # hash); --ignore-scripts draait geen installatiescripts van pakketten.
       # Een eigen stap zonder secrets in de omgeving.
+      # Lukt het installeren niet (storing bij de registry), dan vervalt alleen
+      # de melding: het rapport is dan al gepubliceerd en de run blijft groen.
       - name: Push-pakket installeren
+        continue-on-error: true
         run: npm ci --ignore-scripts
 
       - name: Push-notificatie bij nieuwe woningen
@@ -175,6 +178,10 @@ jobs:
         run: |
           if [ -z "$WEB_PUSH_PUBLIC_KEY" ] || [ -z "$WEB_PUSH_PRIVATE_KEY" ] || [ -z "$WEB_PUSH_SUBSCRIPTION" ]; then
             echo "Web Push secrets ontbreken; notificatie overgeslagen."
+            exit 0
+          fi
+          if [ ! -d node_modules/web-push ]; then
+            echo "::warning::Push-pakket niet geinstalleerd; notificatie overgeslagen."
             exit 0
           fi
           node scripts/send_web_push.cjs

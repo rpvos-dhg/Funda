@@ -78,7 +78,8 @@ let pogingenGeheugen = {n: 0, tot: 0};   // als localStorage niet werkt
 function pogingen(){
   try {
     const p = JSON.parse(localStorage.getItem(POGINGEN) || "null");
-    if(p && Number.isFinite(p.n) && Number.isFinite(p.tot)) return {n: Math.max(0, p.n), tot: p.tot};
+    /* Een eindtijd verder weg dan de langste pauze (klok stond voor) wordt daarop teruggezet. */
+    if(p && Number.isFinite(p.n) && Number.isFinite(p.tot)) return {n: Math.max(0, p.n), tot: Math.min(p.tot, Date.now() + PAUZE_MAX_S * 1000)};
   } catch(_){}
   return pogingenGeheugen;
 }
@@ -151,6 +152,7 @@ $("slot-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const pw = $("pw"), btn = $("btn"), err = $("err");
   if(pauzeer()) return;
+  if(!pw.value){ err.textContent = "Vul je wachtwoord in."; pw.focus(); return; }   // leeg is geen poging
   err.textContent = ""; pw.removeAttribute("aria-invalid");
   btn.disabled = true; btn.innerHTML = '<span class="draai" aria-hidden="true"></span> Ontgrendel';
   try {
