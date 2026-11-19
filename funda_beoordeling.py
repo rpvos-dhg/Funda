@@ -973,20 +973,17 @@ _ERFPACHT_EIND = re.compile(r"(?:afgekocht|vooruitbetaald|afkoop)\s+tot\s+(?:en\
                             r"((?:20|21)\d{2})\b")
 
 
-def _zinsdeel_voor(t: str, i: int, venster: int = 60) -> str:
-    """De tekst vóór positie i in dezelfde zin, hooguit `venster` tekens (een punt in 1.250 telt niet)."""
-    voor = t[max(0, i - venster):i]
+def _zinsdeel_voor(t: str, i: int) -> str:
+    """De tekst vóór positie i in dezelfde zin, hooguit 60 tekens (een punt in 1.250 telt niet)."""
+    voor = t[max(0, i - 60):i]
     grens = max((m.end() for m in re.finditer(r"[.;!?](?:\s|$)", voor)), default=0)
     return voor[grens:]
 
 
 def _feitelijk(t: str, patroon: str) -> bool:
     """Komt het patroon voor zonder modale vorm ervoor of erna ("kan worden afgekocht", "is mogelijk")?"""
-    for m in re.finditer(patroon, t):
-        if _MODAAL_VOOR.search(_zinsdeel_voor(t, m.start())) or _MODAAL_NA.match(t[m.end():m.end() + 20]):
-            continue
-        return True
-    return False
+    return any(not (_MODAAL_VOOR.search(_zinsdeel_voor(t, m.start())) or _MODAAL_NA.match(t[m.end():m.end() + 20]))
+               for m in re.finditer(patroon, t))
 
 
 # Een ontkenning hoort alleen bij 'erfpacht' als hij er direct vóór staat, hooguit met een lidwoord
@@ -999,10 +996,7 @@ _ERFPACHT_ONTKEND = re.compile(r"\b(?:geen|niet|zonder)\s+(?:(?:belast\s+met|in|
 
 def _erfpacht_genoemd(t: str) -> bool:
     """'erfpacht' in de tekst, maar niet direct ontkend ('geen erfpacht', 'niet belast met erfpacht')."""
-    for m in re.finditer(r"erfpacht", t):
-        if not _ERFPACHT_ONTKEND.search(t[max(0, m.start() - 40):m.start()]):
-            return True
-    return False
+    return any(not _ERFPACHT_ONTKEND.search(t[max(0, m.start() - 40):m.start()]) for m in re.finditer(r"erfpacht", t))
 
 
 def erfpacht(ch: dict, tekst: str) -> dict:
@@ -1051,18 +1045,11 @@ def erfpacht(ch: dict, tekst: str) -> dict:
         bedrag = _getal(canon.group(1))
         per = canon.group(2) or "jaar"
         info["canon_jaar"] = int(round(bedrag * {"jaar": 1, "maand": 12, "halfjaar": 2, "kwartaal": 4}[per])) if bedrag else None
-    if afgekocht and info["eind"]:
-        info["status"] = "afgekocht_tot"
-    elif afgekocht and eeuwig and not tot_zonder_jaar:
-        info["status"] = "eeuwig_afgekocht"
-    elif afgekocht:
-        info["status"] = "afgekocht_looptijd_onbekend"
-    elif voortdurend:
-        info["status"] = "voortdurend"
-    elif eeuwig:
-        info["status"] = "eeuwig_canon"
+    if afgekocht:
+        info["status"] = ("afgekocht_tot" if info["eind"] else "eeuwig_afgekocht" if eeuwig and not tot_zonder_jaar
+                          else "afgekocht_looptijd_onbekend")
     else:
-        info["status"] = "erfpacht_onduidelijk"
+        info["status"] = "voortdurend" if voortdurend else "eeuwig_canon" if eeuwig else "erfpacht_onduidelijk"
     return info
 
 
@@ -1337,15 +1324,11 @@ SIGNALEN = [
 def lees_advertentie(tekst: str) -> list[tuple]:
     """De signalen uit SIGNALEN die in de tekst staan (elk hooguit één keer)."""
     t = (tekst or "").lower()
-    gevonden = []
-    for regel in SIGNALEN:
-        patroon, ontkenning = regel[1], regel[2]
-        for m in re.finditer(patroon, t):
-            if ontkenning and re.search(r"\b(?:geen|niet|zonder)\b[^.]{0,25}$", t[max(0, m.start() - 25):m.start()]):
-                continue
-            gevonden.append(regel)
-            break
-    return gevonden
+
+    def ontkend(m):
+        return re.search(r"\b(?:geen|niet|zonder)\b[^.]{0,25}$", t[max(0, m.start() - 25):m.start()])
+
+    return [regel for regel in SIGNALEN if any(not (regel[2] and ontkend(m)) for m in re.finditer(regel[1], t))]
 
 
 def _tijd(change: dict) -> str:
@@ -1368,8 +1351,7 @@ def _prijs_van(change: dict) -> int | None:
 
 def prijswijzigingen(d: dict | None) -> list:
     """De ruwe prijshistorie uit d["_enrichment"]["price_history"]: {"changes": [...]} of een kale lijst."""
-    enr = (d or {}).get("_enrichment") if isinstance((d or {}).get("_enrichment"), dict) else {}
-    ph = enr.get("price_history")
+    ph = _blok(d or {}, "_enrichment").get("price_history")
     changes = ph.get("changes") if isinstance(ph, dict) else ph
     return changes if isinstance(changes, list) else []
 
@@ -1621,12 +1603,11 @@ _COLLECTIEF = re.compile(r"stadsverwarming|blokverwarming|warmtenet")
 def _klimaat_item(seizoen: str, tegen: list[str], voor: list[str], woorden: tuple, vraag: str, opmerkingen=()) -> dict:
     """Eén item van het binnenklimaat. woorden: (waarde bij meer tegen, bij gelijk, bij meer voor, kopje tegen, kopje voor)."""
     meer_tegen, gelijk, meer_voor, kop_tegen, kop_voor = woorden
-    n_tegen, n_voor = len(tegen), len(voor)
-    waarde = (f"{meer_tegen}: {n_tegen} aanwijzing" + ("" if n_tegen == 1 else "en") if n_tegen > n_voor else
-              gelijk if n_tegen == n_voor else f"{meer_voor}: {n_voor} aanwijzing" + ("" if n_voor == 1 else "en"))
+    meer, lijst = (meer_tegen, tegen) if len(tegen) > len(voor) else (meer_voor, voor)
+    waarde = gelijk if len(tegen) == len(voor) else f"{meer}: {len(lijst)} aanwijzing" + ("" if len(lijst) == 1 else "en")
     uitleg = "Een indicatie uit de advertentie en open kaarten. De temperatuur in huis is niet gemeten." + "".join(
-        f" {kop}: " + "; ".join(lijst) + "." for kop, lijst in ((kop_tegen, tegen), (kop_voor, voor), ("Niet meegeteld", opmerkingen))
-        if lijst)
+        f" {kop}: " + "; ".join(delen) + "." for kop, delen in ((kop_tegen, tegen), (kop_voor, voor), ("Niet meegeteld", opmerkingen))
+        if delen)
     return _item(BINNENKLIMAAT, "neutraal", seizoen, waarde, "aanwijzingen, niet gemeten",
                  kort=f"{seizoen.lower()}: " + waarde.split(":")[0], vraag=vraag, uitleg=uitleg)
 
@@ -2283,20 +2264,12 @@ def _samenvatten(cfg: dict, items: list[dict], gate: dict, twijfel: list[str], f
     let_op = sorted([i for i in items if i["groep"] == "let_op"], key=lambda i: (volg[i["oordeel"]], i["punten"]))
     plus = sorted([i for i in items if i["groep"] == "plus"], key=lambda i: -i["punten"])
     info = [i for i in items if i["groep"] == "info"]
-    vragen: list[str] = []
-    for i in let_op + onbekend + plus + info:
-        if i["onderdeel"] == BINNENKLIMAAT:   # die vraag staat bij het item zelf; hier zou hij de vaste vragen verdringen
-            continue
-        if i.get("vraag") and i["vraag"] not in vragen:
-            vragen.append(i["vraag"])
-    for v in VRAGEN_ALTIJD:
-        if v not in vragen:
-            vragen.append(v)
-    fin_uit = {k: v for k, v in fin.items() if k not in ("poort", "redenen")}
+    # Zonder het binnenklimaat: die vraag staat bij het item zelf; hier zou hij de vaste vragen verdringen.
+    vragen = list(dict.fromkeys([i["vraag"] for i in let_op + onbekend + plus + info
+                                 if i["onderdeel"] != BINNENKLIMAAT and i.get("vraag")] + VRAGEN_ALTIJD))
     namen = ["bag", "fundering", "geluid", "buurt"]
     if isinstance(verrijking, dict):
-        namen += [k for k in verrijking if k not in namen
-                  and k in ("tevredenheid", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed")]
+        namen += [k for k in verrijking if k in ("tevredenheid", "kerncijfers", "veiligheid", "lucht", "klimaat", "erfgoed")]
     poort_ = gate["poort"]
     return {
         "poort": poort_,
@@ -2312,7 +2285,7 @@ def _samenvatten(cfg: dict, items: list[dict], gate: dict, twijfel: list[str], f
         "info": info,
         "kansen": [i for i in items if i["groep"] == "kans"],
         "zelf_nagaan": vragen[:6],
-        "financiering": fin_uit,
+        "financiering": {k: v for k, v in fin.items() if k not in ("poort", "redenen")},
         "verrijking": {n: _bron(verrijking, n)[0] for n in namen},
     }
 
@@ -2368,12 +2341,7 @@ def log_kenmerk_labels(details_lijst) -> dict[str, int]:
     """Welke kenmerklabels funda gaf en hoe vaak: alleen namen en aantallen, geen waarden of adressen."""
     teller: dict[str, int] = {}
     for det in details_lijst or []:
-        if not isinstance(det, dict):
-            continue
-        ch = det.get("characteristics") if isinstance(det.get("characteristics"), dict) else None
-        if ch is None:
-            continue
-        for k in ch:
+        for k in _blok(det, "characteristics") if isinstance(det, dict) else ():
             if isinstance(k, str) and k.strip():
                 teller[k.strip()] = teller.get(k.strip(), 0) + 1
     return dict(sorted(teller.items(), key=lambda kv: (-kv[1], kv[0])))
