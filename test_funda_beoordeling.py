@@ -1397,6 +1397,78 @@ def test_label_aanname() -> bool:
     return ok
 
 
+def test_binnenklimaat() -> bool:
+    print("test: binnenklimaat is een indicatie uit aanwijzingen, zomer en winter, zonder punten")
+    ok = True
+
+    def bk(tekst="", ch=None, label="?", reken=None, bouwjaar=None, verrijking=None, **w):
+        items = fb.binnenklimaat(w, ch or {}, tekst, None, verrijking, label, reken or fb.label_aanname(label, bouwjaar)[0], bouwjaar)
+        return {i["label"]: i for i in items}
+
+    warm = bk("Gelegen op de bovenste verdieping. Slaapkamer met schuine wanden. Grote raampartijen. Balkon op het zuidwesten.",
+              {"Isolatie": "Dubbel glas", "Balkon/dakterras": "Balkon aanwezig"}, bouwjaar=1930,
+              verrijking={"lucht": {"status": "ok", "data": {"groen_pct": 8}}})
+    z = warm.get("Zomer")
+    ok &= check("warm: kans op warmte met vijf aanwijzingen in gewone taal",
+                z is not None and z["waarde"] == "kans op warmte: 5 aanwijzingen"
+                and all(s in z["uitleg"] for s in ("onder een schuin dak", "geen dakisolatie genoemd", "op het zuidwesten",
+                                                   "veel glas", "weinig groen in de buurt (8% binnen 500 m)")), str(z))
+    ok &= check("informatief: 0 punten, groep info, een vraag voor de bezichtiging en 'niet gemeten' in de uitleg",
+                z["punten"] == 0 and z["groep"] == "info" and z["onderdeel"] == fb.BINNENKLIMAAT
+                and "bezichtiging" in z["vraag"] and "niet gemeten" in z["uitleg"] and z["bron"] == "aanwijzingen, niet gemeten")
+    koel = bk("Doorzonwoonkamer. Elektrische screens aan de achterzijde. Balkon op het oosten.",
+              {"Soort appartement": "Tussenverdieping (appartement)", "Balkon/dakterras": "Balkon aanwezig"},
+              verrijking={"lucht": {"status": "ok", "data": {"groen_pct": 55}}}).get("Zomer")
+    ok &= check("koel: doorzon, zonwering, tussenverdieping, oosten en veel groen",
+                koel is not None and koel["waarde"] == "eerder koel: 5 aanwijzingen"
+                and "'s avonds goed door te luchten" in koel["uitleg"] and "Warmer:" not in koel["uitleg"], str(koel))
+    ok &= check("ontkenning telt niet: 'geen airco' en 'geen zonwering'",
+                "Zomer" not in bk("Er is geen airco en geen zonwering aanwezig."))
+    koud = bk("Hoekappartement op de bovenste verdieping.", {"Isolatie": "Geen isolatie", "Verwarming": "Gaskachels"},
+              label="G", bouwjaar=1930).get("Winter")
+    ok &= check("koud: hoek bovenin, geen isolatie, gaskachels en label G",
+                koud is not None and koud["waarde"] == "kans op kou: 4 aanwijzingen"
+                and all(s in koud["uitleg"] for s in ("bovenste woonlaag op een hoek", "geen isolatie", "losse kachels", "energielabel G")),
+                str(koud))
+    ok &= check("gedeeltelijk dubbel glas telt als deels enkel glas, niet als goed glas",
+                "deels enkel glas" in bk(ch={"Isolatie": "Gedeeltelijk dubbel glas"})["Winter"]["uitleg"]
+                and "HR-glas" not in bk(ch={"Isolatie": "Gedeeltelijk dubbel glas"})["Winter"]["uitleg"])
+    winterwarm = bk(ch={"Soort appartement": "Tussenverdieping (appartement)", "Isolatie": "Dakisolatie, dubbel glas",
+                        "Verwarming": "Blokverwarming"}, label="A").get("Winter")
+    ok &= check("warm in de winter: tussenverdieping, glas, isolatie, blokverwarming (kosten in de servicekosten) en label A",
+                winterwarm is not None and winterwarm["waarde"] == "eerder warm: 5 aanwijzingen"
+                and "servicekosten" in winterwarm["uitleg"] and "Kouder:" not in winterwarm["uitleg"], str(winterwarm))
+    ok &= check("geen aanwijzing: geen item, ook niet bij een onbekend label of een oud bouwjaar alleen",
+                bk() == {} and bk("Licht appartement met balkon.", bouwjaar=1930) == {} and bk(label="C") == {})
+    aanname = bk(ch={"Isolatie": "Geen isolatie"}, bouwjaar=1930).get("Winter")
+    ok &= check("onbekend label naast een andere aanwijzing: het rekenlabel, uitdrukkelijk als aanname",
+                aanname is not None and aanname["waarde"] == "kans op kou: 2 aanwijzingen"
+                and "energielabel onbekend, gerekend als G: een aanname, geen gegeven" in aanname["uitleg"], str(aanname))
+    nieuw = bk(ch={"Isolatie": "Volledig geïsoleerd"}, bouwjaar=2010).get("Winter")
+    ok &= check("onbekend label, nieuw pand: gerekend als A op grond van het bouwjaar, ook een aanname",
+                nieuw is not None and "gerekend als A op grond van het bouwjaar: een aanname" in nieuw["uitleg"], str(nieuw))
+    ok &= check("waarde en label binnen de grenzen van _item", all(
+        len(i["waarde"]) <= 32 and len(i["label"]) <= 24 for x in (warm, {"k": koel, "w": koud, "ww": winterwarm}) for i in x.values()))
+    ok &= check("'1e woonlaag' is geen begane grond (niet gemeten); een uitdrukkelijke begane grond wel",
+                "Winter" not in bk(ch={"Gelegen op": "1e woonlaag"})
+                and "begane grond" in bk(ch={"Gelegen op": "Begane grond"})["Winter"]["uitleg"])
+
+    profiel = {"bruto_jaar": 62000, "eigen_inleg": 10000, "leeftijd": 30}
+    cfg = fb.laad_config(profiel)
+    kaal = fb.beoordeel(_minimaal(price=240000, living_area=70), None, [], [], profiel, cfg, vandaag=VANDAAG)
+    met = fb.beoordeel(_minimaal(price=240000, living_area=70, description="Slaapkamer met dakkapel onder de kap.",
+                                 characteristics={"Isolatie": "Geen isolatie"}), None, [], [], profiel, cfg, vandaag=VANDAAG)
+    items = [i for i in met["info"] if i["onderdeel"] == fb.BINNENKLIMAAT]
+    ok &= check("in beoordeel(): twee items in info, niet in Let op, en de score verandert er niet door",
+                [i["label"] for i in items] == ["Zomer", "Winter"]
+                and not any(i["onderdeel"] == fb.BINNENKLIMAAT for g in ("let_op", "pluspunten", "onbekend") for i in met[g])
+                and fb.BINNENKLIMAAT not in met["onderdelen"], str(items))
+    ok &= check("zonder aanwijzing geen item in beoordeel()", not any(i["onderdeel"] == fb.BINNENKLIMAAT for i in kaal["info"]))
+    ok &= check("de vraag staat bij het item en verdringt de vaste vragen in Zelf nagaan niet",
+                not any("bezichtiging" in v for v in met["zelf_nagaan"]) and fb.VRAGEN_ALTIJD[0] in met["zelf_nagaan"])
+    return ok
+
+
 def test_import_zonder_personal() -> bool:
     print("test: importeert zonder funda_personal.json en zonder andere projectmodules")
     ok = True
@@ -1440,7 +1512,7 @@ def main() -> int:
                   test_harde_eisen(), test_score(), test_parsers(), test_erfpacht_fixronde(), test_erfpacht_ontkenning(), test_sortering(), test_contract(),
                   test_geen_bevolkingskenmerken(), test_verrijking_vormen(), test_rommelige_invoer(), test_fixture_verwachting(),
                   test_log_kenmerk_labels(), test_kansen_en_info(), test_omgeving_items(), test_eerder_zonder_prijs(),
-                  test_schuin_dak(), test_label_aanname(), test_import_zonder_personal()]
+                  test_schuin_dak(), test_label_aanname(), test_binnenklimaat(), test_import_zonder_personal()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

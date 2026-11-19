@@ -1730,7 +1730,7 @@ def binnenklimaat(w: dict, ch: dict, tekst: str, bag: dict | None = None, verrij
             behaaglijk.append(f"energielabel onbekend, gerekend als {reken} op grond van het bouwjaar: een aanname")
 
     uit: list[dict] = []
-    basis = "Een indicatie uit de advertentie en open kaarten; de temperatuur in huis is niet gemeten."
+    basis = "Een indicatie uit de advertentie en open kaarten. De temperatuur in huis is niet gemeten."
     if warm or koel:
         waarde = (f"kans op warmte: {_aanwijzingen(len(warm))}" if len(warm) > len(koel) else
                   "aanwijzingen voor warm en koel" if len(warm) == len(koel) else f"eerder koel: {_aanwijzingen(len(koel))}")

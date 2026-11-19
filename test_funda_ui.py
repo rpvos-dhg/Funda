@@ -680,6 +680,7 @@ def test_omgeving_blok() -> bool:
     b = rijen[0]["beoordeling"]
     b["info"] = list(b.get("info") or []) + [i for i in items if i["groep"] == "info"] + [
         fb._item("prijsverloop", "neutraal", "Eerder zonder prijs", "gezien op 12 okt 2026", "eigen waarneming", uitleg="<b>uitleg</b>")]
+    b["info"] += fb.binnenklimaat({}, {"Isolatie": "Geen isolatie"}, "Slaapkamer onder de kap.", None, None, "G", "G", 1930)
     b["let_op"] = list(b.get("let_op") or []) + [i for i in items if i["groep"] == "let_op"]
     body = funda_ui.render_report_body(rijen, meta)
     sleutel = funda_ui.woning_sleutel(rijen[0]["d"])
@@ -697,7 +698,14 @@ def test_omgeving_blok() -> bool:
         check("uitleg wordt ge-escaped", "&lt;b&gt;uitleg&lt;/b&gt;" in blok and "<b>uitleg</b>" not in blok),
         check("overige neutrale items (leenruimte en dergelijke) staan niet in het blok", "Leenruimte" not in blok and "Woonoppervlak" not in blok),
         check("een 'let op' uit een open bron staat bij Let op, zonder punten", "Wateroverlast bij bui" in kaart and "Wateroverlast bij bui" not in blok),
-        check("kaart zonder zulke items: geen blok", "opbouw omgeving" not in andere),
+        check("kaart zonder zulke items: geen blok", "opbouw omgeving" not in andere and "opbouw binnenklimaat" not in andere),
+        check("bron in gewone taal (audit schrijfstijl, nov 2026)", "eerder gezien door dit rapport" in blok and "eigen waarneming" not in blok
+              and funda_ui.bron_tekst("kenmerk 'Gelegen op'") == "advertentie, bij Gelegen op"
+              and funda_ui.bron_tekst("berekening") == "zelf berekend" and funda_ui.bron_tekst("CBS 2024") == "CBS 2024"),
+        check("binnenklimaat: zomer en winter in het blok Woning, als indicatie en zonder punten", (lambda k: bool(k)
+              and "Warmte en kou in huis" in k.group(1) and "<b>Zomer</b>: kans op warmte: 2 aanwijzingen" in k.group(1)
+              and "<b>Winter</b>: kans op kou" in k.group(1) and "geen meting" in k.group(1) and 'class="pt ' not in k.group(1)
+              and "Zomer" not in blok)(re.search(r'<details class="opbouw binnenklimaat">(.*?)</details>', kaart, re.S))),
         check("CSS: binnenmarge voor de lijst in het uitklapblok", ".opbouw>.punten" in CSS),
     ]
     return all(ok)
