@@ -181,10 +181,12 @@ stoppen bij 401/403/429; hooguit `sitemap_max_verkennen` (200) verkennende
 detail-calls per run, eenmalig 600 en niet hoger
 (`SITEMAP_MAX_VERKENNEN_PLAFOND`); geen wisselende vingerafdrukken.
 **Heroverwegen** zodra funda de eerlijke client weigert, funda's voorwaarden dit
-uitdrukkelijk verbieden, of funda erom vraagt. Alternatief: Huispedia (het prototype
-stond op een oude branch die is opgeruimd; de eigenaar heeft de bestanden als
-zip). Een thuisnetwerk lost dat niet op:
-ook daar verrijkt elke route via de detail-host.
+uitdrukkelijk verbieden, of funda erom vraagt. Alternatief: Huispedia (prototype
+op branch `claude/probe-andere-woningsites`; die branch hoort weg en de
+eigenaar heeft de bestanden als zip). Een thuisnetwerk lost dat niet op: ook
+daar verrijkt elke route via de detail-host. `local-listings` en
+`listing-detail-summary` (beide `.funda.io`, ook `Disallow: /`) worden niet
+aangeroepen; het besluit geldt alleen voor de detail-host.
 
 ## 6. Zoeken, filters en pool
 
@@ -355,8 +357,8 @@ Scenario's:
 
 Voor alle drie: fail-soft, `EERLIJKE_UA`, sequentieel, robots.txt per host eerst
 (vers per dag; de laatste goede versie alleen als terugval bij time-out of 5xx,
-nooit bij een weigering). Bij 401/403/429/5xx stopt de host en blijft hij een
-dag dicht. Nooit omzeilen. Hosts, robots-metingen en details per bron: notities
+nooit bij een weigering). Bij 401/403/429 stopt de host en blijft hij een
+dag dicht; bij een 5xx is hij de rest van de run dicht. Nooit omzeilen. Hosts, robots-metingen en details per bron: notities
 en de docstring van `funda_verrijking.py`.
 
 - **Allowlist van velden.** Herkomst, nationaliteit, inkomen en andere
@@ -499,7 +501,8 @@ Test: `test_funda_zoek.py::test_publieke_log`. `test_funda_zoek.py` zet
   met de tag als commentaar. Bijwerken is een bewuste stap: opnieuw genereren of
   de SHA opzoeken, en de diff lezen.
 - **pyfunda staat op 2.9.0** (PyPI, met hash). De code gebruikt de v2-API
-  (`search_listing`, `r.data`); v3 is een rewrite zonder die methodes.
+  (`search_listing`, `r.data`); v3 is een rewrite zonder die methodes. Niet upgraden
+  zonder de code mee te porten.
 - **Niet in OneDrive zetten:** dat gaf afgekapte bestanden en kapotte
   `.git`-locks.
 
@@ -509,7 +512,7 @@ Test: `test_funda_zoek.py::test_publieke_log`. `test_funda_zoek.py` zet
 pip install --require-hashes -r requirements.txt
 python funda_zoek.py                 # volledige run, opent HTML, commit en pusht docs/
 python funda_zoek.py --no-push       # zonder commit en push (gebruik dit om te kijken)
-python funda_zoek.py --no-open       # zonder browser
+python funda_zoek.py --no-open       # zonder browser (--open dwingt hem juist af)
 python funda_zoek.py --debug-wijken  # buurten met aantallen (alleen lokaal)
 ```
 
