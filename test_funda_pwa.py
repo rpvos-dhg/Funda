@@ -175,8 +175,12 @@ def test_wrapper() -> bool:
     ok &= check("geen <style>, geen style-attribuut, geen on...-attribuut", "<style" not in uit
                 and not re.search(r'\sstyle\s*=', uit) and not re.search(r'\son[a-z]+\s*=', uit))
     ok &= check("volgorde: Leaflet, app.js, push.js, slot.js (push haakt op fundaAfterReportLoad in)",
-                [re.search(r'src="([^"]+)"', t).group(1) for t in tags if "src=" in t]
+                [re.search(r'src="([^"?]+)', t).group(1) for t in tags if "src=" in t]
                 == ["leaflet/leaflet.js", "app.js", "push.js", "slot.js"] and all(" defer " in t for t in tags if "src=" in t))
+    met_versie = dict(m.groups() for m in re.finditer(r'<(?:script defer src|link rel="stylesheet" href)="([^"?]+)\?v=([0-9a-f]+)"', uit))
+    zonder = re.findall(r'<(?:script defer src|link rel="stylesheet" href)="([^"?]+)"', uit)
+    ok &= check("elk script en elke stylesheet met ?v= uit statisch_versies, geen enkele zonder",
+                met_versie == fr.VERSIES == fr.statisch_versies() and not zonder, str(zonder or sorted(set(fr.VERSIES) ^ set(met_versie))))
     ok &= check("geen referrer naar derden", '<meta name="referrer" content="no-referrer">' in uit)
     ok &= check("het pakket is geldige JSON zonder <", "<" not in json.dumps(pakket(uit)))
     ok &= check("tegelhost in ui/app.js = de host in de CSP, en geen andere https-host in de JavaScript",
@@ -218,6 +222,15 @@ def test_slot_js() -> bool:
     ok &= check("vergrendel: sleutel weg en herladen", "vergrendel: async () => { try { await wis(); }" in js
                 and "location.reload()" in js)
     ok &= check("na ontsleutelen fundaAfterReportLoad", "window.fundaAfterReportLoad()" in js)
+    ok &= check("opslagsleutel voor de app: HKDF uit de hoofdsleutel met een eigen info-string, AES-GCM, niet exporteerbaar",
+                'OPSLAG_INFO = "woningrapport/opslag/v1 hkdf-sha256 aes-256-gcm"' in js and "OPSLAG_INFO" not in fr.KDF_INFO
+                and '{name:"HKDF", hash:"SHA-256", salt:b64(P.app_zout), info:new TextEncoder().encode(OPSLAG_INFO)}' in js
+                and 'hoofd, {name:"AES-GCM", length:256}, false, ["encrypt", "decrypt"]);' in js)
+    ok &= check("de app krijgt alleen die afgeleide sleutel: de hoofdsleutel en het wachtwoord gaan niet naar window",
+                "window.fundaApparaat.opslagSleutel = await opslagSleutel(hoofd)" in js
+                and re.findall(r"window\.fundaApparaat\.(\w+) = ", js) == ["onthouden", "opslagSleutel", "opslagSleutel"]
+                and not re.search(r"window\.\w+ = (hoofd|pw|bewaard)\b", js))
+    ok &= check("de staat van de app (funda_rapport_v1 en _v2) komt niet in slot.js voor", "funda_rapport_v" not in js)
     ok &= check("service worker wordt geregistreerd", "navigator.serviceWorker.register('service-worker.js'" in js)
     ok &= check("push.js: sleutel uit de meta-tag, geen losse kleur", 'meta[name="funda-push-key"]' in funda_ui.PUSH_JS
                 and "verbergAlsIngesteld" in funda_ui.PUSH_JS and "style.color" not in funda_ui.PUSH_JS)
@@ -244,7 +257,10 @@ el('slot-data').textContent = JSON.stringify(invoer.pakket);
   for (const pw of invoer.wachtwoorden) {
     el('pw').value = pw; el('content').innerHTML = '';
     if (el('slot-form').h.submit) await el('slot-form').h.submit({preventDefault(){}});
-    uit.push({body: el('content').innerHTML, fout: el('err').textContent, knop_uit: el('btn').disabled});
+    const k = window.fundaApparaat && window.fundaApparaat.opslagSleutel;
+    uit.push({body: el('content').innerHTML, fout: el('err').textContent, knop_uit: el('btn').disabled,
+      sleutel: k ? {algoritme: k.algorithm.name, lengte: k.algorithm.length, exporteerbaar: k.extractable, gebruik: Array.from(k.usages).sort()} : null,
+      proef: k ? Buffer.from(await crypto.subtle.encrypt({name: 'AES-GCM', iv: new Uint8Array(12)}, k, new Uint8Array(4))).toString('base64') : ''});
   }
   console.log(JSON.stringify(uit));
   process.exit(0);   // de aftelklok van een pauze houdt node anders in leven
@@ -272,6 +288,17 @@ def test_slot_js_node() -> bool:
         return check("node draait slot.js", False, fout)
     ok = check("fout wachtwoord: melding, geen body", uit[0]["body"] == "" and "klopt niet" in uit[0]["fout"])
     ok &= check("goed wachtwoord: de body, byte voor byte", uit[1]["body"] == body, uit[1]["fout"])
+    ok &= check("fout wachtwoord: geen opslagsleutel voor de app", uit[0]["sleutel"] is None)
+    ok &= check("goed wachtwoord: de app krijgt een AES-GCM-sleutel van 256 bits, niet exporteerbaar",
+                uit[1]["sleutel"] == {"algoritme": "AES-GCM", "lengte": 256, "exporteerbaar": False, "gebruik": ["decrypt", "encrypt"]},
+                str(uit[1]["sleutel"]))
+    # Dezelfde afleiding in Python: HKDF-SHA256(hoofdsleutel, salt = APP_ZOUT, info = OPSLAG_INFO). Hangt niet
+    # van de run af (geen run-zout), dus de opslag blijft leesbaar na een nieuwe run.
+    info = re.search(r'OPSLAG_INFO = "([^"]+)"', funda_ui.SLOT_JS).group(1)
+    sleutel = HKDF(algorithm=hashes.SHA256(), length=32, salt=fr.APP_ZOUT, info=info.encode()).derive(fr.hoofdsleutel(WACHTWOORD))
+    verwacht = base64.b64encode(AESGCM(sleutel).encrypt(bytes(12), bytes(4), None)).decode()
+    ok &= check("de opslagsleutel is HKDF(hoofdsleutel, app-zout, eigen info) en niet de runsleutel",
+                uit[1]["proef"] == verwacht and info != fr.KDF_INFO, uit[1]["proef"])
     uit, fout = _node_slot(fr.beveilig_html(body, WACHTWOORD), ["a", "b", "c", "d", WACHTWOORD])
     ok &= check("vier foute pogingen: nog geen pauze, het goede wachtwoord opent", uit is not None and uit[4]["body"] == body, fout)
     uit, fout = _node_slot(fr.beveilig_html(body, WACHTWOORD), ["a", "b", "c", "d", "e", WACHTWOORD])
@@ -330,20 +357,9 @@ def _png_pixel(pad: Path, x: int = 0, y: int = 0) -> tuple[int, ...]:
 
 
 def test_pwa_uiterlijk() -> bool:
-    print("test: service worker v7, manifest zonder voornaam, eigen palet, slotscherm uit ui/slot.html")
-    sw = fr.PWA_SERVICE_WORKER
-    ok = check("service worker: cache funda-shortlist-v7", "const CACHE = 'funda-shortlist-v7';" in sw)
-    assets = re.findall(r"'([^']+)'", re.search(r"const ASSETS = \[(.*?)\];", sw, re.S).group(1))
-    nodig = {"./", "index.html", "manifest.json", "icon.svg", "favicon.svg", "apple-touch-icon.png", "icon-512.png",
-             *(n for n in fr.STATISCH if n != "leaflet/LICENSE")}
-    ok &= check("service worker: alle statische bestanden in ASSETS", set(assets) == nodig, str(sorted(nodig ^ set(assets))))
-    ok &= check("service worker: alleen same-origin GET's in de cache",
-                "if (e.request.method !== 'GET') return;" in sw and "if (url.origin !== location.origin) return;" in sw
-                and sw.index("url.origin !== location.origin") < sw.index("e.respondWith")
-                and "resp.ok && resp.type === 'basic'" in sw and sw.count(".put(") == 1)
-    ok &= check("service worker: index.html alleen als terugval voor een navigatie", "e.request.mode === 'navigate'" in sw)
+    print("test: manifest zonder voornaam, eigen palet, slotscherm uit ui/slot.html")
     m = json.loads(fr.PWA_MANIFEST)
-    ok &= check("manifest: Woningrapport / Woningen", m["name"] == "Woningrapport" and m["short_name"] == "Woningen",
+    ok = check("manifest: Woningrapport / Woningen", m["name"] == "Woningrapport" and m["short_name"] == "Woningen",
                 f"{m['name']} / {m['short_name']}")
     ok &= check("manifest: geen merknaam in de naam", "Funda" not in m["name"] and "Funda" not in m["short_name"])
     ok &= check("manifest: kleuren uit het palet", m["theme_color"] == funda_ui.THEME_COLOR
@@ -353,7 +369,7 @@ def test_pwa_uiterlijk() -> bool:
     ok &= check("slotscherm: theme-color uit het palet",
                 f'<meta name="theme-color" content="{funda_ui.THEME_COLOR}">' in uit)
     ok &= check("slotscherm: titel Woningrapport, geen voornaam", "<title>Woningrapport</title>" in uit)
-    ok &= check("slotscherm: CSS en JS als bestanden, niet in de wrapper", 'href="app.css"' in uit and 'href="slot.css"' in uit
+    ok &= check("slotscherm: CSS en JS als bestanden, niet in de wrapper", 'href="app.css?v=' in uit and 'href="slot.css?v=' in uit
                 and funda_ui.UI_CSS[:200] not in uit and funda_ui.UI_JS[:200] not in uit and len(uit) < 20_000, str(len(uit)))
     oud_sleutel = fr.WEB_PUSH_PUBLIC_KEY
     fr.WEB_PUSH_PUBLIC_KEY = "BFictieve<Sleutel"
@@ -370,7 +386,7 @@ def test_pwa_uiterlijk() -> bool:
                 'href="docs/leaflet/leaflet.css"' in html and 'src="docs/leaflet/leaflet.js"' in html and "unpkg" not in html
                 and '<meta name="referrer" content="no-referrer">' in html)
     ok &= check("onversleutelde PWA (lokaal, zonder wachtwoord): Leaflet uit leaflet/, push-meta en push-JS",
-                'src="leaflet/leaflet.js"' in html_pwa and "unpkg" not in html_pwa and "funda-push-key" in html_pwa
+                f'src="leaflet/leaflet.js?v={fr.VERSIES["leaflet/leaflet.js"]}"' in html_pwa and "unpkg" not in html_pwa and "funda-push-key" in html_pwa
                 and funda_ui.PUSH_JS[:200] in html_pwa and html_pwa.index(funda_ui.UI_JS[:200]) < html_pwa.index(funda_ui.PUSH_JS[:200]))
     ok &= check("lokale HTML: theme-color, color-scheme en titel",
                 f'content="{funda_ui.THEME_COLOR}"' in html and '<meta name="color-scheme" content="light dark">' in html
@@ -418,15 +434,198 @@ def test_pwa_assets() -> bool:
         ok &= check("Leaflet-CSS verwijst niet naar buiten", "http" not in re.sub(r"/\*.*?\*/", "", (docs / "leaflet/leaflet.css").read_text(encoding="utf-8"), flags=re.S))
         index = (docs / "index.html").read_text(encoding="utf-8")
         ok &= check("index.html: elk script en elke stylesheet staat in docs/",
-                    all((docs / b).is_file() for b in re.findall(r'<(?:script|link)\b[^>]*?(?:src|href)="([^"]*)"', index)))
+                    all((docs / b.split("?")[0]).is_file() for b in re.findall(r'<(?:script|link)\b[^>]*?(?:src|href)="([^"]*)"', index)))
+        ok &= check("service-worker.js in docs/ is de afgeleide service worker",
+                    (docs / "service-worker.js").read_text(encoding="utf-8") == fr.PWA_SERVICE_WORKER)
         body = ontsleutel((docs / "index.html").read_text(encoding="utf-8"), WACHTWOORD)
         ok &= check("index.html ontsleutelt tot de nieuwe UI", 'id="woning-data"' in body and 'class="app-top' in body)
     return ok
 
 
+def _sha10(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()[:10]
+
+
+def test_versies() -> bool:
+    print("test: versie per statisch bestand, service worker en cachenaam afgeleid, docs/ gelijk aan ui/")
+    versies = fr.statisch_versies()
+    sw = fr.PWA_SERVICE_WORKER
+    ok = check("versie = eerste 10 hextekens van de sha256 van het bestand in ui/, voor alles behalve de licentie",
+               versies == {doel: _sha10((funda_ui.UI_DIR / bron).read_bytes()) for doel, bron in fr.STATISCH.items()
+                           if doel != "leaflet/LICENSE"} and fr.VERSIE_LENGTE == 10 and fr.VERSIES == versies)
+    in_sw = dict(re.findall(r"'([^']+)': '([0-9a-f]{10})'", re.search(r"const VERSIES = \{(.*?)\};", sw, re.S).group(1)))
+    ok &= check("service worker: de lijst met versies komt uit STATISCH", in_sw == versies, str(sorted(set(in_sw) ^ set(versies))))
+    los = re.findall(r"'([^']+)'", re.search(r"const LOS = \[(.*?)\];", sw).group(1))
+    ok &= check("service worker: de pagina, het manifest en de iconen zonder versie", los == list(fr.SW_LOS)
+                and set(los) == {"./", "index.html", "manifest.json", "icon.svg", "favicon.svg", "apple-touch-icon.png", "icon-512.png"})
+    cache = re.search(r"const CACHE = '([^']+)';", sw).group(1)
+    ok &= check("service worker: cachenaam afgeleid, geen nummer met de hand", cache == fr.cache_naam(versies)
+                and re.fullmatch(r"funda-shortlist-[0-9a-f]{10}", cache) is not None and "__" not in sw, cache)
+    ok &= check("service worker: alleen same-origin GET's, en die check staat vóór respondWith",
+                "if (e.request.method !== 'GET') return;" in sw and "if (url.origin !== location.origin) return;" in sw
+                and sw.index("url.origin !== location.origin") < sw.index("e.respondWith")
+                and sw.count("resp.ok && resp.type === 'basic'") == 1)
+    ok &= check("service worker: geen ignoreSearch; een versie komt alleen in de cache als de inhoud bij de hash past",
+                "ignoreSearch" not in sw.split("const CACHE")[1] and sw.count(".put(") == 3
+                and "if (resp.ok && await klopt(resp, VERSIES[p])) await c.put(sleutel(p), resp);" in sw
+                and "else if (huidig && await klopt(resp, VERSIES[p])) c.put(sleutel(p), resp.clone())" in sw
+                and "if (!vast) c.put(req, resp.clone())" in sw)
+    ok &= check("service worker: oude caches weg bij activate", "keys.filter(k => k !== CACHE).map(k => caches.delete(k))" in sw)
+    ok &= check("service worker: index.html alleen als terugval voor een navigatie", "req.mode === 'navigate'" in sw)
+
+    # Een gewijzigd bestand in ui/: andere versie, andere cachenaam, andere service worker.
+    with tempfile.TemporaryDirectory() as tmp:
+        kopie = Path(tmp) / "ui"
+        shutil.copytree(funda_ui.UI_DIR, kopie)
+        with open(kopie / "app.js", "a", encoding="utf-8") as f:
+            f.write("\n// gewijzigd\n")
+        anders = fr.statisch_versies(kopie)
+    ok &= check("gewijzigd ui/app.js: alleen die versie verandert", [k for k in versies if versies[k] != anders[k]] == ["app.js"])
+    ok &= check("gewijzigd ui/app.js: nieuwe cachenaam en een andere service worker",
+                fr.cache_naam(anders) != cache and fr.service_worker(anders) != sw
+                and f"'app.js': '{anders['app.js']}'" in fr.service_worker(anders))
+
+    # De kopieën in de repo. Wie ui/ wijzigt zonder docs/ bij te werken, of andersom, faalt hier.
+    # Bijwerken: python -c "import funda_rapport as fr; fr.schrijf_statisch(fr.Path('docs'))"
+    docs = Path(__file__).resolve().parent / "docs"
+    ongelijk = [doel for doel, bron in fr.STATISCH.items()
+                if not (docs / doel).is_file() or (docs / doel).read_bytes() != (funda_ui.UI_DIR / bron).read_bytes()]
+    ok &= check("docs/: elk statisch bestand gelijk aan ui/", not ongelijk, ", ".join(ongelijk))
+    afgeleid = {"service-worker.js": fr.PWA_SERVICE_WORKER, "manifest.json": fr.PWA_MANIFEST, "icon.svg": fr.PWA_ICON_SVG,
+                "favicon.svg": fr.PWA_FAVICON_SVG}
+    ongelijk = [n for n, tekst in afgeleid.items() if not (docs / n).is_file() or (docs / n).read_text(encoding="utf-8") != tekst]
+    ok &= check("docs/: service worker (met de versies van nu), manifest en iconen gelijk aan wat schrijf_statisch schrijft",
+                not ongelijk, ", ".join(ongelijk))
+    return ok
+
+
+# De echte service worker in node, met een namaak van caches en fetch. `server` is wat het netwerk geeft.
+NODE_SW = r"""
+const fs = require('fs');
+const invoer = JSON.parse(fs.readFileSync(0, 'utf8'));
+const BASIS = 'http://localhost/Funda/';
+let online = true, net = [];
+class Antwoord extends Response {
+  get type(){ return 'basic'; }
+  clone(){ const c = super.clone(); Object.setPrototypeOf(c, Antwoord.prototype); return c; }
+}
+const url = r => new URL(typeof r === 'string' ? r : r.url, BASIS);
+class Cache {
+  constructor(){ this.m = new Map(); }
+  async match(r){ const x = this.m.get(url(r).href); return x ? x.clone() : undefined; }
+  async put(r, resp){ this.m.set(url(r).href, resp); }
+  async addAll(l){ for (const u of l) { const r = await fetch(u); if (!r.ok) throw new Error('addAll ' + u); await this.put(u, r); } }
+}
+const stores = new Map(invoer.oude_caches.map(n => [n, new Cache()]));
+globalThis.caches = {open: async n => { if (!stores.has(n)) stores.set(n, new Cache()); return stores.get(n); },
+  keys: async () => [...stores.keys()], delete: async n => stores.delete(n)};
+globalThis.fetch = async r => {
+  const u = url(r), binnen = u.href.startsWith(BASIS);
+  const p = binnen ? u.pathname.slice(new URL(BASIS).pathname.length) || 'index.html' : u.href;
+  net.push(p + (binnen ? u.search : ''));
+  if (!online) throw new TypeError('geen netwerk');
+  if (!(p in invoer.server)) return new Antwoord('nee', {status: 404});
+  return new Antwoord(invoer.server[p]);
+};
+const h = {};
+globalThis.self = globalThis;
+globalThis.location = new URL('service-worker.js', BASIS);
+globalThis.addEventListener = (t, f) => { h[t] = f; };
+globalThis.skipWaiting = () => {};
+globalThis.clients = {claim: async () => {}};
+(0, eval)(invoer.sw);
+const gebeurtenis = t => new Promise((ok, nee) => h[t]({waitUntil: p => p.then(ok, nee)}));
+async function vraag(pad, extra){
+  net = [];
+  const request = Object.assign({method: 'GET', url: new URL(pad, BASIS).href, mode: 'no-cors'}, extra || {});
+  let p = null;
+  h.fetch({request, respondWith: x => { p = x; }});
+  if (!p) return {afgehandeld: false, net};
+  const r = await p;
+  return {afgehandeld: true, tekst: r.type === 'error' ? null : await r.text(), fout: r.type === 'error', net};
+}
+const sleutels = () => Object.fromEntries([...stores].map(([n, c]) => [n, [...c.m.keys()].map(k => k.replace(BASIS, '')).sort()]));
+(async () => {
+  const uit = {};
+  await gebeurtenis('install');
+  uit.na_install = sleutels();
+  await gebeurtenis('activate');
+  uit.na_activate = sleutels();
+  const v = invoer.versies;
+  uit.huidig = await vraag('app.js?v=' + v['app.js']);
+  uit.zonder = await vraag('app.js');
+  uit.oud = await vraag('app.js?v=0000000000');
+  uit.pagina = await vraag('./', {mode: 'navigate'});
+  uit.post = await vraag('app.js', {method: 'POST'});
+  uit.vreemd = await vraag('https://example.invalid/app.js');
+  uit.buiten_basis = await vraag('http://localhost/app.js?v=' + v['app.js']);
+  uit.sleutels_online = sleutels();
+  online = false;
+  uit.offline_huidig = await vraag('app.js?v=' + v['app.js']);
+  uit.offline_zonder = await vraag('app.js');
+  uit.offline_oud = await vraag('app.js?v=0000000000');
+  uit.offline_pagina = await vraag('onbekend/pad', {mode: 'navigate'});
+  uit.offline_onbekend = await vraag('bestaat-niet.js');
+  console.log(JSON.stringify(uit));
+})().catch(e => { console.error(e); process.exit(1); });
+"""
+
+
+def _node_sw(server: dict, versies: dict, oude_caches: list[str]):
+    invoer = {"sw": fr.service_worker(versies), "server": server, "versies": versies, "oude_caches": oude_caches}
+    r = subprocess.run(["node", "-e", NODE_SW], input=json.dumps(invoer), capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        return None, r.stderr[-400:]
+    return json.loads(r.stdout), ""
+
+
+def test_service_worker_node() -> bool:
+    print("test: de service worker in node (versies, oude index.html zonder ?v=, zonder netwerk)")
+    if not shutil.which("node"):
+        print("  (node niet gevonden; overgeslagen)")
+        return True
+    server = {n: f"inhoud van {n}" for n in fr.VERSIES}
+    server.update({n: f"los {n}" for n in fr.SW_LOS if n != "./"})
+    versies = {n: _sha10(t.encode()) for n, t in server.items() if n in fr.VERSIES}
+    cache = fr.cache_naam(versies)
+    u, fout = _node_sw(server, versies, ["funda-shortlist-v7"])
+    if u is None:
+        return check("node draait de service worker", False, fout)
+    verwacht = sorted([n if n != "./" else "" for n in fr.SW_LOS] + [f"{n}?v={v}" for n, v in versies.items()])
+    ok = check("install: de pagina en elk bestand onder zijn versie, niets zonder", u["na_install"].get(cache) == verwacht,
+               str(u["na_install"].get(cache)))
+    ok &= check("activate: de oude cache (v7) is weg", list(u["na_activate"]) == [cache], str(list(u["na_activate"])))
+    ok &= check("huidige versie: uit de cache, zonder netwerk", u["huidig"]["tekst"] == server["app.js"] and u["huidig"]["net"] == [])
+    ok &= check("zonder ?v= (oude index.html): van het netwerk", u["zonder"]["tekst"] == server["app.js"] and u["zonder"]["net"] == ["app.js"])
+    ok &= check("oudere ?v=: van het netwerk", u["oud"]["tekst"] == server["app.js"] and u["oud"]["net"] == ["app.js?v=0000000000"])
+    ok &= check("geen van beide komt in de cache", u["sleutels_online"] == u["na_activate"], str(u["sleutels_online"]))
+    ok &= check("de pagina: van het netwerk (network-first)", u["pagina"]["tekst"] == server["index.html"] and u["pagina"]["net"] == ["index.html"])
+    ok &= check("POST, een andere herkomst: de service worker blijft eraf", not u["post"]["afgehandeld"] and not u["vreemd"]["afgehandeld"])
+    ok &= check("zelfde naam buiten de map van de app: geen versie, gewoon het netwerk",
+                u["buiten_basis"]["afgehandeld"] and u["buiten_basis"]["net"] and u["buiten_basis"]["tekst"] == "nee")
+    ok &= check("zonder netwerk: de huidige versie uit de cache", u["offline_huidig"]["tekst"] == server["app.js"])
+    ok &= check("zonder netwerk, zonder of met een oudere ?v=: de huidige versie (wat het netwerk ook zou geven)",
+                u["offline_zonder"]["tekst"] == server["app.js"] and u["offline_oud"]["tekst"] == server["app.js"])
+    ok &= check("zonder netwerk: een navigatie krijgt index.html, een onbekend bestand een fout",
+                u["offline_pagina"]["tekst"] == server["index.html"] and u["offline_onbekend"]["fout"])
+
+    # Update nog onderweg: het netwerk geeft voor app.js nog de oude inhoud onder de nieuwe URL.
+    half = dict(server, **{"app.js": "oude inhoud"})
+    u, fout = _node_sw(half, versies, [])
+    if u is None:
+        return check("node draait de service worker (update onderweg)", False, fout)
+    sleutel = f"app.js?v={versies['app.js']}"
+    ok &= check("inhoud past niet bij de versie: niet in de cache bij install, de rest wel",
+                sleutel not in u["na_install"][cache] and len(u["na_install"][cache]) == len(verwacht) - 1)
+    ok &= check("en ook later niet: het antwoord komt door, maar niet onder die versie in de cache",
+                u["huidig"]["tekst"] == "oude inhoud" and u["huidig"]["net"] == [sleutel] and sleutel not in u["sleutels_online"][cache])
+    return ok
+
+
 def main() -> int:
     resultaten = [test_roundtrip(), test_sleutelopbouw(), test_opvulling(), test_wrapper(), test_slot_js(),
-                  test_slot_js_node(), test_geen_onversleuteld_in_ci(), test_pwa_uiterlijk(), test_pwa_assets()]
+                  test_slot_js_node(), test_geen_onversleuteld_in_ci(), test_pwa_uiterlijk(), test_pwa_assets(),
+                  test_versies(), test_service_worker_node()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")

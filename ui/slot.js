@@ -6,13 +6,18 @@
      klare tekst  = lengte (4 bytes, big-endian) + gzip(body) + nullen tot de vaste blokmaat
    "Onthoud op dit apparaat" bewaart alleen de hoofdsleutel, als niet-exporteerbare HKDF-sleutel
    (alleen deriveKey) in IndexedDB. Wie die opslag leest, kan er het rapport mee openen, maar het
-   wachtwoord raden kost per poging nog steeds de volle 600.000 iteraties. */
+   wachtwoord raden kost per poging nog steeds de volle 600.000 iteraties.
+   De app (ui/app.js) versleutelt wat hij op dit apparaat bewaart met een eigen sleutel:
+     opslagsleutel = HKDF-SHA256(hoofdsleutel, salt = vast app-zout, info = OPSLAG_INFO) -> AES-256-GCM
+   De app krijgt alleen die afgeleide, niet-exporteerbare sleutel (window.fundaApparaat.opslagSleutel),
+   nooit de hoofdsleutel of het wachtwoord. */
 (function(){
 'use strict';
 const P = JSON.parse(document.getElementById("slot-data").textContent);
 const DB = "funda_rapport_slot", BAK = "sleutels", ID = "hoofd_v2", DAGEN = 30;
 const OUD_ID = "basis";                 // vroeger: de PBKDF2-basissleutel (een afleiding met 1 iteratie was mogelijk)
 const OUD_PW = "funda_pw_persist_v1";   // nog vroeger: het wachtwoord leesbaar in localStorage
+const OPSLAG_INFO = "woningrapport/opslag/v1 hkdf-sha256 aes-256-gcm";
 const TE_OUD = "Deze browser kan het rapport niet openen. Werk je iPhone bij naar iOS 16.4 of nieuwer.";
 const IN_FRAME = "Dit rapport opent niet binnen een andere pagina. Open het rechtstreeks.";
 const $ = (id) => document.getElementById(id);
@@ -35,6 +40,10 @@ async function decrypt(hoofd){
   const pt = vol.subarray(4, 4 + n);
   if(!P.gz) return new TextDecoder().decode(pt);
   return await new Response(new Blob([pt]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
+}
+function opslagSleutel(hoofd){
+  return crypto.subtle.deriveKey({name:"HKDF", hash:"SHA-256", salt:b64(P.app_zout), info:new TextEncoder().encode(OPSLAG_INFO)},
+    hoofd, {name:"AES-GCM", length:256}, false, ["encrypt", "decrypt"]);
 }
 function db(modus, werk){
   return new Promise((ok, nee) => {
@@ -120,7 +129,9 @@ function melding(tekst){
   const m = $("slot-melding"); m.textContent = tekst; m.hidden = false;
   clearTimeout(melding.t); melding.t = setTimeout(() => { m.hidden = true; }, 8000);
 }
-function toon(html){
+/* Zonder opslagsleutel (afleiden mislukt) bewaart de app niets op dit apparaat en zegt hij dat. */
+async function toon(html, hoofd){
+  try { window.fundaApparaat.opslagSleutel = await opslagSleutel(hoofd); } catch(_){ window.fundaApparaat.opslagSleutel = null; }
   const c = $("content"); c.hidden = false; c.innerHTML = html;
   $("slot").hidden = true;
   if(window.fundaAfterReportLoad) window.fundaAfterReportLoad();
@@ -165,7 +176,7 @@ $("slot-form").addEventListener("submit", async (e) => {
       try { await bewaar(hoofd); onthouden(true); }
       catch(_){ melding("Onthouden lukt niet in deze browser. Vul je wachtwoord de volgende keer opnieuw in."); }
     }
-    toon(html);
+    await toon(html, hoofd);
   } catch(ex){
     if(ex instanceof TeOud){ err.textContent = TE_OUD; }
     else {
@@ -186,13 +197,16 @@ $("slot-form").addEventListener("submit", async (e) => {
   if(!bewaard) return;
   if(!geldig(bewaard)){ try { await wis(); } catch(_){} return; }
   onthouden(true);
+  let html;
   try {
-    toon(await decrypt(bewaard.sleutel));
+    html = await decrypt(bewaard.sleutel);
   } catch(ex){
     if(ex instanceof TeOud){ $("err").textContent = TE_OUD; return; }
     try { await wis(); } catch(_){}   // nieuw wachtwoord: de oude sleutel past niet meer
     onthouden(false);
     $("err").textContent = "De onthouden sleutel werkt niet meer. Vul je wachtwoord opnieuw in.";
+    return;
   }
+  await toon(html, bewaard.sleutel);
 })();
 })();

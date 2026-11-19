@@ -13,7 +13,8 @@ Publieke API
   SLOT_PLACEHOLDERS            de placeholders die ui/slot.html precies één keer bevat
   render_report_body(rijen, meta) -> str
                                de body: sprite, topbalk, lijst, voet, kaart, sheets en #woning-data
-  vul_slot(waarden) -> str     ui/slot.html met alle placeholders vervangen (waarden per placeholdernaam)
+  vul_slot(waarden, versies) -> str
+                               ui/slot.html met alle placeholders vervangen, en met versies `?v=` per bestand
   woning_sleutel(d), funda_url(d)
                                sleutel en link van een woning; funda_rapport gebruikt dezelfde
   grens_tekst, rente_gegevens, scenario_koopsommen, info_items
@@ -900,12 +901,28 @@ def render_report_body(rijen: list[dict], meta: dict | None = None) -> str:
 <script type="application/json" id="woning-data">{data}</script>"""
 
 
-def vul_slot(waarden: dict) -> str:
-    """ui/slot.html met elke placeholder vervangen. waarden: {"__CSP__": ..., "__PUSH_META__": ..., "__PAKKET__": ...}."""
+def vul_slot(waarden: dict, versies: dict | None = None) -> str:
+    """ui/slot.html met elke placeholder vervangen. waarden: {"__CSP__": ..., "__PUSH_META__": ..., "__PAKKET__": ...}.
+
+    versies ({"app.js": "0a1b2c3d4e", ...}, uit funda_rapport.statisch_versies) zet achter elk script en
+    elke stylesheet `?v=<versie>`. Een bestand in versies dat de wrapper niet laadt is een fout, en
+    een script of stylesheet zonder versie ook: anders blijft er stil een URL zonder versie over."""
     ontbreekt = [p for p in SLOT_PLACEHOLDERS if p not in waarden]
     if ontbreekt:
         raise ValueError("placeholders zonder waarde: " + ", ".join(ontbreekt))
     uit = SLOT_HTML
+    if versies is not None:
+        gezien = set()
+
+        def met_versie(m: re.Match) -> str:
+            naam = m.group(3)
+            if naam not in versies:
+                raise ValueError("geen versie voor " + naam)
+            gezien.add(naam)
+            return f'{m.group(1)}{naam}?v={versies[naam]}"'
+        uit = re.sub(r'(<(script defer src|link rel="stylesheet" href)=")([^"?]+)"', met_versie, uit)
+        if gezien != set(versies):
+            raise ValueError("niet in de wrapper: " + ", ".join(sorted(set(versies) - gezien)))
     for p in SLOT_PLACEHOLDERS:   # het pakket als laatste: alleen base64 en JSON, daar staat geen placeholder in
         uit = uit.replace(p, str(waarden[p]), 1)
     return uit
