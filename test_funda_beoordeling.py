@@ -1548,6 +1548,43 @@ def test_binnenklimaat() -> bool:
     return ok
 
 
+def test_buurtnaam() -> bool:
+    print("test: de buurtscore noemt de buurt waarvoor hij geldt (CBS-indeling)")
+    ok = True
+    profiel = {"bruto_jaar": 62000, "eigen_inleg": 10000, "leeftijd": 30}
+    cfg = fb.laad_config(profiel)
+
+    def b(buurt):
+        return fb.beoordeel(_minimaal(price=240000, living_area=70), None, [], [], profiel, cfg, {"buurt": {"status": "ok", "data": buurt}},
+                            vandaag=VANDAAG)
+
+    met = b({"buurtnaam": "Voorbeeldbuurt", "kscore": 7})
+    alle = [i for groep in ("let_op", "pluspunten", "info", "onbekend", "kansen") for i in met.get(groep, [])]
+    naam = [i for i in alle if i["label"] == fb.BUURT_LABEL]
+    lbm = [i for i in alle if i["label"] == "Leefbaarometer"]
+    ok &= check("item met de buurtnaam, 0 punten", len(naam) == 1 and naam[0]["waarde"] == "Voorbeeldbuurt" and naam[0]["punten"] == 0,
+                str(naam)[:120])
+    ok &= check("de Leefbaarometer zegt voor welke buurt hij geldt, zichtbaar in de waarde",
+                len(lbm) == 1 and lbm[0]["waarde"] == "goed (2024) in Voorbeeldbuurt" and "Voorbeeldbuurt" in (lbm[0]["uitleg"] or ""), str(lbm)[:160])
+    lang = b({"buurtnaam": "Voorbeeldbuurt-Noord en  omgeving\nvan het park", "kscore": 7})
+    naam_lang = [i for i in lang["info"] if i["label"] == fb.BUURT_LABEL]
+    ok &= check("lange naam: waarde afgekapt, volledige naam bewaard, witruimte genormaliseerd",
+                len(naam_lang) == 1 and len(naam_lang[0]["waarde"]) <= 32
+                and naam_lang[0]["volledig"] == "Voorbeeldbuurt-Noord en omgeving van het park", str(naam_lang)[:160])
+    zwak = b({"buurtnaam": "Voorbeeldbuurt", "kscore": 2})
+    lbm = [i for i in zwak["let_op"] if i["label"] == "Leefbaarometer"]
+    ok &= check("ook bij een zwakke score, met de bestaande uitleg erachter",
+                len(lbm) == 1 and lbm[0]["uitleg"].startswith("Geldt voor de buurt Voorbeeldbuurt") and "uitsluitlijst" in lbm[0]["uitleg"])
+    zonder = b({"kscore": 7})
+    alle = [i for groep in ("let_op", "pluspunten", "info", "onbekend", "kansen") for i in zonder.get(groep, [])]
+    ok &= check("zonder naam geen item en geen lege zin", not [i for i in alle if i["label"] == fb.BUURT_LABEL]
+                and all("Geldt voor de buurt" not in (i.get("uitleg") or "") for i in alle))
+    ok &= check("de score verandert niet door de naam", met["score"] == zonder["score"], f"{met['score']} {zonder['score']}")
+    ok &= check("rommel als naam telt niet", fb.cbs_buurt({"buurt": {"status": "ok", "data": {"buurtnaam": 12}}}) == ""
+                and fb.cbs_buurt({"buurt": "fout"}) == "" and fb.cbs_buurt(None) == "")
+    return ok
+
+
 def test_import_zonder_personal() -> bool:
     print("test: importeert zonder funda_personal.json en zonder andere projectmodules")
     ok = True
@@ -1591,7 +1628,7 @@ def main() -> int:
                   test_harde_eisen(), test_score(), test_parsers(), test_erfpacht_fixronde(), test_erfpacht_ontkenning(), test_sortering(), test_contract(),
                   test_geen_bevolkingskenmerken(), test_verrijking_vormen(), test_rommelige_invoer(), test_fixture_verwachting(),
                   test_log_kenmerk_labels(), test_kansen_en_info(), test_omgeving_items(), test_eerder_zonder_prijs(),
-                  test_schuin_dak(), test_label_aanname(), test_binnenklimaat(), test_import_zonder_personal()]
+                  test_schuin_dak(), test_label_aanname(), test_binnenklimaat(), test_buurtnaam(), test_import_zonder_personal()]
     print()
     if all(resultaten):
         print("Alle tests geslaagd.")
