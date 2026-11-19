@@ -6,6 +6,7 @@ Negen bronnen, elk fail-soft: een kapotte bron geeft "onbekend" en de run gaat d
              (benadering van de VvE-grootte), gebruiksdoel van het verblijfsobject.
 - fundering: Klimaateffectatlas, risicokaarten fundering 2050 hoog (Deltares 2021),
              verschilzetting en paalrot op buurtniveau. Alleen bij een pand van voor 1970.
+             Samen met klimaat in één verzoek (zie "Fundering en klimaat" hieronder).
 - geluid:    RIVM-geluidkaarten aan de gevel: Lden en Lnight, wegverkeer 2022 en trein 2023.
 - buurt:     buurtcode via PDOK CBS-buurten 2024, Leefbaarometer 3.0 (2024) en de
              RIVM-gezondheidsmonitor 2024 (tevredenheid, via CBS dataderden 50150NED).
@@ -34,7 +35,15 @@ Regels (CLAUDE.md):
   wanneer robots.txt onbereikbaar is (time-out of 5xx).
 - Per host stoppen bij 401/403/429/5xx. Een weigering wordt nooit omzeild: geen andere
   user-agent, host of client. Na een weigering blijft de host een dag dicht.
-- Budget per run (standaard 90 verzoeken). Past en Krap eerst, daarna op score.
+- Budget per run (standaard 90 verzoeken). Past en Krap eerst, daarna op score. Het budget gaat per
+  woning: vooraf telt `kosten()` wat de woning nog vraagt (wat niet in de cache staat, met de kosten
+  uit SECTIES, plus robots.txt per host die deze run nog niet gelezen is). Past dat niet, dan krijgt
+  de hele woning "budget" voor wat ontbreekt en gaat het budget naar de volgende woning die wel
+  past. Zo blijft er geen woning half gevuld. De telling is een bovengrens (een onbekende buurt telt
+  als nieuwe buurt in een nieuwe gemeente). Kost een woning meer dan het hele budget, dan begint hij
+  toch zodra het budget nog onaangeroerd is: wat lukt staat daarna in de cache, dus hij wacht niet
+  eeuwig. Twee zeldzame extra verzoeken staan niet in de telling: de ruimere tweede BAG-poging en
+  de terugval van fundering en klimaat.
 - Cache in het bestaande funda_enrichment_cache.json, als eigen secties (de tabel SECTIES).
   Een antwoord blijft `bewaar_dagen` geldig, een fout wordt na `fout_opnieuw_na_dagen`
   (1) opnieuw geprobeerd.
@@ -42,6 +51,18 @@ Regels (CLAUDE.md):
   nationaliteit, inkomen en andere bevolkingskenmerken worden nooit gelezen of bewaard.
 - Logregels tonen alleen aantallen per bron en status, nooit adressen, postcodes of
   coördinaten.
+
+Fundering en klimaat (19 nov 2026): beide komen van dezelfde WMS op hetzelfde punt en gaan daarom
+in één GetFeatureInfo, zoals geluid en lucht al meerdere lagen per verzoek vragen. Alleen de lagen
+die nog nodig zijn: staat er één in de cache, is er één uit of is fundering niet nodig, dan gaat
+alleen de andere. De cachesecties `fundering` en `klimaat` en hun elementen zijn niet veranderd.
+Het gecombineerde antwoord van vijf lagen is NIET tegen de echte dienst gemeten: de fixture
+kea_gecombineerd_getfeatureinfo.json is samengesteld uit de twee gemeten antwoorden. Wel gemeten
+(18 nov 2026, de klimaatfixture) is dat deze dienst vector- en rasterlagen samen in één antwoord
+geeft. Daarom een terugval: geeft het gecombineerde antwoord voor een bron niets bruikbaars terwijl
+de dienst wel antwoordde, dan wordt die bron één keer los opgehaald. Weigert de dienst de
+combinatie als geheel (status 4xx, geen JSON), dan gaan beide los en vraagt de rest van de run niet
+meer gecombineerd. De log telt de terugvallen.
 
 Daarnaast de geocoding van postcodes (werkadressen en de zoekpostcode, `Geocoder`): de
 BAG-collectie adres op api.pdok.nl, met een eigen Sessie op dezelfde cache. De verrijking neemt de
@@ -201,12 +222,13 @@ BRONNEN = ("bag", "fundering", "geluid", "buurt", "kerncijfers", "veiligheid", "
 # Eén tabel voor de eigen secties in funda_enrichment_cache.json. Per sectie: de bewaartermijn in dagen
 # (de standaard; beoordeling.verrijking.bewaar_dagen gaat voor), het aantal verzoeken voor een nieuw
 # element en de allowlist: alleen deze velden komen in de cache, cache_schrijf() weigert alles daarbuiten.
+# fundering en klimaat delen één verzoek als ze samen nodig zijn (KEA_BRONNEN): samen 1, niet 2.
 # Erachter: waarop de sleutel staat en welke schakelaar in beoordeling.verrijking.bronnen de sectie vult.
 _POLITIE_VELDEN = {s: ("jaar",) + tuple(c.values()) + tuple("gem_" + k for k in c.values())
                    for s, (_, _, _, c) in POLITIE_TABELLEN.items()}
 SECTIES = {
     "bag": (180, 2, ("bouwjaar", "aantal_vbo_pand", "gebruiksdoel", "gebruiksdoel_pand")),   # adres; bag
-    "fundering": (365, 1, ("verschilzetting", "paalrot")),                                   # punt; fundering
+    "fundering": (365, 1, ("verschilzetting", "paalrot")),                 # punt; fundering (deelt met klimaat)
     "geluid": (365, 1, ("lden_weg", "lnight_weg", "lden_trein", "lnight_trein")),            # punt; geluid
     "buurtcode": (365, 1, ("buurtcode", "buurtnaam", "gemeentenaam")),   # punt; buurt, kerncijfers of veiligheid
     # buurtcode, met één verzoek per gemeente ("gemeente|<naam>" bewaart alleen een aantal); buurt
@@ -222,7 +244,7 @@ SECTIES = {
     "misdrijven": (180, 1, _POLITIE_VELDEN["misdrijven"]),                                   # buurtcode; veiligheid
     "overlast": (180, 1, _POLITIE_VELDEN["overlast"]),                                       # buurtcode; veiligheid
     "lucht": (365, 1, tuple(k for k, _ in RIVM_LUCHT_LAGEN)),                                # punt; lucht (en groen)
-    "klimaat": (365, 1, ("wateroverlast", "waterdiepte", "overstromingskans", "grondwater")),   # punt; klimaat
+    "klimaat": (365, 1, ("wateroverlast", "waterdiepte", "overstromingskans", "grondwater")),   # punt; klimaat (deelt)
     "erfgoed": (180, 2, ("gezicht", "gezicht_sinds", "monumenten_dichtbij")),                # punt; erfgoed
 }
 CACHE_SECTIES = tuple(SECTIES)
@@ -255,11 +277,14 @@ STANDAARD = {
     "bronnen": {"bag": True, "fundering": True, "geluid": True, "buurt": True, "tevredenheid": True,
                 "kerncijfers": True, "veiligheid": True, "lucht": True, "groen": True, "klimaat": True,
                 "erfgoed": True},
-    # Een nieuwe woning kost ongeveer 9 verzoeken (BAG 2, geluid 1, buurt 1, lucht en groen 1, klimaat 1,
-    # erfgoed 2, soms fundering 1), een nieuwe buurt 3 erbij (tevredenheid, misdrijven, overlast) en een
-    # nieuwe gemeente 2 (Leefbaarometer, aantal woningen). Voor de bronnen van 18 nov 2026 was dat 5 per
-    # woning bij een budget van 60. Met 90 passen er weer ruim zeven nieuwe woningen in een run; wat
-    # niet past, krijgt "budget" en gaat de volgende run verder (Past en Krap eerst).
+    # Een nieuwe woning kost 8 verzoeken (BAG 2, geluid 1, buurt 1, lucht en groen 1, fundering en
+    # klimaat samen 1, erfgoed 2), een nieuwe buurt 3 erbij (tevredenheid, misdrijven, overlast) en een
+    # nieuwe gemeente 2 (Leefbaarometer, aantal woningen): hooguit 13, plus één robots.txt per host per
+    # dag (vijf hosts). Tot 19 nov 2026 was dat 9 per woning bij een pand van voor de funderingsdrempel
+    # (fundering en klimaat elk een eigen verzoek) en 8 bij een nieuwer pand. Met 90 passen er, na de
+    # vijf robots.txt, tien nieuwe woningen in een bekende buurt in een run (85 / 8) en zes in elk een
+    # nieuwe buurt en gemeente (85 / 13). Het budget gaat per woning (kosten()): wat niet in zijn
+    # geheel past, krijgt "budget" en gaat de volgende run verder (Past en Krap eerst).
     "max_calls_per_run": 90,
     "timeout_s": 10,
     "pauze_s": 0.25,
@@ -344,14 +369,16 @@ def _leeftijd(e, vandaag, veld: str = "fetched") -> int | None:
 def cache_lees(cache: dict, sectie: str, sleutel: str, vcfg: dict, vandaag) -> tuple[object, str | None]:
     """-> (data, status). Status "vers" (gebruiken), "fout_vers" (niet opnieuw proberen)
     of None (ophalen)."""
-    e = (cache.get(sectie) or {}).get(sleutel)
+    s = cache.get(sectie)
+    e = s.get(sleutel) if isinstance(s, dict) else None
     dagen = _leeftijd(e, vandaag)
     if dagen is None:
         return None, None
     if e.get("fout"):
         return (None, "fout_vers") if dagen < vcfg["fout_opnieuw_na_dagen"] else (None, None)
-    if dagen <= vcfg["bewaar_dagen"].get(sectie, 30):
-        return e.get("data"), "vers"
+    # Een element in een onverwachte vorm (met de hand bewerkt, afgekapt) telt als afwezig: opnieuw ophalen.
+    if dagen <= vcfg["bewaar_dagen"].get(sectie, 30) and isinstance(e.get("data"), dict):
+        return e["data"], "vers"
     return None, None
 
 
@@ -365,7 +392,9 @@ def cache_schrijf(cache: dict, sectie: str, sleutel: str, vandaag, data=None, fo
     e = {"fetched": _datum(vandaag).isoformat(), "data": data}
     if fout:
         e["fout"] = fout
-    cache.setdefault(sectie, {})[sleutel] = e
+    if not isinstance(cache.get(sectie), dict):
+        cache[sectie] = {}
+    cache[sectie][sleutel] = e
 
 
 def opruimen(cache: dict, vcfg: dict, vandaag) -> int:
@@ -453,6 +482,10 @@ class HostGestopt(BronFout):
     """De host is deze run dicht (weigering, 5xx, time-outs of robots.txt)."""
 
 
+class GeenAntwoord(BronFout):
+    """De host antwoordde niet (time-out, verbinding, DNS). Anders dan een antwoord dat niet bruikbaar is."""
+
+
 class GeenBudget(Exception):
     """Het budget aan verzoeken voor deze run is op."""
 
@@ -524,6 +557,43 @@ class Sessie:
         # neem_over() mee naar een volgende Sessie in dezelfde run. Een time-out niet.
         self.geweigerd: dict[str, str] = {}
         self.op_rij: Counter = Counter()
+        # Budget per woning (verrijk): een woning die niet in het budget past, leest alleen de cache.
+        self.alleen_cache = False
+        self.overgeslagen = 0
+        # Fundering en klimaat: hoe vaak het gecombineerde antwoord voor een bron niets bruikbaars gaf
+        # (bron -> aantal), en of de dienst de combinatie als geheel weigerde (dan de rest van de run los).
+        self.terugval: Counter = Counter()
+        self.kea_los = False
+
+    def host_dicht(self, host: str) -> bool:
+        """Krijgt deze host deze run geen verzoek meer (gestopt, of een weigering van hooguit een dag oud)?"""
+        if host in self.dicht:
+            return True
+        w = (self.cache.get("verrijking_weigering") or {}).get(host)
+        dagen = _leeftijd(w, self.vandaag, "datum")
+        return dagen is not None and dagen < self.fout_opnieuw_na_dagen
+
+    def robots_kost(self, host: str) -> int | None:
+        """Verzoeken die robots.txt van deze host nog kost: 0 (deze run of vandaag al gelezen), 1, of
+        None als robots.txt vandaag niet te lezen was (de host krijgt dan geen verzoek)."""
+        if host in self.robots_run:
+            return 0
+        e = (self.cache.get("robots") or {}).get(host)
+        dagen = _leeftijd(e, self.vandaag)
+        if dagen is not None and e.get("fout"):
+            return None if dagen < self.fout_opnieuw_na_dagen else 1
+        if dagen is not None and isinstance(e.get("data"), dict) and 0 <= dagen < self.robots_dagen:
+            return 0
+        return 1
+
+    def kost(self, per_host: dict) -> int:
+        """Bovengrens van de verzoeken voor {host: aantal}, met robots.txt, zonder hosts die dicht zijn."""
+        n = 0
+        for host, aantal in per_host.items():
+            robots = None if self.host_dicht(host) else self.robots_kost(host)
+            if aantal > 0 and robots is not None:
+                n += aantal + robots
+        return n
 
     def neem_over(self, vorige: "Sessie | None") -> None:
         """De stand per host van een eerdere Sessie in dezelfde run (de Geocoder op api.pdok.nl).
@@ -567,7 +637,7 @@ class Sessie:
             self.op_rij[host] += 1
             if self.op_rij[host] >= self.fouten_op_rij_stop:
                 self.dicht[host] = f"{self.op_rij[host]} keer geen antwoord op rij"
-            raise BronFout(f"geen antwoord ({type(exc).__name__})") from None
+            raise GeenAntwoord(f"geen antwoord ({type(exc).__name__})") from None
         self.per_host[(host, status)] += 1
         return status, body or b""
 
@@ -614,6 +684,8 @@ class Sessie:
         return regels
 
     def haal(self, url: str, accept: str = "application/json") -> bytes:
+        if self.alleen_cache:
+            raise GeenBudget()
         deel = urllib.parse.urlparse(url)
         host = deel.hostname or ""
         if deel.scheme != "https" or not host:
@@ -752,8 +824,21 @@ def bag_pand_velden(pand: dict, vbo: dict | None) -> dict:
     except (TypeError, ValueError):
         n = None
     return {"bouwjaar": _bouwjaar(p.get("bouwjaar")), "aantal_vbo_pand": n,
-            "gebruiksdoel": (vbo or {}).get("gebruiksdoel") if vbo else None,
-            "gebruiksdoel_pand": p.get("gebruiksdoel")}
+            "gebruiksdoel": _doel((vbo or {}).get("gebruiksdoel")) if vbo else None,
+            "gebruiksdoel_pand": _doel(p.get("gebruiksdoel"))}
+
+
+def _doel(v):
+    """Een gebruiksdoel uit de BAG: tekst of een lijst van teksten. Iets anders = None."""
+    if isinstance(v, str):
+        return v
+    if isinstance(v, list) and all(isinstance(x, str) for x in v):
+        return v
+    return None
+
+
+def _tekst(v) -> str | None:
+    return (v.strip() or None) if isinstance(v, str) else None
 
 
 def _kaartwaarde(v) -> float | None:
@@ -804,7 +889,7 @@ def pdok_buurt_parse(antwoord: dict) -> dict:
     if not fs:
         raise BronFout("geen CBS-buurt op dit punt")
     p = _props(fs[0])
-    uit = {k: p.get(k) for k in VELDEN["buurtcode"]}          # allowlist: niets anders lezen
+    uit = {k: _tekst(p.get(k)) for k in VELDEN["buurtcode"]}  # allowlist: niets anders lezen; alleen tekst
     if not uit["buurtcode"]:
         raise BronFout("buurt zonder buurtcode")
     return uit
@@ -933,14 +1018,30 @@ def monument_parse(antwoord: dict, lat: float, lon: float) -> int:
     return n
 
 
+def _getal(v) -> float | None:
+    """Een getal (geen bool, geen NaN of oneindig); tekst of iets anders = None."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+        return None
+    return v
+
+
 def lbm_parse(antwoord: dict) -> dict[str, dict]:
+    """Per buurtcode de velden van de Leefbaarometer. Een antwoord zonder lijst features is een fout
+    (anders zou een foutdocument als "gemeente zonder buurten" 30 dagen in de cache staan); een
+    feature in een onverwachte vorm wordt overgeslagen en een waarde die geen getal is, wordt None."""
+    if not isinstance(antwoord, dict) or not isinstance(antwoord.get("features"), list):
+        raise BronFout("onverwacht antwoord")
     uit = {}
-    for f in _features(antwoord):
-        p = _props(f)
-        code = p.get("id")
-        if not code:
+    for f in antwoord["features"]:
+        p = f.get("properties") if isinstance(f, dict) else None
+        if not isinstance(p, dict) or not isinstance(p.get("id"), str) or not p["id"].strip():
             continue
-        uit[str(code).strip()] = {k: p.get(k) for k in VELDEN["leefbaarometer"]}
+        velden = {k: _getal(p.get(k)) for k in VELDEN["leefbaarometer"]}
+        k = velden["kscore"]
+        velden["kscore"] = int(k) if k is not None and k == int(k) and int(k) in LBM_KLASSE else None
+        uit[p["id"].strip()] = velden
+    if antwoord["features"] and not uit:
+        raise BronFout("onverwacht antwoord")
     return uit
 
 
@@ -948,10 +1049,10 @@ def cbs_tevreden_parse(antwoord: dict) -> dict:
     uit = {k: None for k in VELDEN["tevredenheid"]}
     for r in antwoord.get("value") or []:
         marge = CBS_MARGES.get(str(r.get("Marges") or "").strip())
-        v = r.get("TevredenMetDeWoonomgeving_57")
+        v = _cbs_getal(r.get("TevredenMetDeWoonomgeving_57"))      # tekst of een code voor "ontbreekt" = None
         if marge == "waarde":
             uit["tevreden_woonomgeving"] = v
-            uit["tevreden_woning"] = r.get("TevredenMetDeWoning_56")
+            uit["tevreden_woning"] = _cbs_getal(r.get("TevredenMetDeWoning_56"))
         elif marge == "min":
             uit["tevreden_woonomgeving_min"] = v
         elif marge == "max":
@@ -1057,6 +1158,14 @@ def _punt_ophalen(naam: str, sessie: Sessie, lat: float, lon: float) -> dict:
     return parse(sessie.haal_json(_wms_url(wms, lagen, lat, lon)))
 
 
+# Fundering en klimaat komen van dezelfde WMS op hetzelfde punt: samen één verzoek (zie de docstring).
+KEA_BRONNEN = ("fundering", "klimaat")
+
+
+def _host(url: str) -> str:
+    return urllib.parse.urlparse(url).hostname or ""
+
+
 def _buurt_ophalen(sessie: Sessie, cache: dict, lat: float, lon: float) -> dict:
     """Buurtcode van het punt; de kerncijfers uit hetzelfde antwoord gaan per buurtcode de cache in."""
     antwoord = sessie.haal_json(_buurt_url(lat, lon))
@@ -1065,6 +1174,8 @@ def _buurt_ophalen(sessie: Sessie, cache: dict, lat: float, lon: float) -> dict:
         kern = {"data": pdok_kern_parse(antwoord, data["buurtcode"])}
     except BronFout as exc:
         kern = {"fout": str(exc)}
+    except Exception as exc:  # noqa: BLE001  onverwachte kerncijfers nemen de buurtcode niet mee
+        kern = {"fout": f"onverwacht antwoord ({type(exc).__name__})"}
     cache_schrijf(cache, "kerncijfers", data["buurtcode"], sessie.vandaag, **kern)
     return data
 
@@ -1113,6 +1224,53 @@ def _met_cache(sessie: Sessie, cache: dict, sectie: str, sleutel: str, vcfg: dic
     return _res("ok", data)
 
 
+def _kea_ophalen(sessie: Sessie, cache: dict, vcfg: dict, punt: tuple, namen) -> dict[str, dict]:
+    """Fundering en klimaat op het punt, voor de bronnen in `namen`: {bron: resultaat}.
+
+    Wat in de cache staat, komt daaruit. Blijft er één bron over, dan het gewone losse verzoek. Blijven
+    beide over, dan één verzoek met alle lagen; elke bron leest daaruit zijn eigen lagen en komt los
+    van de andere in zijn eigen cachesectie. Een fout of een onverwachte vorm bij de ene bron raakt de
+    andere niet. Terugval (het gecombineerde antwoord is niet tegen de echte dienst gemeten): gaf de
+    dienst wel antwoord maar is er voor een bron niets bruikbaars, dan wordt die bron één keer los
+    opgehaald, en dat losse antwoord geldt."""
+    sleutel = punt_sleutel(*punt)
+
+    def los(naam: str) -> dict:
+        return _met_cache(sessie, cache, naam, sleutel, vcfg, lambda: _punt_ophalen(naam, sessie, *punt))
+
+    open_ = [n for n in namen if cache_lees(cache, n, sleutel, vcfg, sessie.vandaag)[1] is None]
+    uit = {n: los(n) for n in namen if n not in open_}              # uit de cache: geen verzoek
+    if len(open_) < 2 or sessie.kea_los:
+        uit.update({n: los(n) for n in open_})
+        return uit
+    lagen = tuple(laag for n in open_ for laag in WMS_BRONNEN[n][1])
+    try:
+        antwoord = sessie.haal_json(_wms_url(KEA_WMS, lagen, *punt))
+    except (GeenBudget, HostGestopt, GeenAntwoord) as exc:          # geen antwoord: zegt niets over de combinatie
+        uit.update({n: _mislukt(exc, sessie, cache, n, sleutel) for n in open_})
+        return uit
+    except BronFout:                                                # wel een antwoord, niet bruikbaar (4xx, geen JSON)
+        sessie.kea_los = True
+        antwoord = None
+    for n in open_:
+        data = None
+        try:
+            if antwoord is not None:
+                data = WMS_BRONNEN[n][2](antwoord)
+                if not isinstance(data, dict) or all(x is None for x in data.values()):
+                    data = None
+                else:
+                    cache_schrijf(cache, n, sleutel, sessie.vandaag, data=data)
+        except Exception:  # noqa: BLE001  BronFout of een onverwachte vorm: alleen deze bron, en die gaat los
+            data = None
+        if data is None:
+            sessie.terugval[n] += 1
+            uit[n] = los(n)
+        else:
+            uit[n] = _res("ok", data)
+    return uit
+
+
 def _leefbaarometer(sessie: Sessie, cache: dict, vcfg: dict, buurtcode: str, gemeente: str | None) -> dict:
     """Eén WFS-verzoek per gemeente (30 dagen), daarna per buurtcode uit de cache."""
     data, st = cache_lees(cache, "leefbaarometer", buurtcode, vcfg, sessie.vandaag)
@@ -1128,10 +1286,14 @@ def _leefbaarometer(sessie: Sessie, cache: dict, vcfg: dict, buurtcode: str, gem
         return _res("onbekend", reden="vorige poging mislukt; na een dag opnieuw", uit_cache=True)
     try:
         buurten = lbm_parse(sessie.haal_json(_lbm_url(gemeente)))
+        for code, velden in buurten.items():
+            cache_schrijf(cache, "leefbaarometer", code, sessie.vandaag, data=velden)
     except (GeenBudget, BronFout) as exc:
         return _mislukt(exc, sessie, cache, "leefbaarometer", marker)
-    for code, velden in buurten.items():
-        cache_schrijf(cache, "leefbaarometer", code, sessie.vandaag, data=velden)
+    except Exception as exc:  # noqa: BLE001  onverwacht antwoord: alleen deze bron onbekend, de woning gaat door
+        cache_schrijf(cache, "leefbaarometer", marker, sessie.vandaag,
+                      fout=f"onverwacht antwoord ({type(exc).__name__})")
+        return _res("onbekend", reden="onverwacht antwoord")
     cache_schrijf(cache, "leefbaarometer", marker, sessie.vandaag, data={"buurten": len(buurten)})
     if buurtcode in buurten:
         return _res("ok", buurten[buurtcode])
@@ -1268,11 +1430,15 @@ def _verrijk_een(w: dict, sessie: Sessie, cache: dict, vcfg: dict, dr: dict) -> 
     bouwjaar = bag_data.get("bouwjaar") or _bouwjaar(str(_veld(w, "construction_year", "bouwjaar") or "")[:4])
     n_vbo = bag_data.get("aantal_vbo_pand")
 
-    # Fundering: alleen bij een pand van voor 1970 (of een onbekend bouwjaar)
+    # Fundering: alleen bij een pand van voor 1970 (of een onbekend bouwjaar). Samen met klimaat in
+    # één verzoek (_kea_ophalen); wat uit staat, niet nodig is of geen punt heeft, vraagt niets.
     if aan.get("fundering", True) and bouwjaar and bouwjaar >= dr["fundering_bouwjaar_voor"]:
         res["fundering"] = _res("niet_nodig", {"bouwjaar": bouwjaar})
-    else:
-        res["fundering"] = puntbron("fundering")
+    kea = [n for n in KEA_BRONNEN if n not in res and punt and aan.get(n, True)]
+    res.update(_kea_ophalen(sessie, cache, vcfg, punt, kea) if kea else {})
+    for naam in KEA_BRONNEN:
+        if naam not in res:
+            res[naam] = puntbron(naam)                 # uit of geen coördinaten
     f = res["fundering"]
     f["signalen"] = signalen_fundering(f["status"], f.get("data"), bouwjaar, n_vbo, dr)
 
@@ -1312,12 +1478,89 @@ def _verrijk_een(w: dict, sessie: Sessie, cache: dict, vcfg: dict, dr: dict) -> 
         else:
             res[naam] = _veiligheid(sessie, cache, vcfg, code, kern["data"])
 
-    # Lucht en groen (RIVM), klimaat (Klimaateffectatlas), erfgoed (RCE via PDOK)
-    for naam in ("lucht", "klimaat", "erfgoed"):
+    # Lucht en groen (RIVM) en erfgoed (RCE via PDOK); klimaat is hierboven met fundering opgehaald
+    for naam in ("lucht", "erfgoed"):
         res[naam] = puntbron(naam)
     if res["lucht"]["status"] == "ok" and not aan.get("groen", True):
         res["lucht"]["data"] = dict(res["lucht"]["data"], groen_pct=None)
     return res
+
+
+def kosten(w: dict, sessie: Sessie, cache: dict, vcfg: dict, dr: dict) -> int:
+    """Bovengrens van de verzoeken die deze woning nog vraagt: wat niet (vers) in de cache staat, met de
+    kosten uit SECTIES, plus robots.txt per host die nog niet gelezen is. Volgt _verrijk_een.
+
+    Een bron die uit staat, niet nodig is, vandaag al mislukte of op een gestopte host staat, kost
+    niets. Is de buurtcode nog onbekend, dan telt de buurt als nieuw in een nieuwe gemeente."""
+    aan = vcfg.get("bronnen") or {}
+    punt = _coords(w)
+    per_host: Counter = Counter()
+    pdok, kea, rivm = _host(BAG_BASIS), _host(KEA_WMS), _host(RIVM_WMS)
+    cbs, lbm = _host(CBS_50150), _host(LBM_WFS)
+
+    def open_(sectie: str, sleutel: str) -> bool:
+        return cache_lees(cache, sectie, sleutel, vcfg, sessie.vandaag)[1] is None
+
+    def tel(host: str, sectie: str, sleutel: str) -> None:
+        if open_(sectie, sleutel):
+            per_host[host] += SECTIES[sectie][1]
+
+    if not punt:                                       # zonder punt vraagt geen enkele bron iets
+        return 0
+    pt = punt_sleutel(*punt)
+    bouwjaar = _bouwjaar(str(_veld(w, "construction_year", "bouwjaar") or "")[:4])
+    pc, nr = _postcode(w), _huisnummer(w)
+    if aan.get("bag", True) and pc and nr:
+        adres = _hash_sleutel("adres", pc, nr, _norm_toevoeging(_veld(w, "house_number_ext", "toevoeging")))
+        tel(pdok, "bag", adres)
+        bag, st = cache_lees(cache, "bag", adres, vcfg, sessie.vandaag)
+        if st == "vers":
+            bouwjaar = bag.get("bouwjaar") or bouwjaar
+        elif st is None:
+            bouwjaar = None                            # de BAG kan een ander bouwjaar geven: fundering meetellen
+    nodig = [n for n in KEA_BRONNEN if aan.get(n, True) and open_(n, pt)
+             and not (n == "fundering" and bouwjaar and bouwjaar >= dr["fundering_bouwjaar_voor"])]
+    if nodig:                                          # samen één verzoek
+        per_host[kea] += max(SECTIES[n][1] for n in nodig)
+    for naam, host in (("geluid", rivm), ("lucht", rivm), ("erfgoed", pdok)):
+        if aan.get(naam, True):
+            tel(host, naam, pt)
+
+    buurt, veilig = aan.get("buurt", True), aan.get("veiligheid", True)
+    if not (buurt or veilig or aan.get("kerncijfers", True)):
+        return sessie.kost(per_host)
+    bc, st = cache_lees(cache, "buurtcode", pt, vcfg, sessie.vandaag)
+    code = bc.get("buurtcode") if st == "vers" else None
+    if st == "fout_vers" or (st == "vers" and not isinstance(code, str)):
+        return sessie.kost(per_host)
+    politie = {cbs: sum(SECTIES[s][1] for s in POLITIE_TABELLEN), pdok: SECTIES["gemeente"][1]}
+    if st is None:                                     # nieuwe buurt: het ergste geval
+        if sessie.host_dicht(pdok) or sessie.robots_kost(pdok) is None:
+            return sessie.kost(per_host)               # geen buurtcode te krijgen: dan ook niets erachter
+        per_host[pdok] += SECTIES["buurtcode"][1]
+        if buurt:
+            per_host[lbm] += SECTIES["leefbaarometer"][1]
+            per_host[cbs] += SECTIES["tevredenheid"][1] if aan.get("tevredenheid", True) else 0
+        per_host.update(politie if veilig else {})
+        return sessie.kost(per_host)
+    if buurt:
+        gemeente = bc.get("gemeentenaam")
+        if open_("leefbaarometer", code) and isinstance(gemeente, str) and gemeente:
+            tel(lbm, "leefbaarometer", "gemeente|" + gemeente)
+        if aan.get("tevredenheid", True):
+            tel(cbs, "tevredenheid", code)
+    kern, kst = cache_lees(cache, "kerncijfers", code, vcfg, sessie.vandaag)
+    if kst is None:
+        per_host[pdok] += SECTIES["kerncijfers"][1]
+        per_host.update(politie if veilig else {})
+    elif kst == "vers" and veilig and re.fullmatch(r"BU\d{8}", code):
+        woningen = kern.get("woningen")
+        if isinstance(woningen, (int, float)) and woningen >= MIN_WONINGEN_NOEMER:
+            for sectie in POLITIE_TABELLEN:
+                tel(cbs, sectie, code)
+            if isinstance(kern.get("gemeentecode"), str):
+                tel(pdok, "gemeente", kern["gemeentecode"])
+    return sessie.kost(per_host)
 
 
 def _per_1000(aantal, woningen) -> float | None:
@@ -1593,11 +1836,22 @@ def verrijk(woningen: list[dict], cache: dict, cfg: dict | None, vandaag, http=N
     sessie.neem_over(vooraf)
     uit: dict[str, dict] = {}
     for i in sorted(range(len(woningen)), key=lambda j: prioriteit(woningen[j])):
+        # Budget per woning: alleen beginnen als de hele woning past. Anders leest hij alleen de cache
+        # ("budget" voor wat ontbreekt) en gaat het budget naar de volgende woning die wel past. Kost
+        # een woning meer dan het hele budget, dan begint hij toch zolang het budget onaangeroerd is.
+        try:
+            kost = kosten(woningen[i], sessie, cache, vcfg, dr)
+        except Exception:  # noqa: BLE001  de telling mag de woning nooit tegenhouden
+            kost = 0
+        te_groot = kost > sessie.max_verzoeken and sessie.over == sessie.max_verzoeken
+        sessie.alleen_cache = kost > sessie.over and not te_groot
+        sessie.overgeslagen += sessie.alleen_cache
         try:
             uit[sleutels[i]] = _verrijk_een(woningen[i], sessie, cache, vcfg, dr)
         except Exception as exc:  # noqa: BLE001  vangnet: nooit een woning minder
             uit[sleutels[i]] = {b: {"status": "onbekend", "data": None, "uit_cache": False, "signalen": [],
                                     "reden": f"interne fout ({type(exc).__name__})"} for b in BRONNEN}
+    sessie.alleen_cache = False
     uit = {s: uit[s] for s in sleutels if s in uit}
     for regel in logregels(uit, sessie):
         log(regel)
@@ -1618,6 +1872,13 @@ def logregels(uitvoer: dict, sessie: Sessie | None = None) -> list[str]:
                       + (f": {hosts}" if hosts else ""))
         for host, reden in sorted(sessie.dicht.items()):
             regels.append(f"[verrijking] {host} deze run gestopt: {reden}")
+        if sessie.overgeslagen:
+            regels.append(f"[verrijking] {sessie.overgeslagen} woningen pasten niet in het budget en wachten "
+                          "op de volgende run")
+        if sessie.terugval:
+            delen = ", ".join(f"{b} {n}" for b, n in sorted(sessie.terugval.items()))
+            regels.append(f"[verrijking] gecombineerd verzoek fundering en klimaat gaf niets bruikbaars, los "
+                          f"opgehaald: {delen}" + ("; de rest van de run los" if sessie.kea_los else ""))
     n_zwak = sum(1 for w in uitvoer.values() if (w.get("buurt") or {}).get("twijfel"))
     if n_zwak:
         regels.append(f"[verrijking] {n_zwak} woningen in een buurt met Leefbaarometer zwak of slechter")
